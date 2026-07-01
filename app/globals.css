@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   THEME TOKENS  (light + dark)
+   This is the SINGLE place to rebrand the app.
+   Change the values below and the whole UI follows.
+   ============================================================ */
+:root {
+  --bg: #f4f4f7;          /* page background */
+  --surface: #ffffff;     /* cards, header */
+  --surface-2: #f8f8fb;   /* inputs, secondary surfaces */
+  --border: #e7e7ef;
+  --text: #15131f;
+  --muted: #6b6880;       /* secondary text */
+  --faint: #9a97ad;       /* tertiary text, placeholders */
+  --accent: #6d28d9;      /* brand colour — buttons, active states */
+  --accent-2: #9333ea;    /* brand gradient partner */
+  --accent-soft: #f0ecff; /* selected-card background */
+
+  /* Back-compat aliases used by tailwind.config.ts */
+  --background: var(--bg);
+  --foreground: var(--text);
+
+  --font-sans: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: var(--font-sora), var(--font-inter), -apple-system, "Segoe UI", sans-serif;
+}
+
+.dark {
+  --bg: #0c0c12;
+  --surface: #15151e;
+  --surface-2: #1b1b26;
+  --border: #272733;
+  --text: #ececf2;
+  --muted: #a4a2b5;
+  --faint: #6d6b80;
+  --accent: #a78bfa;
+  --accent-2: #c084fc;
+  --accent-soft: #221b3a;
+
+  --background: var(--bg);
+  --foreground: var(--text);
+}
+
+body {
+  color: var(--text);
+  background: var(--bg);
+  font-family: var(--font-sans);
+}
+
+/* Studio "display" face for headings/brand — opt-in via class */
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+
+/* ============================================================
+   TOKEN UTILITY CLASSES
+   Use these in pages instead of hard-coded colours.
+   ============================================================ */
+.surface    { background: var(--surface); }
+.surface-2  { background: var(--surface-2); }
+.bd         { border-color: var(--border); }
+.txt        { color: var(--text); }
+.txt-muted  { color: var(--muted); }
+.txt-faint  { color: var(--faint); }
+.accent     { color: var(--accent); }
+
+/* Common control surface (inputs, chips, secondary buttons) */
+.ctl {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+}
+
+/* Dark mode: make inputs noticeably lighter than the card so empty ≠ filled */
+.dark .ctl {
+  background: #252537;
+  border-color: #3e3e58;
+}
+.dark .ctl::placeholder {
+  color: #55556e;
+}
+
+/* Selectable segment cards */
+.seg     { border: 2px solid var(--border); border-radius: 14px; }
+.seg-on  { border-color: var(--accent); background: var(--accent-soft); }
+
+input[type=range] { accent-color: var(--accent); }
+
+/* Custom scrollbar (token-aware) */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #88889944;
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
