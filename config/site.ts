@@ -12,9 +12,9 @@ export const BRAND = {
   /** Short mark shown in the square logo tile (2–3 chars looks best) */
   mark: 'S3K',
   /** Product name next to the logo */
-  name: 'UI Starter',
+  name: 'S3K CRM',
   /** Tiny uppercase tagline under the product name */
-  tagline: 'App Template',
+  tagline: 'AI-First Enterprise CRM',
   /** Where clicking the logo goes */
   homeHref: '/dashboard',
   /** Footer line */
