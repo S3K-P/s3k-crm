@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Bell, X, ArrowRight } from 'lucide-react';
+import { Search, Bell, X, ArrowRight, Menu } from 'lucide-react';
 import ThemeToggle from '@/components/ThemeToggle';
 import { CRM_NAV_ITEMS } from '@/config/crm-navigation';
 import { useSidebar } from '@/components/crm/sidebar/SidebarContext';
@@ -85,7 +85,7 @@ function CrmSearchModal({ onClose }: { onClose: () => void }) {
 
 export default function CrmTopbar() {
   const [searchOpen, setSearchOpen] = useState(false);
-  const { collapsed } = useSidebar();
+  const { setMobileOpen } = useSidebar();
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -103,14 +103,22 @@ export default function CrmTopbar() {
       {searchOpen && <CrmSearchModal onClose={() => setSearchOpen(false)} />}
 
       <div className="surface bd flex h-[60px] shrink-0 items-center gap-4 border-b px-5">
+        {/* Mobile menu trigger */}
+        <button 
+          className="md:hidden ctl txt-muted grid h-9 w-9 shrink-0 place-items-center rounded-[10px] transition hover:opacity-80"
+          onClick={() => setMobileOpen(true)}
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+
         {/* Search trigger */}
         <button
           onClick={() => setSearchOpen(true)}
-          className="ctl txt-faint flex w-[240px] items-center gap-2 px-3.5 py-2 text-[13px] transition hover:opacity-80"
+          className="ctl txt-faint flex w-[240px] flex-1 md:flex-none items-center gap-2 px-3.5 py-2 text-[13px] transition hover:opacity-80"
         >
           <Search className="h-4 w-4 shrink-0" />
           <span className="flex-1 text-left">Search…</span>
-          <span className="bd rounded border px-1.5 py-0.5 text-[10px] font-semibold">⌘K</span>
+          <span className="bd rounded border px-1.5 py-0.5 text-[10px] font-semibold hidden md:block">⌘K</span>
         </button>
 
         {/* Right cluster */}

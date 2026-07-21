@@ -33,13 +33,13 @@ export default function AICampaignInsights({ data, className }: AICampaignInsigh
   };
 
   return (
-    <div className={cn('surface bd flex flex-col gap-4 rounded-2xl border p-5', className)}>
+    <div className={cn('surface bd flex flex-col gap-4 rounded-2xl border p-4 sm:p-5', className)}>
       <div className="flex items-center gap-2">
         <Sparkles className="h-5 w-5 text-violet-500" />
         <h3 className="font-display txt text-[16px] font-bold">Campaign AI</h3>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="surface-2 rounded-xl border border-[var(--border)] p-3 flex flex-col justify-between">
           <p className="txt-muted text-[11px] font-semibold uppercase tracking-wider">Predicted ROI</p>
           <div className="mt-1 flex items-end gap-1">
