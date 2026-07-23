@@ -20,7 +20,8 @@ interface LeadSource {
   name: string;
   category: string;
   description: string;
-  leadCount: number;
+  leadsGenerated: number;
+  leadsConverted: number;
   status: 'Active' | 'Inactive';
   createdBy: string;
   lastUpdated: string;
@@ -47,16 +48,16 @@ const EMPTY_FORM: DrawerForm = {
    ============================================================ */
 
 const INITIAL_DATA: LeadSource[] = [
-  { id: '1', name: 'Website',            category: 'Digital',        description: 'Inbound leads from the company website contact forms and landing pages',        leadCount: 142, status: 'Active',   createdBy: 'Admin',         lastUpdated: '2026-07-08' },
-  { id: '2', name: 'LinkedIn',           category: 'Social Media',   description: 'Leads generated through LinkedIn outreach and InMail campaigns',                leadCount: 89,  status: 'Active',   createdBy: 'Sarah Chen',    lastUpdated: '2026-07-07' },
-  { id: '3', name: 'Channel Partner',    category: 'Partnership',    description: 'Referrals from certified channel partners and reseller network',                leadCount: 56,  status: 'Active',   createdBy: 'James Rodriguez', lastUpdated: '2026-07-06' },
-  { id: '4', name: 'Employee Referral',  category: 'Internal',       description: 'Leads referred by internal employees through the referral program',             leadCount: 34,  status: 'Active',   createdBy: 'Admin',         lastUpdated: '2026-07-05' },
-  { id: '5', name: 'Webinar',            category: 'Digital',        description: 'Leads captured from webinar registrations and live event attendees',             leadCount: 67,  status: 'Active',   createdBy: 'Priya Patel',   lastUpdated: '2026-07-04' },
-  { id: '6', name: 'Email Campaign',     category: 'Marketing',      description: 'Leads generated from targeted email drip campaigns and newsletters',            leadCount: 112, status: 'Active',   createdBy: 'Sarah Chen',    lastUpdated: '2026-07-03' },
-  { id: '7', name: 'Cold Calling',       category: 'Outbound',       description: 'Outbound sales development through phone-based prospecting',                    leadCount: 45,  status: 'Inactive', createdBy: 'Mike Johnson',  lastUpdated: '2026-06-28' },
-  { id: '8', name: 'Exhibition',         category: 'Events',         description: 'Leads scanned and collected at trade shows, expos, and industry exhibitions',    leadCount: 78,  status: 'Active',   createdBy: 'James Rodriguez', lastUpdated: '2026-07-01' },
-  { id: '9', name: 'Google Ads',         category: 'Digital',        description: 'Pay-per-click leads from Google search and display advertising campaigns',      leadCount: 95,  status: 'Active',   createdBy: 'Priya Patel',   lastUpdated: '2026-07-07' },
-  { id: '10', name: 'Industry Event',    category: 'Events',         description: 'Contacts gathered at conferences, meetups, and sponsored industry events',      leadCount: 23,  status: 'Inactive', createdBy: 'Admin',         lastUpdated: '2026-06-20' },
+  { id: '1', name: 'Website',            category: 'Digital',        description: 'Inbound leads from the company website contact forms and landing pages',        leadsGenerated: 142, leadsConverted: 45, status: 'Active',   createdBy: 'Admin',         lastUpdated: '2026-07-08' },
+  { id: '2', name: 'LinkedIn',           category: 'Social Media',   description: 'Leads generated through LinkedIn outreach and InMail campaigns',                leadsGenerated: 89,  leadsConverted: 21, status: 'Active',   createdBy: 'Sarah Chen',    lastUpdated: '2026-07-07' },
+  { id: '3', name: 'Channel Partner',    category: 'Partnership',    description: 'Referrals from certified channel partners and reseller network',                leadsGenerated: 56,  leadsConverted: 18, status: 'Active',   createdBy: 'James Rodriguez', lastUpdated: '2026-07-06' },
+  { id: '4', name: 'Employee Referral',  category: 'Internal',       description: 'Leads referred by internal employees through the referral program',             leadsGenerated: 34,  leadsConverted: 15, status: 'Active',   createdBy: 'Admin',         lastUpdated: '2026-07-05' },
+  { id: '5', name: 'Webinar',            category: 'Digital',        description: 'Leads captured from webinar registrations and live event attendees',             leadsGenerated: 67,  leadsConverted: 25, status: 'Active',   createdBy: 'Priya Patel',   lastUpdated: '2026-07-04' },
+  { id: '6', name: 'Email Campaign',     category: 'Marketing',      description: 'Leads generated from targeted email drip campaigns and newsletters',            leadsGenerated: 112, leadsConverted: 30, status: 'Active',   createdBy: 'Sarah Chen',    lastUpdated: '2026-07-03' },
+  { id: '7', name: 'Cold Calling',       category: 'Outbound',       description: 'Outbound sales development through phone-based prospecting',                    leadsGenerated: 45,  leadsConverted: 5,  status: 'Inactive', createdBy: 'Mike Johnson',  lastUpdated: '2026-06-28' },
+  { id: '8', name: 'Exhibition',         category: 'Events',         description: 'Leads scanned and collected at trade shows, expos, and industry exhibitions',    leadsGenerated: 78,  leadsConverted: 12, status: 'Active',   createdBy: 'James Rodriguez', lastUpdated: '2026-07-01' },
+  { id: '9', name: 'Google Ads',         category: 'Digital',        description: 'Pay-per-click leads from Google search and display advertising campaigns',      leadsGenerated: 95,  leadsConverted: 28, status: 'Active',   createdBy: 'Priya Patel',   lastUpdated: '2026-07-07' },
+  { id: '10', name: 'Industry Event',    category: 'Events',         description: 'Contacts gathered at conferences, meetups, and sponsored industry events',      leadsGenerated: 23,  leadsConverted: 4,  status: 'Inactive', createdBy: 'Admin',         lastUpdated: '2026-06-20' },
 ];
 
 const CATEGORY_OPTIONS = [
@@ -188,7 +189,8 @@ export default function LeadSourcesPage() {
         name: form.name,
         category: form.category,
         description: form.description,
-        leadCount: 0,
+        leadsGenerated: 0,
+        leadsConverted: 0,
         status: form.status,
         createdBy: 'Current User',
         lastUpdated: new Date().toISOString().slice(0, 10),
@@ -242,12 +244,21 @@ export default function LeadSourcesPage() {
       ),
     },
     {
-      key: 'leadCount',
-      label: 'Lead Count',
+      key: 'leadsGenerated',
+      label: 'Leads Generated',
       sortable: true,
       align: 'center',
       render: (row) => (
-        <span className="txt font-display text-[14px] font-bold">{row.leadCount}</span>
+        <span className="txt font-display text-[14px] font-bold">{row.leadsGenerated}</span>
+      ),
+    },
+    {
+      key: 'leadsConverted',
+      label: 'Leads Converted',
+      sortable: true,
+      align: 'center',
+      render: (row) => (
+        <span className="txt font-display text-[14px] font-bold text-emerald-600 dark:text-emerald-500">{row.leadsConverted}</span>
       ),
     },
     {
