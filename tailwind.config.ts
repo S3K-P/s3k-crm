@@ -12,6 +12,16 @@ const config: Config = {
       colors: {
         background: "var(--background)",
         foreground: "var(--foreground)",
+        navy: {
+          900: "#090B2D",
+          800: "#11133F",
+        },
+        brand: {
+          violet: "#5B4FF7",
+          purple: "#7C3AED",
+          magenta: "#C03BE8",
+          lavender: "#F4F2FF",
+        }
       },
     },
   },
