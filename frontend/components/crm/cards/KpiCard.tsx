@@ -1,4 +1,5 @@
 import { type LucideIcon } from 'lucide-react';
+import Link from 'next/link';
 import { cn } from '@/lib/utils';
 
 /* ============================================================
@@ -21,6 +22,8 @@ interface KpiCardProps {
   /** Gradient classes for the icon container */
   iconGradient?: string;
   className?: string;
+  /** Optional URL to navigate to when clicked */
+  href?: string;
 }
 
 export default function KpiCard({
@@ -31,8 +34,9 @@ export default function KpiCard({
   icon: Icon,
   iconGradient = 'from-violet-600 to-indigo-600',
   className,
+  href,
 }: KpiCardProps) {
-  return (
+  const content = (
     <div className={cn('surface bd rounded-2xl border p-[18px] transition-all hover:-translate-y-0.5 hover:shadow-[0_12px_24px_-12px_rgba(50,30,90,0.15)]', className)}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
@@ -62,4 +66,14 @@ export default function KpiCard({
       </div>
     </div>
   );
+
+  if (href) {
+    return (
+      <Link href={href} className="block outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-2xl">
+        {content}
+      </Link>
+    );
+  }
+
+  return content;
 }

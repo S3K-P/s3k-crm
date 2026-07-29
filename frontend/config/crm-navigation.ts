@@ -10,6 +10,7 @@ import {
   Globe,
   ShieldCheck,
   Sparkles,
+  Handshake,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -49,6 +50,7 @@ export const CRM_NAV_SECTIONS: CrmNavSection[] = [
     items: [
       { id: 'lead-sources', label: 'Lead Sources', href: '/lead-sources', icon: Globe },
       { id: 'leads', label: 'Leads', href: '/leads', icon: Users },
+      { id: 'partners', label: 'Partners', href: '/partners', icon: Handshake },
       { id: 'campaigns', label: 'Campaigns', href: '/campaigns', icon: Megaphone },
       { id: 'meetings', label: 'Meetings', href: '/meetings', icon: CalendarDays },
     ],
@@ -82,6 +84,7 @@ export const BREADCRUMB_LABELS: Record<string, string> = {
   dashboard: 'Dashboard',
   'lead-sources': 'Lead Sources',
   leads: 'Leads',
+  partners: 'Partners',
   campaigns: 'Campaigns',
   meetings: 'Meetings',
   accounts: 'Accounts',

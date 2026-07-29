@@ -113,11 +113,11 @@ export default function DashboardPage() {
 
       {/* ── KPI Cards ── */}
       <div className="grid grid-cols-2 gap-3.5 md:grid-cols-3 xl:grid-cols-6">
-        <KpiCard label="New Leads"          value="42"      delta="+12% this week" trend="up"   icon={Users}          iconGradient="from-emerald-500 to-green-600" />
-        <KpiCard label="Qualified"          value="18"      delta="+8% this week"  trend="up"   icon={CheckCircle2}   iconGradient="from-violet-600 to-indigo-600" />
-        <KpiCard label="Open Opps"          value="27"      delta="3 closing soon" trend="flat" icon={Target}         iconGradient="from-sky-500 to-blue-600" />
-        <KpiCard label="Pipeline Value"     value="$1.74M"  delta="+$230K vs last" trend="up"   icon={DollarSign}     iconGradient="from-amber-500 to-orange-500" />
-        <KpiCard label="Meetings Today"     value="4"       delta="Next at 10:00"  trend="flat" icon={CalendarDays}   iconGradient="from-pink-500 to-rose-500" />
+        <KpiCard href="/leads" label="New Leads"          value="42"      delta="+12% this week" trend="up"   icon={Users}          iconGradient="from-emerald-500 to-green-600" />
+        <KpiCard href="/qualification" label="Qualified"          value="18"      delta="+8% this week"  trend="up"   icon={CheckCircle2}   iconGradient="from-violet-600 to-indigo-600" />
+        <KpiCard href="/opportunities" label="Open Opps"          value="27"      delta="3 closing soon" trend="flat" icon={Target}         iconGradient="from-sky-500 to-blue-600" />
+        <KpiCard href="/opportunities" label="Pipeline Value"     value="$1.74M"  delta="+$230K vs last" trend="up"   icon={DollarSign}     iconGradient="from-amber-500 to-orange-500" />
+        <KpiCard href="/meetings" label="Meetings Today"     value="4"       delta="Next at 10:00"  trend="flat" icon={CalendarDays}   iconGradient="from-pink-500 to-rose-500" />
         <KpiCard label="Tasks Due"          value="5"       delta="2 high priority" trend="flat" icon={ClipboardList} iconGradient="from-violet-500 to-purple-600" />
       </div>
 
