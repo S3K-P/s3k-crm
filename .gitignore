@@ -1,11 +1,19 @@
 # dependencies
-/node_modules
+node_modules/
 
-# next.js
+# next.js (frontend)
+frontend/.next/
+frontend/out/
+frontend/next-env.d.ts
+*.tsbuildinfo
+
+# backend build
+backend/dist/
+
+# legacy root artifacts (from before monorepo split)
 /.next/
 /out/
 next-env.d.ts
-*.tsbuildinfo
 
 # production
 /build
