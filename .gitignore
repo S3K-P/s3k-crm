@@ -7,9 +7,6 @@ frontend/out/
 frontend/next-env.d.ts
 *.tsbuildinfo
 
-# backend build
-backend/dist/
-
 # legacy root artifacts (from before monorepo split)
 /.next/
 /out/
@@ -17,6 +14,18 @@ next-env.d.ts
 
 # production
 /build
+
+# python / backend
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
 
 # misc
 .DS_Store
@@ -27,6 +36,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# env files
+# env files (never commit credentials)
 .env
-.env*.local
+.env.*
+!.env.example
+backend/.env

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { BRAND } from '@/config/site';
+import BrandLogo from '@/components/brand/BrandLogo';
 
 export function LandingNavbar() {
   const [scrolled, setScrolled] = useState(false);
@@ -24,9 +25,7 @@ export function LandingNavbar() {
       <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
         {/* Left: Brand */}
         <Link href="/" className="flex items-center gap-2">
-          <div className="font-display flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-brand-violet to-brand-purple text-[11px] font-extrabold tracking-tight text-white shadow-md">
-            {BRAND.mark}
-          </div>
+          <BrandLogo priority />
           <div className="flex flex-col">
             <span className="text-lg font-bold text-gray-900 leading-none tracking-tight">
               {BRAND.name}

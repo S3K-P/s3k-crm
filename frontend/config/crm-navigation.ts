@@ -11,6 +11,8 @@ import {
   ShieldCheck,
   Sparkles,
   Handshake,
+  BrainCircuit,
+  Zap,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -65,6 +67,13 @@ export const CRM_NAV_SECTIONS: CrmNavSection[] = [
     ],
   },
   {
+    title: 'AI',
+    items: [
+      { id: 'ai-insights', label: 'AI Insights', href: '/ai/insights', icon: BrainCircuit },
+      { id: 'ai-next-best-action', label: 'Next Best Action', href: '/ai/next-best-action', icon: Zap },
+    ],
+  },
+  {
     title: 'System',
     items: [
       { id: 'admin', label: 'Admin', href: '/admin', icon: ShieldCheck },
@@ -93,4 +102,7 @@ export const BREADCRUMB_LABELS: Record<string, string> = {
   qualification: 'Qualification',
   admin: 'Admin',
   'ai-settings': 'AI Settings',
+  ai: 'AI',
+  insights: 'AI Insights',
+  'next-best-action': 'Next Best Action',
 };

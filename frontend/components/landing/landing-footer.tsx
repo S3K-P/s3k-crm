@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { BRAND } from '@/config/site';
+import BrandLogo from '@/components/brand/BrandLogo';
 
 export function LandingFooter() {
   return (
@@ -8,9 +9,7 @@ export function LandingFooter() {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-8 mb-12">
           <div className="max-w-xs">
             <Link href="/" className="flex items-center gap-2 mb-4">
-              <div className="font-display flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-brand-violet to-brand-purple text-[10px] font-extrabold tracking-tight text-white shadow-sm">
-                {BRAND.mark}
-              </div>
+              <BrandLogo className="h-8 rounded-lg" />
               <span className="text-lg font-bold text-gray-900 tracking-tight">
                 {BRAND.name}
               </span>

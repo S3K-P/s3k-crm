@@ -1,48 +1,87 @@
 # S3K CRM
 
-Monorepo for the S3K CRM application.
+Monorepo for the S3K Enterprise Platform, starting with the S3K CRM product.
 
 ## Structure
 
 ```
-├── frontend/   Next.js UI (port 3000)
-└── backend/    Express API (port 4000)
+├── frontend/   Next.js UI (port 3000, npm workspace)
+├── backend/    FastAPI modular monolith (port 8000, uv project)
+└── docs/       Architecture decision records and implementation plan
 ```
+
+The frontend is a JavaScript npm workspace. The backend is a Python project managed
+by [uv](https://docs.astral.sh/uv/) and is intentionally **not** an npm workspace.
+
+## Prerequisites
+
+| Tool | Version |
+|------|---------|
+| Node.js | 20+ |
+| Python | 3.13 (installed automatically by `uv`) |
+| uv | 0.5+ |
+| Docker | with Compose v2 |
 
 ## Quick start
 
-Install dependencies from the repo root:
+### 1. Local infrastructure (PostgreSQL 18 + Redis 7)
+
+```bash
+cp .env.example .env      # then set POSTGRES_PASSWORD
+docker compose up -d
+docker compose ps
+```
+
+### 2. Backend
+
+```bash
+cd backend
+cp .env.example .env
+uv sync
+uv run uvicorn app.main:app --reload --port 8000
+```
+
+Health checks:
+
+```bash
+curl http://localhost:8000/health
+curl http://localhost:8000/health/ready
+```
+
+See [backend/README.md](./backend/README.md) for module structure, migrations, and
+quality gates.
+
+### 3. Frontend
 
 ```bash
 npm install
-```
-
-Run the frontend:
-
-```bash
 cd frontend
 npm run dev
 ```
 
-Or from the root:
+## Root scripts
 
-```bash
-npm run dev:frontend
-```
+| Script | Purpose |
+|--------|---------|
+| `npm run dev` | Frontend dev server |
+| `npm run dev:backend` | FastAPI dev server via `uv` |
+| `npm run backend:sync` | `uv sync` in `backend/` |
+| `npm run backend:lint` | Ruff |
+| `npm run backend:typecheck` | mypy strict |
+| `npm run backend:test` | pytest |
+| `npm run infra:up` / `infra:down` | Docker Compose infrastructure |
 
-Run the backend:
+## Architecture
 
-```bash
-cd backend
-npm run dev
-```
+The platform is a **modular monolith**: a Shared Platform layer (identity,
+organizations, authorization, documents, audit, notifications) and product modules
+(CRM first). See:
 
-Or from the root:
-
-```bash
-npm run dev:backend
-```
+- [docs/architecture/16-ARCHITECTURE-DECISION-RECORDS.md](./docs/architecture/16-ARCHITECTURE-DECISION-RECORDS.md)
+- [docs/architecture/18-MASTER-IMPLEMENTATION-PLAN.md](./docs/architecture/18-MASTER-IMPLEMENTATION-PLAN.md)
+- [backend/ARCHITECTURE-BOUNDARIES.md](./backend/ARCHITECTURE-BOUNDARIES.md)
 
 ## Frontend docs
 
-See [frontend/README.md](./frontend/README.md) for UI template details, theming, and page-building guides.
+See [frontend/README.md](./frontend/README.md) for UI template details, theming, and
+page-building guides.

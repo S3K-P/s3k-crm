@@ -42,6 +42,16 @@ interface DataTableProps<T> {
   onRowClick?: (row: T) => void;
   /** Empty state message */
   emptyMessage?: string;
+  /** Custom empty state rendered instead of emptyMessage */
+  emptyState?: React.ReactNode;
+  /** Keep the header visible while the body scrolls. Requires maxHeight. */
+  stickyHeader?: boolean;
+  /** CSS max-height for the scroll area, e.g. "560px" */
+  maxHeight?: string;
+  /** Render placeholder rows instead of data */
+  loading?: boolean;
+  /** Number of placeholder rows shown while loading */
+  skeletonRows?: number;
   className?: string;
 }
 
@@ -61,6 +71,11 @@ export default function DataTable<T>({
   onSort,
   onRowClick,
   emptyMessage = 'No data found',
+  emptyState,
+  stickyHeader = false,
+  maxHeight,
+  loading = false,
+  skeletonRows = 8,
   className,
 }: DataTableProps<T>) {
   const renderSortIcon = (col: ColumnDef<T>) => {
@@ -73,10 +88,13 @@ export default function DataTable<T>({
   };
 
   return (
-    <div className={cn('w-full overflow-x-auto', className)}>
+    <div
+      className={cn('w-full overflow-x-auto', maxHeight && 'overflow-y-auto', className)}
+      style={maxHeight ? { maxHeight } : undefined}
+    >
       <table className="w-full min-w-[640px] border-collapse">
         {/* Head */}
-        <thead>
+        <thead className={cn(stickyHeader && 'sticky top-0 z-10')}>
           <tr className="bd border-b">
             {columns.map(col => (
               <th
@@ -88,8 +106,12 @@ export default function DataTable<T>({
                   col.align === 'right' && 'text-right',
                   col.sortable && 'cursor-pointer select-none hover:opacity-80',
                   col.hideBelow && hideClasses[col.hideBelow],
+                  stickyHeader && 'bd border-b',
                 )}
-                style={{ minWidth: col.minWidth }}
+                style={{
+                  minWidth: col.minWidth,
+                  ...(stickyHeader ? { background: 'var(--surface)' } : null),
+                }}
                 onClick={() => col.sortable && onSort?.(col.key)}
               >
                 {col.label}
@@ -101,10 +123,29 @@ export default function DataTable<T>({
 
         {/* Body */}
         <tbody>
-          {data.length === 0 ? (
+          {loading ? (
+            Array.from({ length: skeletonRows }).map((_, rowIndex) => (
+              <tr key={`skeleton-${rowIndex}`} className="bd border-b last:border-b-0">
+                {columns.map(col => (
+                  <td
+                    key={col.key}
+                    className={cn('px-4 py-3', col.hideBelow && hideClasses[col.hideBelow])}
+                  >
+                    <div
+                      className="h-3 rounded motion-safe:animate-pulse"
+                      style={{ background: 'var(--border)', width: col.key === 'actions' ? '1.75rem' : '80%' }}
+                    />
+                  </td>
+                ))}
+              </tr>
+            ))
+          ) : data.length === 0 ? (
             <tr>
-              <td colSpan={columns.length} className="txt-faint py-16 text-center text-sm">
-                {emptyMessage}
+              <td
+                colSpan={columns.length}
+                className={cn(emptyState ? 'p-4' : 'txt-faint py-16 text-center text-sm')}
+              >
+                {emptyState ?? emptyMessage}
               </td>
             </tr>
           ) : (

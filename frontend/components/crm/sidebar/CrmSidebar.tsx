@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { BRAND } from '@/config/site';
 import { CRM_NAV_SECTIONS } from '@/config/crm-navigation';
 import { useSidebar } from '@/components/crm/sidebar/SidebarContext';
+import BrandLogo from '@/components/brand/BrandLogo';
 
 /* ============================================================
    CRM SIDEBAR
@@ -33,7 +34,7 @@ export default function CrmSidebar() {
 
       <aside
         className={cn(
-          'surface bd flex h-full flex-col border-r transition-all duration-200 ease-in-out',
+          'crm-sidebar bg-navy-900 bd flex h-full flex-col border-r transition-all duration-200 ease-in-out',
           // Desktop sizing
           'max-md:fixed max-md:inset-y-0 max-md:left-0 max-md:z-50 max-md:w-[280px]',
           // Mobile state
@@ -45,9 +46,7 @@ export default function CrmSidebar() {
         {/* ── Brand ── */}
         <div className={cn('flex h-[60px] shrink-0 items-center justify-between px-4', collapsed && 'md:justify-center md:px-0')}>
           <Link href={BRAND.homeHref} className="flex shrink-0 items-center gap-2.5" onClick={() => setMobileOpen(false)}>
-            <div className="font-display flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-indigo-500 text-[11px] font-extrabold tracking-tight text-white">
-              {BRAND.mark}
-            </div>
+            <BrandLogo variant="icon" priority />
             <div className={cn("leading-none", collapsed && "md:hidden")}>
               <div className="font-display txt text-[15px] font-extrabold tracking-[-0.02em]">
                 {BRAND.name}

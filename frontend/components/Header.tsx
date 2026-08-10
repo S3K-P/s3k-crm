@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Search, Bell, X, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ThemeToggle from '@/components/ThemeToggle';
+import BrandLogo from '@/components/brand/BrandLogo';
 import { BRAND, TABS, SUBNAV, SEARCH_ITEMS, type TabId } from '@/config/site';
 
 /* ============================================================
@@ -139,9 +140,7 @@ export default function Header({ action }: HeaderProps) {
         <div className="flex h-[60px] items-center gap-4 px-5">
           {/* Brand */}
           <Link href={BRAND.homeHref} className="bd flex shrink-0 items-center gap-2.5 border-r pr-4">
-            <div className="font-display flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-indigo-500 text-[11px] font-extrabold tracking-tight text-white">
-              {BRAND.mark}
-            </div>
+            <BrandLogo priority />
             <div className="leading-none">
               <div className="font-display txt text-[15px] font-extrabold tracking-[-0.02em]">{BRAND.name}</div>
               <div className="text-[8.5px] font-bold uppercase tracking-[0.16em]" style={{ color: 'var(--accent)' }}>

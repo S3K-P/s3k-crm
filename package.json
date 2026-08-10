@@ -3,13 +3,18 @@
   "version": "1.0.0",
   "private": true,
   "workspaces": [
-    "frontend",
-    "backend"
+    "frontend"
   ],
   "scripts": {
     "dev": "npm run dev --workspace=frontend",
     "dev:frontend": "npm run dev --workspace=frontend",
-    "dev:backend": "npm run dev --workspace=backend",
+    "dev:backend": "uv run --directory backend uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
+    "backend:sync": "uv sync --directory backend",
+    "backend:lint": "uv run --directory backend ruff check .",
+    "backend:typecheck": "uv run --directory backend mypy app",
+    "backend:test": "uv run --directory backend pytest",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down",
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspace=frontend"
   }
