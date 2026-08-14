@@ -45,17 +45,36 @@ export default function TaskCard({ task, onToggle, className }: TaskCardProps) {
       task.completed && 'opacity-60',
       className,
     )}>
-      {/* Checkbox circle */}
-      <button
-        onClick={() => onToggle?.(task.id)}
-        className="mt-0.5 shrink-0 transition hover:scale-110"
-        style={{ color: task.completed ? 'var(--accent)' : 'var(--border)' }}
-      >
-        {task.completed
-          ? <CheckCircle2 className="h-[18px] w-[18px]" />
-          : <Circle className="h-[18px] w-[18px]" />
-        }
-      </button>
+      {/* Status circle — interactive only when the caller can persist a change.
+          Without `onToggle` there is nothing to toggle, and rendering a button
+          that silently does nothing would advertise an action the app cannot
+          perform. */}
+      {onToggle ? (
+        <button
+          type="button"
+          onClick={() => onToggle(task.id)}
+          aria-pressed={task.completed ?? false}
+          aria-label={task.completed ? `Reopen ${task.title}` : `Complete ${task.title}`}
+          className="mt-0.5 shrink-0 transition hover:scale-110"
+          style={{ color: task.completed ? 'var(--accent)' : 'var(--border)' }}
+        >
+          {task.completed
+            ? <CheckCircle2 className="h-[18px] w-[18px]" />
+            : <Circle className="h-[18px] w-[18px]" />
+          }
+        </button>
+      ) : (
+        <span
+          className="mt-0.5 shrink-0"
+          style={{ color: task.completed ? 'var(--accent)' : 'var(--border)' }}
+          aria-hidden="true"
+        >
+          {task.completed
+            ? <CheckCircle2 className="h-[18px] w-[18px]" />
+            : <Circle className="h-[18px] w-[18px]" />
+          }
+        </span>
+      )}
 
       {/* Content */}
       <div className="min-w-0 flex-1">

@@ -31,6 +31,15 @@ export interface CrmNavItem {
   href: string;
   /** Lucide icon component */
   icon: LucideIcon;
+  /**
+   * Backend permission module gating this item, e.g. `leads`.
+   *
+   * Hiding an entry is a **UX** decision only — the API re-checks the same
+   * permission on every request, so navigating to a hidden route by typing its
+   * URL still yields 403s rather than data. Items with no module are visible
+   * to any authenticated member.
+   */
+  permissionModule?: string;
 }
 
 export interface CrmNavSection {
@@ -44,40 +53,40 @@ export const CRM_NAV_SECTIONS: CrmNavSection[] = [
   {
     title: 'Overview',
     items: [
-      { id: 'dashboard', label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+      { id: 'dashboard', label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, permissionModule: 'dashboard' },
     ],
   },
   {
     title: 'Pipeline',
     items: [
-      { id: 'lead-sources', label: 'Lead Sources', href: '/lead-sources', icon: Globe },
-      { id: 'leads', label: 'Leads', href: '/leads', icon: Users },
+      { id: 'lead-sources', label: 'Lead Sources', href: '/lead-sources', icon: Globe, permissionModule: 'lead_sources' },
+      { id: 'leads', label: 'Leads', href: '/leads', icon: Users, permissionModule: 'leads' },
       { id: 'partners', label: 'Partners', href: '/partners', icon: Handshake },
-      { id: 'campaigns', label: 'Campaigns', href: '/campaigns', icon: Megaphone },
-      { id: 'meetings', label: 'Meetings', href: '/meetings', icon: CalendarDays },
+      { id: 'campaigns', label: 'Campaigns', href: '/campaigns', icon: Megaphone, permissionModule: 'campaigns' },
+      { id: 'meetings', label: 'Meetings', href: '/meetings', icon: CalendarDays, permissionModule: 'activities' },
     ],
   },
   {
     title: 'Relationships',
     items: [
-      { id: 'accounts', label: 'Accounts', href: '/accounts', icon: Building2 },
-      { id: 'contacts', label: 'Contacts', href: '/contacts', icon: Contact },
-      { id: 'opportunities', label: 'Opportunities', href: '/opportunities', icon: Target },
-      { id: 'qualification', label: 'Qualification', href: '/qualification', icon: CheckCircle2 },
+      { id: 'accounts', label: 'Accounts', href: '/accounts', icon: Building2, permissionModule: 'accounts' },
+      { id: 'contacts', label: 'Contacts', href: '/contacts', icon: Contact, permissionModule: 'contacts' },
+      { id: 'opportunities', label: 'Opportunities', href: '/opportunities', icon: Target, permissionModule: 'opportunities' },
+      { id: 'qualification', label: 'Qualification', href: '/qualification', icon: CheckCircle2, permissionModule: 'leads' },
     ],
   },
   {
     title: 'AI',
     items: [
-      { id: 'ai-insights', label: 'AI Insights', href: '/ai/insights', icon: BrainCircuit },
-      { id: 'ai-next-best-action', label: 'Next Best Action', href: '/ai/next-best-action', icon: Zap },
+      { id: 'ai-insights', label: 'AI Insights', href: '/ai/insights', icon: BrainCircuit, permissionModule: 'dashboard' },
+      { id: 'ai-next-best-action', label: 'Next Best Action', href: '/ai/next-best-action', icon: Zap, permissionModule: 'opportunities' },
     ],
   },
   {
     title: 'System',
     items: [
-      { id: 'admin', label: 'Admin', href: '/admin', icon: ShieldCheck },
-      { id: 'ai-settings', label: 'AI Settings', href: '/ai-settings', icon: Sparkles },
+      { id: 'admin', label: 'Admin', href: '/admin', icon: ShieldCheck, permissionModule: 'users' },
+      { id: 'ai-settings', label: 'AI Settings', href: '/ai-settings', icon: Sparkles, permissionModule: 'users' },
     ],
   },
 ];

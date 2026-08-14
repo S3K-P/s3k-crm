@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, Bell, X, ArrowRight, Menu } from 'lucide-react';
 import ThemeToggle from '@/components/ThemeToggle';
+import AccountMenu from '@/components/crm/topbar/AccountMenu';
 import { CRM_NAV_ITEMS } from '@/config/crm-navigation';
 import { useSidebar } from '@/components/crm/sidebar/SidebarContext';
 
@@ -129,9 +130,7 @@ export default function CrmTopbar() {
             <Bell className="h-[17px] w-[17px]" />
           </button>
 
-          <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 text-[12px] font-bold text-white">
-            U
-          </div>
+          <AccountMenu />
         </div>
       </div>
     </>

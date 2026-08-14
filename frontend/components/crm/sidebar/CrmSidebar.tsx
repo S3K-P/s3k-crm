@@ -8,6 +8,7 @@ import { BRAND } from '@/config/site';
 import { CRM_NAV_SECTIONS } from '@/config/crm-navigation';
 import { useSidebar } from '@/components/crm/sidebar/SidebarContext';
 import BrandLogo from '@/components/brand/BrandLogo';
+import { usePermissions } from '@/context/AuthContext';
 
 /* ============================================================
    CRM SIDEBAR
@@ -18,9 +19,20 @@ import BrandLogo from '@/components/brand/BrandLogo';
 export default function CrmSidebar() {
   const pathname = usePathname();
   const { collapsed, toggle, mobileOpen, setMobileOpen } = useSidebar();
+  const { can } = usePermissions();
 
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(href + '/');
+
+  // Entries the caller cannot view are hidden, and a section with nothing left
+  // in it disappears rather than leaving an empty heading. This is presentation
+  // only: the backend enforces the same permission on every request.
+  const visibleSections = CRM_NAV_SECTIONS.map((section) => ({
+    ...section,
+    items: section.items.filter(
+      (item) => !item.permissionModule || can(item.permissionModule, 'VIEW'),
+    ),
+  })).filter((section) => section.items.length > 0);
 
   return (
     <>
@@ -66,7 +78,7 @@ export default function CrmSidebar() {
 
         {/* ── Navigation ── */}
         <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2.5 pb-4">
-          {CRM_NAV_SECTIONS.map((section) => (
+          {visibleSections.map((section) => (
             <div key={section.title} className="mt-5 first:mt-2">
               <div className={cn(
                 "txt-faint mb-1.5 px-2.5 text-[10.5px] font-bold uppercase tracking-wider",

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, Sora } from "next/font/google";
 import { Toaster } from "sonner";
+import { AuthProvider } from "@/context/AuthContext";
 import { ThemeProvider, themeInitScript } from "@/context/ThemeContext";
 import { BRAND } from "@/config/site";
 import "./globals.css";
@@ -34,8 +35,10 @@ export default function RootLayout({
       </head>
       <body className="antialiased">
         <ThemeProvider>
-          {children}
-          <Toaster position="bottom-right" richColors closeButton />
+          <AuthProvider>
+            {children}
+            <Toaster position="bottom-right" richColors closeButton />
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>
