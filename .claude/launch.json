@@ -9,6 +9,19 @@
         "dev"
       ],
       "port": 3000
+    },
+    {
+      "name": "frontend-3001",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--workspace=frontend",
+        "--",
+        "--port",
+        "3001"
+      ],
+      "port": 3001
     }
   ]
 }
