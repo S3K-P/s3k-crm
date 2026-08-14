@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ed25519
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -18,6 +20,32 @@ from app.core.config import Settings
 
 TEST_DATABASE_URL = "postgresql+asyncpg://test:test@localhost:5432/s3k_test"
 TEST_REDIS_URL = "redis://localhost:6379/15"
+
+
+def _generate_test_keypair() -> tuple[str, str]:
+    """An Ed25519 keypair for tests.
+
+    Generated at import time rather than checked in: a PEM private key in the
+    repository would be indistinguishable from a leaked credential, and tests
+    have no need for a stable key.
+    """
+    private = ed25519.Ed25519PrivateKey.generate()
+    return (
+        private.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        ).decode(),
+        private.public_key()
+        .public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode(),
+    )
+
+
+TEST_JWT_PRIVATE_KEY, TEST_JWT_PUBLIC_KEY = _generate_test_keypair()
 
 
 @pytest.fixture

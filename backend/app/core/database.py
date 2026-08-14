@@ -42,9 +42,20 @@ class Base(DeclarativeBase):
     A single ``MetaData`` for the whole modular monolith is intentional: one
     database, one migration history (ADR-001, ADR-007). ``migrations/env.py``
     targets this exact metadata via :mod:`app.core.metadata`.
+
+    ``eager_defaults`` makes SQLAlchemy fetch server-generated values (the
+    ``created_at``/``updated_at`` defaults, and ``onupdate`` in particular) with
+    a RETURNING clause on the INSERT or UPDATE itself. Without it those columns
+    are left expired and are loaded lazily on first access — which raises
+    ``MissingGreenlet`` under asyncio the moment a response schema reads them.
+    PostgreSQL supports RETURNING, so this costs no extra round trip.
     """
 
     metadata = METADATA
+    # SQLAlchemy declares __mapper_args__ as an instance attribute, so
+    # ClassVar is rejected by the type checker. The dict is read once at
+    # class definition and never mutated.
+    __mapper_args__ = {"eager_defaults": True}  # noqa: RUF012
 
 
 def create_engine(settings: Settings) -> AsyncEngine:

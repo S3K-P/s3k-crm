@@ -9,10 +9,14 @@ import pytest
 from pydantic import ValidationError
 
 from app.core.config import ConfigurationError, Settings, get_settings
+from tests.conftest import TEST_JWT_PRIVATE_KEY, TEST_JWT_PUBLIC_KEY
 
 VALID_ENV = {
     "DATABASE_URL": "postgresql+asyncpg://user:pw@db:5432/s3k",
     "REDIS_URL": "redis://cache:6379/0",
+    # Required from staging upwards; harmless in development/test.
+    "JWT_PRIVATE_KEY": TEST_JWT_PRIVATE_KEY,
+    "JWT_PUBLIC_KEY": TEST_JWT_PUBLIC_KEY,
 }
 
 

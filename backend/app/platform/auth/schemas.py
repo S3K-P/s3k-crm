@@ -1,5 +1,117 @@
-"""Pydantic v2 schemas for the auth module.
+"""Pydantic v2 contracts for the auth module.
 
-Placeholder. Request/response contracts live here; ORM models are never
-exposed directly over HTTP.
+SQLAlchemy models are never returned directly: every response is one of these
+shapes, so a column added to a table cannot silently start leaking through the
+API. ``password_hash`` in particular has no representation here at all.
 """
+
+from __future__ import annotations
+
+import datetime as dt
+import uuid
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, SecretStr
+
+from app.platform.auth.models import UserStatus
+
+
+class LoginRequest(BaseModel):
+    """Credentials, plus an optional organization to start the session in."""
+
+    email: EmailStr
+    #: ``SecretStr`` keeps the value out of logs and ``repr`` output.
+    password: SecretStr = Field(min_length=1, max_length=256)
+    organization_id: uuid.UUID | None = None
+
+
+class RefreshRequest(BaseModel):
+    """Body form of refresh, for clients that cannot use cookies."""
+
+    refresh_token: SecretStr | None = None
+
+
+class TokenResponse(BaseModel):
+    """The access token. The refresh token travels only in an httpOnly cookie.
+
+    Returning the refresh token in the body would defeat the XSS protection the
+    cookie exists to provide, so it is deliberately absent.
+    """
+
+    access_token: str
+    token_type: str = "Bearer"  # noqa: S105 - an OAuth token *type*, not a secret
+    expires_at: dt.datetime
+    organization_id: uuid.UUID | None = None
+
+
+class UserProfileResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    first_name: str
+    last_name: str
+    avatar_url: str | None = None
+    timezone: str
+    locale: str
+    phone: str | None = None
+
+
+class UserResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    email: EmailStr
+    status: UserStatus
+    email_verified_at: dt.datetime | None = None
+    last_login_at: dt.datetime | None = None
+    profile: UserProfileResponse | None = None
+
+
+class MembershipSummary(BaseModel):
+    """One organization the caller belongs to."""
+
+    organization_id: uuid.UUID
+    organization_name: str
+    organization_slug: str
+    status: str
+    is_default: bool
+    roles: list[str]
+
+
+class CurrentUserResponse(BaseModel):
+    """``GET /auth/me`` — identity, memberships and effective permissions.
+
+    ``permissions`` is scoped to ``active_organization_id``: the same user can
+    hold different roles in different organizations, so a permission list
+    without its organization would be meaningless.
+    """
+
+    user: UserResponse
+    memberships: list[MembershipSummary]
+    active_organization_id: uuid.UUID | None
+    permissions: list[str]
+
+
+class RegisterUserRequest(BaseModel):
+    """Administrative user provisioning."""
+
+    email: EmailStr
+    password: SecretStr = Field(min_length=1, max_length=256)
+    first_name: str = Field(min_length=1, max_length=120)
+    last_name: str = Field(min_length=1, max_length=120)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: SecretStr = Field(min_length=1, max_length=256)
+    new_password: SecretStr = Field(min_length=1, max_length=256)
+
+
+__all__ = [
+    "ChangePasswordRequest",
+    "CurrentUserResponse",
+    "LoginRequest",
+    "MembershipSummary",
+    "RefreshRequest",
+    "RegisterUserRequest",
+    "TokenResponse",
+    "UserProfileResponse",
+    "UserResponse",
+]

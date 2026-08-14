@@ -65,9 +65,77 @@ class Settings(BaseSettings):
     redis_max_connections: int = Field(default=10, ge=1, le=1000)
     redis_socket_timeout: float = Field(default=5.0, gt=0)
 
+    # --- Authentication (ADR-009, doc 13 "Authentication Security") --------
+    # EdDSA (Ed25519) signing keys, PEM encoded. Required in every environment
+    # except development/test, where an ephemeral keypair is generated at
+    # startup so a fresh clone runs without key material on disk. An ephemeral
+    # key is never acceptable in production: it would invalidate every issued
+    # token on restart and cannot be shared across replicas.
+    jwt_private_key: str | None = Field(
+        default=None,
+        description="Ed25519 private key in PEM format. Required outside development/test.",
+    )
+    jwt_public_key: str | None = Field(
+        default=None,
+        description="Ed25519 public key in PEM format. Required outside development/test.",
+    )
+    jwt_issuer: str = "s3k-platform"
+    jwt_audience: str = "s3k-api"
+    access_token_ttl_seconds: int = Field(default=900, ge=60, le=3600)
+    refresh_token_ttl_seconds: int = Field(default=60 * 60 * 24 * 14, ge=3600)
+
+    # --- Password policy ---------------------------------------------------
+    password_min_length: int = Field(default=12, ge=8, le=128)
+
+    # --- Brute-force protection (doc 13) -----------------------------------
+    login_max_failed_attempts: int = Field(default=5, ge=1, le=50)
+    login_lockout_seconds: int = Field(default=900, ge=30)
+
+    # --- Cookies -----------------------------------------------------------
+    #: Refresh tokens travel in an httpOnly cookie (SEC01); never readable by JS.
+    refresh_cookie_name: str = "s3k_refresh"
+    #: Secure flag is forced on outside development so it cannot be forgotten.
+    cookie_domain: str | None = None
+
+    # --- CORS (doc 13 "API Security") --------------------------------------
+    #: Browser origins allowed to call the API, comma-separated.
+    #:
+    #: Credentialed requests are required (the refresh cookie must travel), and
+    #: the CORS specification forbids pairing credentials with a wildcard
+    #: origin — so this is an explicit allow-list with no wildcard option.
+    #: Empty means same-origin only, which is correct when the frontend is
+    #: served from the same host.
+    cors_allowed_origins: str = ""
+
     # --- Observability (ADR-018) -------------------------------------------
     log_level: LogLevel = "INFO"
     log_json: bool = True
+
+    @property
+    def cookie_secure(self) -> bool:
+        """Refresh cookies are Secure everywhere except local development."""
+        return self.environment != "development"
+
+    @property
+    def cors_origins(self) -> list[str]:
+        """Parsed allow-list of browser origins."""
+        return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
+
+    @field_validator("jwt_private_key", "jwt_public_key", mode="before")
+    @classmethod
+    def _normalise_pem(cls, value: str | None) -> str | None:
+        r"""Accept PEM supplied with literal ``\n`` escapes.
+
+        Container orchestrators and CI secret stores frequently cannot hold a
+        real newline in an environment variable, so the escaped form is the
+        common way to ship a PEM key.
+        """
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        return cleaned.replace("\\n", "\n")
 
     @field_validator("database_url")
     @classmethod
@@ -107,6 +175,16 @@ class Settings(BaseSettings):
             if self.db_echo:
                 msg = "DB_ECHO must be false when ENVIRONMENT=production (leaks SQL and data)."
                 raise ValueError(msg)
+        if self.environment in ("staging", "production") and not (
+            self.jwt_private_key and self.jwt_public_key
+        ):
+            msg = (
+                "JWT_PRIVATE_KEY and JWT_PUBLIC_KEY are required when "
+                f"ENVIRONMENT={self.environment}. Generate an Ed25519 keypair and supply "
+                "both in PEM format; an ephemeral key would invalidate every token on "
+                "restart and cannot be shared between replicas."
+            )
+            raise ValueError(msg)
         return self
 
     @property
