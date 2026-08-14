@@ -11,6 +11,15 @@
       "port": 3000
     },
     {
+      "name": "backend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:backend"
+      ],
+      "port": 8000
+    },
+    {
       "name": "frontend-3001",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
