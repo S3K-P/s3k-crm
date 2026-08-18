@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
-import { API_BASE_URL, AUTH_ENABLED, LOGIN_PATH, REFRESH_COOKIE_NAME } from '@/lib/api-config';
+import { API_BASE_URL, LOGIN_PATH, REFRESH_COOKIE_NAME } from '@/lib/api-config';
 
 /**
  * Whether the API shares an origin with the frontend.
@@ -36,9 +36,9 @@ function apiSharesOrigin(request: NextRequest): boolean {
  * authorized server-side, so a forged cookie gets an empty screen and 401s,
  * never data.
  *
- * When no backend is configured (`NEXT_PUBLIC_API_BASE_URL` unset) the gate is
- * disabled entirely, so the existing demonstration pages keep working on a
- * fresh clone.
+ * The gate has no off switch. It previously stood down when
+ * `NEXT_PUBLIC_API_BASE_URL` was unset, which meant a configuration slip
+ * shipped an ungated application.
  */
 
 /** Paths under the `(crm)` route group that require a session. */
@@ -65,7 +65,6 @@ function isProtected(pathname: string): boolean {
 }
 
 export default function proxy(request: NextRequest) {
-  if (!AUTH_ENABLED) return NextResponse.next();
   if (!apiSharesOrigin(request)) return NextResponse.next();
 
   const { pathname, search } = request.nextUrl;

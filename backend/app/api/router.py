@@ -27,9 +27,15 @@ from app.platform.auth import router as auth_router
 from app.platform.authorization import router as authorization_router
 from app.platform.organizations import router as organizations_router
 from app.products.crm.accounts import router as accounts_router
+from app.products.crm.activities import router as activities_router
+from app.products.crm.campaigns import router as campaigns_router
+from app.products.crm.contacts import router as contacts_router
 from app.products.crm.dashboard import router as dashboard_router
 from app.products.crm.leads import router as leads_router
+from app.products.crm.leads import source_router as lead_sources_router
+from app.products.crm.notes import router as notes_router
 from app.products.crm.opportunities import router as opportunities_router
+from app.products.crm.tasks import router as tasks_router
 
 root_router = APIRouter()
 root_router.include_router(health.router)
@@ -50,9 +56,19 @@ api_router.include_router(
     dashboard_router.router, prefix="/crm/dashboard", tags=["crm:dashboard"]
 )
 api_router.include_router(accounts_router.router, prefix="/crm/accounts", tags=["crm:accounts"])
+api_router.include_router(contacts_router.router, prefix="/crm/contacts", tags=["crm:contacts"])
+api_router.include_router(
+    lead_sources_router.router, prefix="/crm/lead-sources", tags=["crm:lead-sources"]
+)
 api_router.include_router(leads_router.router, prefix="/crm/leads", tags=["crm:leads"])
 api_router.include_router(
     opportunities_router.router, prefix="/crm/opportunities", tags=["crm:opportunities"]
 )
+api_router.include_router(campaigns_router.router, prefix="/crm/campaigns", tags=["crm:campaigns"])
+api_router.include_router(
+    activities_router.router, prefix="/crm/activities", tags=["crm:activities"]
+)
+api_router.include_router(tasks_router.router, prefix="/crm/tasks", tags=["crm:tasks"])
+api_router.include_router(notes_router.router, prefix="/crm/notes", tags=["crm:notes"])
 
 __all__ = ["api_router", "root_router"]

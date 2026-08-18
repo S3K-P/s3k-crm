@@ -146,8 +146,13 @@ class LeadSourceResponse(BaseModel):
     category: str | None
     description: str | None
     status: LeadSourceStatus
+    #: Live leads attributed to this source. Derived per request, never stored,
+    #: so it cannot drift from the leads table.
+    lead_count: int = 0
     created_at: dt.datetime
     updated_at: dt.datetime
+    created_by_id: uuid.UUID | None = None
+    updated_by_id: uuid.UUID | None = None
 
 
 __all__ = [

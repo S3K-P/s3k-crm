@@ -5,7 +5,6 @@ import { Building2, Check, LogOut } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
-import { AUTH_ENABLED } from '@/lib/api-config';
 
 /* ============================================================
    ACCOUNT MENU
@@ -47,8 +46,9 @@ export default function AccountMenu() {
     };
   }, [open]);
 
-  // Preserve the original avatar exactly when there is no session to show.
-  if (!AUTH_ENABLED || !currentUser) {
+  // Nothing to show until the session probe resolves. RequireAuth keeps this
+  // brief: an unauthenticated visitor never reaches the CRM shell.
+  if (!currentUser) {
     return (
       <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600 text-[12px] font-bold text-white">
         U

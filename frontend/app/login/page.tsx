@@ -7,7 +7,7 @@ import { AlertCircle, Loader2, Lock, Mail } from 'lucide-react';
 import BrandLogo from '@/components/brand/BrandLogo';
 import { useAuth } from '@/context/AuthContext';
 import { ApiError } from '@/lib/api-client';
-import { AUTH_ENABLED, POST_LOGIN_PATH } from '@/lib/api-config';
+import { POST_LOGIN_PATH } from '@/lib/api-config';
 import { BRAND } from '@/config/site';
 
 /* ============================================================
@@ -132,17 +132,6 @@ function LoginForm() {
             Use your S3K account to continue.
           </p>
 
-          {!AUTH_ENABLED && (
-            <p
-              className="mt-4 rounded-xl border p-3 text-[12.5px] leading-relaxed"
-              style={{ background: 'var(--accent-soft)', borderColor: 'var(--accent)' }}
-            >
-              No backend is configured. Set{' '}
-              <code className="font-mono">NEXT_PUBLIC_API_BASE_URL</code> to enable
-              sign-in; until then the application runs on local demonstration data.
-            </p>
-          )}
-
           <form onSubmit={handleSubmit} className="mt-5 space-y-4" noValidate>
             <div className="space-y-1.5">
               <label htmlFor="email" className="txt text-[13px] font-semibold">
@@ -161,7 +150,7 @@ function LoginForm() {
                   required
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
-                  disabled={submitting || !AUTH_ENABLED}
+                  disabled={submitting}
                   className="ctl w-full py-2.5 pl-9 pr-3.5 text-sm outline-none transition-colors focus:border-[var(--accent)] disabled:opacity-60"
                   placeholder="you@company.com"
                 />
@@ -185,7 +174,7 @@ function LoginForm() {
                   required
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  disabled={submitting || !AUTH_ENABLED}
+                  disabled={submitting}
                   className="ctl w-full py-2.5 pl-9 pr-3.5 text-sm outline-none transition-colors focus:border-[var(--accent)] disabled:opacity-60"
                   placeholder="••••••••••••"
                 />
@@ -204,7 +193,7 @@ function LoginForm() {
 
             <button
               type="submit"
-              disabled={submitting || !AUTH_ENABLED}
+              disabled={submitting}
               className="flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-[13.5px] font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               style={{ background: 'var(--accent)' }}
             >

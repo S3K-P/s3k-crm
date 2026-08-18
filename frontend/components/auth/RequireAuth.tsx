@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
-import { AUTH_ENABLED, LOGIN_PATH } from '@/lib/api-config';
+import { LOGIN_PATH } from '@/lib/api-config';
 
 /* ============================================================
    REQUIRE AUTH
@@ -20,7 +20,9 @@ import { AUTH_ENABLED, LOGIN_PATH } from '@/lib/api-config';
 
    Neither is the security boundary. The backend authenticates
    and authorizes every request; these two only decide what the
-   browser bothers to render.
+   browser bothers to render. Neither has an off switch: a
+   misconfigured API URL leaves the user signed out, never
+   signed in with everything unlocked.
    ============================================================ */
 
 export default function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -29,12 +31,9 @@ export default function RequireAuth({ children }: { children: React.ReactNode })
   const pathname = usePathname();
 
   useEffect(() => {
-    if (!AUTH_ENABLED || loading || isAuthenticated) return;
+    if (loading || isAuthenticated) return;
     router.replace(`${LOGIN_PATH}?next=${encodeURIComponent(pathname)}`);
   }, [loading, isAuthenticated, router, pathname]);
-
-  // No backend configured: the demonstration build renders as it always did.
-  if (!AUTH_ENABLED) return <>{children}</>;
 
   if (loading || !isAuthenticated) {
     return (

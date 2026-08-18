@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { useAuth } from '@/context/AuthContext';
 import { ApiError } from '@/lib/api-client';
-import { AUTH_ENABLED } from '@/lib/api-config';
 import { fetchDashboardSummary } from '@/features/crm/dashboard/api';
 import type { DashboardSummary } from '@/features/crm/dashboard/types';
 
@@ -27,7 +26,7 @@ import type { DashboardSummary } from '@/features/crm/dashboard/types';
    nothing.
    ============================================================ */
 
-export type DashboardStatus = 'disabled' | 'loading' | 'ready' | 'error';
+export type DashboardStatus = 'loading' | 'ready' | 'error';
 
 export interface DashboardState {
   status: DashboardStatus;
@@ -71,7 +70,7 @@ export function useDashboardSummary(): DashboardState {
   const key = `${activeOrganizationId ?? 'none'}#${attempt}`;
 
   useEffect(() => {
-    if (!AUTH_ENABLED || authLoading || !isAuthenticated) return;
+    if (authLoading || !isAuthenticated) return;
 
     let cancelled = false;
 
@@ -88,10 +87,6 @@ export function useDashboardSummary(): DashboardState {
       cancelled = true;
     };
   }, [authLoading, isAuthenticated, key]);
-
-  if (!AUTH_ENABLED) {
-    return { status: 'disabled', data: null, error: null, reload };
-  }
 
   const current = result?.key === key ? result : null;
 

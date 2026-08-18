@@ -1,20 +1,25 @@
 /**
  * Backend connection settings.
  *
- * `NEXT_PUBLIC_API_BASE_URL` is the single switch that turns real
- * authentication on. When it is unset the app runs exactly as it did before
- * Phase 1 — every page renders its local demonstration data and no route is
- * gated — so a fresh clone still runs with no backend. Setting it makes the
- * frontend talk to the FastAPI service and enforces login on the CRM routes.
+ * `NEXT_PUBLIC_API_BASE_URL` names the origin the API is served from. Leaving
+ * it unset means **same-origin** — the reverse-proxy topology doc 11 assumes —
+ * not "no backend".
+ *
+ * There is deliberately no switch here that turns authentication off. An
+ * earlier revision derived an `AUTH_ENABLED` flag from this value, so a missing
+ * or misspelled environment variable silently shipped an application with no
+ * login gate and every permission granted. A configuration mistake must never
+ * be able to widen access: if the API cannot be reached, the user sees an error
+ * and stays signed out, which is the safe direction to fail.
  */
 
-export const API_BASE_URL: string = (process.env.NEXT_PUBLIC_API_BASE_URL ?? '').replace(
-  /\/$/,
-  '',
-);
+/** Origin of the API. Empty string means same-origin. */
+export const API_BASE_URL: string = (process.env.NEXT_PUBLIC_API_BASE_URL ?? '')
+  .trim()
+  .replace(/\/$/, '');
 
-/** Whether a backend is configured, and therefore whether auth is enforced. */
-export const AUTH_ENABLED: boolean = API_BASE_URL.length > 0;
+/** Path prefix every API route sits behind. */
+export const API_PREFIX = '/api/v1';
 
 /** Header the backend reads to select the active organization. */
 export const ORGANIZATION_HEADER = 'X-Organization-Id';

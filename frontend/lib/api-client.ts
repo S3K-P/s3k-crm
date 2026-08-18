@@ -13,7 +13,7 @@
  * nothing here touches `localStorage`.
  */
 
-import { API_BASE_URL, ORGANIZATION_HEADER } from '@/lib/api-config';
+import { API_BASE_URL, API_PREFIX, ORGANIZATION_HEADER } from '@/lib/api-config';
 
 /** Shape of the backend's structured error body. */
 export interface ApiErrorBody {
@@ -75,7 +75,7 @@ async function refreshAccessToken(): Promise<boolean> {
   // second look like a replay and revoke the whole family. Share one promise.
   refreshInFlight ??= (async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
+      const response = await fetch(`${API_BASE_URL}${API_PREFIX}/auth/refresh`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -124,7 +124,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     if (accessToken) merged.set('Authorization', `Bearer ${accessToken}`);
     if (organizationId) merged.set(ORGANIZATION_HEADER, organizationId);
 
-    return fetch(`${API_BASE_URL}/api/v1${path}`, {
+    return fetch(`${API_BASE_URL}${API_PREFIX}${path}`, {
       ...rest,
       headers: merged,
       // Required for the refresh cookie to travel with the request.

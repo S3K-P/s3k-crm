@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   UserPlus, CalendarDays, Target, Building2,
   Users, CheckCircle2, DollarSign, ClipboardList,
-  ArrowRight, AlertTriangle, RefreshCw, PlugZap,
+  ArrowRight, AlertTriangle, RefreshCw,
 } from 'lucide-react';
 import SectionHeader from '@/components/crm/shared/SectionHeader';
 import KpiCard from '@/components/crm/cards/KpiCard';
@@ -133,26 +133,6 @@ function ErrorDashboard({ message, onRetry }: { message: string; onRetry: () => 
   );
 }
 
-function DisconnectedDashboard() {
-  return (
-    <Panel className="flex flex-col items-center gap-3 py-12 text-center">
-      <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-indigo-600">
-        <PlugZap className="h-5 w-5 text-white" aria-hidden="true" />
-      </div>
-      <div>
-        <p className="txt text-[14px] font-semibold">No backend configured</p>
-        <p className="txt-muted mx-auto mt-1 max-w-md text-[12.5px]">
-          This dashboard reports live CRM data, so it has nothing to show until{' '}
-          <code className="rounded px-1 py-0.5 text-[11.5px]" style={{ background: 'var(--surface-2)' }}>
-            NEXT_PUBLIC_API_BASE_URL
-          </code>{' '}
-          points at a running API.
-        </p>
-      </div>
-    </Panel>
-  );
-}
-
 /* ============================================================
    PAGE
    ============================================================ */
@@ -200,7 +180,6 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      {status === 'disabled' && <DisconnectedDashboard />}
       {status === 'error' && error !== null && (
         <ErrorDashboard message={error} onRetry={reload} />
       )}

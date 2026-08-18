@@ -17,7 +17,7 @@ import {
   setOrganizationId,
   setSessionExpiredHandler,
 } from '@/lib/api-client';
-import { AUTH_ENABLED, LOGIN_PATH, POST_LOGIN_PATH } from '@/lib/api-config';
+import { LOGIN_PATH, POST_LOGIN_PATH } from '@/lib/api-config';
 import type {
   CurrentUser,
   LoginCredentials,
@@ -56,6 +56,10 @@ interface AuthContextValue {
    *
    * **UX only.** The backend re-checks every request; hiding a button here
    * does not protect anything, and showing one does not grant anything.
+   *
+   * Returns `false` whenever permissions are unknown — no session, or the
+   * profile has not loaded yet. Defaulting to `true` would paint the whole
+   * interface as available and then fail every action with a 403.
    */
   can: (module: string, action: PermissionAction) => boolean;
 }
@@ -89,9 +93,9 @@ function storeOrganization(organizationId: string | null): void {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
-  // With no backend configured there is no session to probe for, so the app
-  // starts ready rather than stuck on a loading state.
-  const [loading, setLoading] = useState(AUTH_ENABLED);
+  // Starts true: until the session probe below finishes we do not know whether
+  // anyone is signed in, and the guards must hold the UI rather than assume.
+  const [loading, setLoading] = useState(true);
 
   const clearSession = useCallback(() => {
     setAccessToken(null);
@@ -114,8 +118,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
      session exists is to try to use it. A failure here is the normal
      "not signed in" case, not an error. */
   useEffect(() => {
-    if (!AUTH_ENABLED) return;
-
     let cancelled = false;
 
     const restore = async () => {
@@ -146,7 +148,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setSessionExpiredHandler(() => {
       clearSession();
-      if (AUTH_ENABLED) router.replace(LOGIN_PATH);
+      router.replace(LOGIN_PATH);
     });
     return () => setSessionExpiredHandler(null);
   }, [clearSession, router]);
@@ -194,12 +196,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const can = useCallback(
-    (module: string, action: PermissionAction) => {
-      // With no backend there is nothing to authorize against; the existing
-      // demonstration pages must stay fully usable.
-      if (!AUTH_ENABLED) return true;
-      return permissions.has(permission(module, action));
-    },
+    (module: string, action: PermissionAction) =>
+      permissions.has(permission(module, action)),
     [permissions],
   );
 
