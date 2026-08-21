@@ -22,6 +22,7 @@ from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
+from app.platform.audit.service import Action as AuditAction
 from app.products.crm.opportunities.models import (
     Opportunity,
     OpportunityStageHistory,
@@ -31,6 +32,7 @@ from app.products.crm.opportunities.models import (
 from app.products.crm.shared.pagination import PageParams
 from app.products.crm.shared.repository import TenantScopedRepository
 from app.products.crm.shared.service import TenantScopedService
+from app.products.crm.shared.visibility import RecordVisibility
 
 logger = structlog.get_logger(__name__)
 
@@ -77,6 +79,7 @@ class OpportunityService(TenantScopedService[Opportunity]):
         search: str | None = None,
         stage_id: uuid.UUID | None = None,
         account_id: uuid.UUID | None = None,
+        primary_contact_id: uuid.UUID | None = None,
         owner_id: uuid.UUID | None = None,
         is_open: bool | None = None,
     ) -> list[ColumnElement[bool]]:
@@ -87,6 +90,8 @@ class OpportunityService(TenantScopedService[Opportunity]):
             filters.append(Opportunity.stage_id == stage_id)
         if account_id is not None:
             filters.append(Opportunity.account_id == account_id)
+        if primary_contact_id is not None:
+            filters.append(Opportunity.primary_contact_id == primary_contact_id)
         if owner_id is not None:
             filters.append(Opportunity.owner_id == owner_id)
         if is_open is True:
@@ -104,8 +109,11 @@ class OpportunityService(TenantScopedService[Opportunity]):
         *,
         params: PageParams,
         filters: Sequence[ColumnElement[bool]] = (),
+        visibility: RecordVisibility | None = None,
     ) -> tuple[Sequence[Opportunity], int]:
-        return await self.list(organization_id, params=params, filters=filters)
+        return await self.list(
+            organization_id, params=params, filters=filters, visibility=visibility
+        )
 
     # --- Stages ------------------------------------------------------------
 
@@ -252,6 +260,29 @@ class OpportunityService(TenantScopedService[Opportunity]):
             to_stage=stage.name,
             closed=stage.is_won or stage.is_lost,
         )
+
+        # ``opportunity_stage_history`` already records the movement for the
+        # deal's own timeline. This is the parallel entry in the *security*
+        # trail, where it sits beside who made the change, from where, and
+        # under which request — and where it cannot be edited afterwards.
+        await self.audit.record(
+            organization_id=opportunity.organization_id,
+            action=AuditAction.OPPORTUNITY_STAGE_CHANGED,
+            module=self.audit_module,
+            actor_id=actor_id,
+            entity_type=self.audit_entity_type,
+            entity_id=opportunity.id,
+            entity_label=self.audit_label(opportunity),
+            details={
+                "from_stage_id": previous_stage_id,
+                "to_stage_id": stage.id,
+                "to_stage": stage.name,
+                "won": stage.is_won,
+                "lost": stage.is_lost,
+                "loss_reason": loss_reason,
+                "win_reason": win_reason,
+            },
+        )
         return opportunity
 
     async def reopen(
@@ -294,6 +325,20 @@ class OpportunityService(TenantScopedService[Opportunity]):
         )
         await self._session.flush()
         logger.info("opportunity_reopened", opportunity_id=str(opportunity.id))
+
+        # Reopening erases a won/lost outcome and the reason recorded with it,
+        # which is precisely the kind of change to closed-period numbers that
+        # an audit trail exists to make visible.
+        await self.audit.record(
+            organization_id=opportunity.organization_id,
+            action=AuditAction.OPPORTUNITY_REOPENED,
+            module=self.audit_module,
+            actor_id=actor_id,
+            entity_type=self.audit_entity_type,
+            entity_id=opportunity.id,
+            entity_label=self.audit_label(opportunity),
+            details={"from_stage_id": previous_stage_id, "to_stage_id": stage.id},
+        )
         return opportunity
 
     async def update_open(

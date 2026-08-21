@@ -30,6 +30,7 @@ from app.products.crm.dashboard.schemas import (
     DashboardTask,
     PipelineStageSummary,
 )
+from app.products.crm.shared.visibility import DashboardScope
 from app.products.crm.tasks.models import TaskStatus
 
 
@@ -40,9 +41,21 @@ class DashboardService:
         self._repository = DashboardRepository(session)
 
     async def summary(
-        self, organization_id: uuid.UUID, *, now: dt.datetime | None = None
+        self,
+        organization_id: uuid.UUID,
+        *,
+        now: dt.datetime | None = None,
+        scope: DashboardScope | None = None,
     ) -> DashboardSummary:
-        """Aggregate everything the dashboard shows for one organization."""
+        """Aggregate everything the dashboard shows for one organization.
+
+        scope narrows the counts to what the caller may actually open. It
+        is resolved per module rather than once, because a custom role can
+        hold leads.VIEW_ALL without holding opportunities.VIEW_ALL.
+        Passing None aggregates organization-wide, which is what an
+        internal caller with no principal gets.
+        """
+        scope = scope or DashboardScope.unrestricted()
         now = now or dt.datetime.now(dt.UTC)
         today = now.date()
         day_start = dt.datetime.combine(today, dt.time.min, tzinfo=dt.UTC)
@@ -50,25 +63,37 @@ class DashboardService:
 
         repository = self._repository
 
-        new_leads = await repository.count_new_leads(organization_id, now=now)
-        qualified = await repository.count_qualified_leads(organization_id)
-        open_opportunities = await repository.count_open_opportunities(organization_id)
-        pipeline_value = await repository.sum_open_pipeline_value(organization_id)
-        currencies = await repository.open_pipeline_currencies(organization_id)
+        new_leads = await repository.count_new_leads(
+            organization_id, now=now, visibility=scope.leads
+        )
+        qualified = await repository.count_qualified_leads(
+            organization_id, visibility=scope.leads
+        )
+        open_opportunities = await repository.count_open_opportunities(
+            organization_id, visibility=scope.opportunities
+        )
+        pipeline_value = await repository.sum_open_pipeline_value(
+            organization_id, visibility=scope.opportunities
+        )
+        currencies = await repository.open_pipeline_currencies(
+            organization_id, visibility=scope.opportunities
+        )
         # One currency in play → name it. Several → the sum has no single
         # symbol, and saying so beats picking one.
         pipeline_currency = currencies[0] if len(currencies) == 1 else None
         closing_soon = await repository.count_opportunities_closing_soon(
-            organization_id, today=today
+            organization_id, today=today, visibility=scope.opportunities
         )
         meetings_today = await repository.count_meetings_today(
             organization_id, day_start=day_start, day_end=day_end
         )
         tasks_due, tasks_due_high = await repository.count_tasks_due(
-            organization_id, day_end=day_end
+            organization_id, day_end=day_end, visibility=scope.tasks
         )
 
-        stages = await repository.pipeline_by_stage(organization_id)
+        stages = await repository.pipeline_by_stage(
+            organization_id, visibility=scope.opportunities
+        )
         pipeline = [
             PipelineStageSummary(
                 stage_id=stage_id, name=name, sort_order=sort_order, count=count, value=value
@@ -86,7 +111,7 @@ class DashboardService:
                 due_date=task.due_date,
                 completed=task.status is TaskStatus.COMPLETED,
             )
-            for task in await repository.open_tasks(organization_id)
+            for task in await repository.open_tasks(organization_id, visibility=scope.tasks)
         ]
 
         meeting_rows = await repository.upcoming_meetings(organization_id, now=now)

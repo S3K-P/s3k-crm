@@ -13,8 +13,13 @@ import uuid
 from collections.abc import Sequence
 
 import structlog
+from fastapi import status as http_status
 
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import AppError, ConflictError, NotFoundError
+from app.platform.audit.service import Action as AuditAction
+from app.platform.audit.service import AuditService
+from app.platform.authorization.catalog import ADMIN_ROLE
+from app.platform.authorization.service import AuthorizationService
 from app.platform.organizations.models import (
     MembershipStatus,
     Organization,
@@ -24,6 +29,17 @@ from app.platform.organizations.repository import OrganizationRepository
 
 logger = structlog.get_logger(__name__)
 
+
+class LastAdministratorError(AppError):
+    """The change would leave the organization with no active administrator."""
+
+    status_code = http_status.HTTP_409_CONFLICT
+    code = "last_administrator"
+    message = (
+        "This organization must keep at least one active administrator. "
+        "Grant the Admin role to another active member first."
+    )
+
 _SLUG_PATTERN = re.compile(r"[^a-z0-9]+")
 
 
@@ -32,11 +48,23 @@ def slugify(value: str) -> str:
     return _SLUG_PATTERN.sub("-", value.strip().lower()).strip("-")
 
 
+#: Permission module membership changes are recorded under. Adding, suspending
+#: or reinstating a member is a ``users``-level act rather than an
+#: ``organizations`` one: it changes what a *person* can reach, which is the
+#: question an audit reader is asking.
+USERS_MODULE = "users"
+
+
 class OrganizationService:
     """Creating organizations and managing who belongs to them."""
 
-    def __init__(self, repository: OrganizationRepository) -> None:
+    def __init__(
+        self, repository: OrganizationRepository, *, audit: AuditService | None = None
+    ) -> None:
         self._repository = repository
+        # Optional so ``app.bootstrap`` and test fixtures can provision an
+        # organization before any tenant context or request exists.
+        self._audit = audit
 
     # --- Organizations -----------------------------------------------------
 
@@ -98,8 +126,13 @@ class OrganizationService:
         user_id: uuid.UUID,
         status: MembershipStatus = MembershipStatus.ACTIVE,
         is_default: bool = False,
+        actor_id: uuid.UUID | None = None,
     ) -> OrganizationMembership:
         """Add a user to an organization.
+
+        Args:
+            actor_id: the administrator granting access, for the audit record.
+                Distinct from ``user_id``, which is who *received* it.
 
         Raises:
             ConflictError: the user is already a member. The unique constraint
@@ -124,6 +157,21 @@ class OrganizationService:
             user_id=str(user_id),
             status=status.value,
         )
+
+        if self._audit is not None:
+            await self._audit.record(
+                organization_id=organization_id,
+                action=AuditAction.MEMBER_ADDED,
+                module=USERS_MODULE,
+                actor_id=actor_id,
+                entity_type="USER",
+                entity_id=user_id,
+                details={
+                    "membership_id": membership.id,
+                    "status": status,
+                    "is_default": is_default,
+                },
+            )
         return membership
 
     async def get_membership(
@@ -151,17 +199,28 @@ class OrganizationService:
         return await self._repository.list_memberships_for_user(user_id)
 
     async def set_member_status(
-        self, *, organization_id: uuid.UUID, user_id: uuid.UUID, status: MembershipStatus
+        self,
+        *,
+        organization_id: uuid.UUID,
+        user_id: uuid.UUID,
+        status: MembershipStatus,
+        actor_id: uuid.UUID | None = None,
     ) -> OrganizationMembership:
         """Activate or suspend a member.
 
         Suspension takes effect on the next request: the membership verifier
         reads status on every call, so access is cut immediately rather than
         when the member's token happens to expire.
+
+        That immediacy is exactly why this is audited: someone losing access
+        mid-session has no in-app trace of why, and the trail is where the
+        answer lives. Both the old and the new status are recorded, because
+        "suspended" reads very differently depending on what it replaced.
         """
         membership = await self.get_membership(
             organization_id=organization_id, user_id=user_id
         )
+        previous = membership.status
         membership.status = status
         logger.info(
             "membership_status_changed",
@@ -169,6 +228,21 @@ class OrganizationService:
             user_id=str(user_id),
             status=status.value,
         )
+
+        if self._audit is not None and previous is not status:
+            await self._audit.record(
+                organization_id=organization_id,
+                action=AuditAction.MEMBER_STATUS_CHANGED,
+                module=USERS_MODULE,
+                actor_id=actor_id,
+                entity_type="USER",
+                entity_id=user_id,
+                details={
+                    "membership_id": membership.id,
+                    "from": previous,
+                    "to": status,
+                },
+            )
         return membership
 
     async def is_active_member(
@@ -178,5 +252,62 @@ class OrganizationService:
             organization_id=organization_id, user_id=user_id
         )
 
+    async def active_membership_ids(self, organization_id: uuid.UUID) -> set[uuid.UUID]:
+        """Ids of every membership currently granting access to the tenant."""
+        memberships = await self._repository.list_memberships_in_organization(
+            organization_id, limit=_MEMBERSHIP_SCAN_LIMIT, offset=0
+        )
+        return {m.id for m in memberships if m.grants_access}
 
-__all__ = ["OrganizationService", "slugify"]
+
+#: Upper bound when scanning memberships for the administrator guard. An
+#: organization with more members than this would need a counting query; the
+#: guard is written against the same window the admin UI itself pages over.
+_MEMBERSHIP_SCAN_LIMIT = 500
+
+
+async def ensure_administrator_remains(
+    *,
+    organizations: OrganizationService,
+    authorization: AuthorizationService,
+    organization_id: uuid.UUID,
+    losing_admin_membership_id: uuid.UUID,
+) -> None:
+    """Refuse a change that would remove the organization's last administrator.
+
+    Called before suspending a member and before revoking a role, with the
+    membership that is about to stop being an active administrator. If no
+    *other* active membership holds Admin, the change is rejected — otherwise
+    an administrator can lock every human, including themselves, out of user
+    management and role assignment with a single click, and the only recovery
+    is direct database access.
+
+    The two halves come from the modules that own them: which memberships hold
+    Admin is an authorization question, which are active is an organizations
+    question. Neither module reads the other's tables.
+    """
+    admin_membership_ids = await authorization.membership_ids_with_role(
+        organization_id=organization_id, role_name=ADMIN_ROLE
+    )
+    if losing_admin_membership_id not in admin_membership_ids:
+        # Not an administrator to begin with: nothing to protect.
+        return
+
+    active_ids = await organizations.active_membership_ids(organization_id)
+    remaining = (admin_membership_ids & active_ids) - {losing_admin_membership_id}
+    if not remaining:
+        logger.warning(
+            "last_administrator_change_blocked",
+            organization_id=str(organization_id),
+            membership_id=str(losing_admin_membership_id),
+        )
+        raise LastAdministratorError
+
+
+__all__ = [
+    "USERS_MODULE",
+    "LastAdministratorError",
+    "OrganizationService",
+    "ensure_administrator_remains",
+    "slugify",
+]

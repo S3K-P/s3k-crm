@@ -16,6 +16,7 @@ from app.platform.auth.dependencies import Principal, require_permission
 from app.platform.authorization.service import Action as PermissionAction
 from app.products.crm.dashboard.schemas import DashboardSummary
 from app.products.crm.dashboard.service import DashboardService
+from app.products.crm.shared.visibility import DashboardScope
 
 router = APIRouter()
 
@@ -40,8 +41,14 @@ async def get_dashboard_summary(
     already verified the caller is an active member of. An organization with no
     CRM records returns zeros and empty lists — a real empty state, not an
     error.
+
+    Counts are narrowed to what this caller may open, so the KPI above a list
+    and the list itself always agree. A rep sees their own pipeline; a manager
+    or administrator, holding ``VIEW_ALL``, sees the organization's.
     """
-    return await service.summary(principal.organization_id)
+    return await service.summary(
+        principal.organization_id, scope=DashboardScope.for_principal(principal)
+    )
 
 
 __all__ = ["router"]

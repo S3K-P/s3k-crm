@@ -83,12 +83,17 @@ _CRM_MODULES: Final[tuple[str, ...]] = (
 
 _MANAGER_ACTIONS: Final = (
     PermissionAction.VIEW,
+    #: A manager runs the team's pipeline, so they read across owners.
+    PermissionAction.VIEW_ALL,
     PermissionAction.CREATE,
     PermissionAction.EDIT,
     PermissionAction.DELETE,
     PermissionAction.EXPORT,
 )
 
+#: Day-to-day sales work. ``VIEW_ALL`` is deliberately absent: a rep reads the
+#: records they own, which is what makes ``VIEW`` record-level rather than
+#: organization-wide.
 _USER_ACTIONS: Final = (
     PermissionAction.VIEW,
     PermissionAction.CREATE,
@@ -109,10 +114,23 @@ def _manager_permissions() -> tuple[str, ...]:
 
 
 def _user_permissions() -> tuple[str, ...]:
-    """Day-to-day sales work: read, create and edit CRM records, never delete."""
+    """Day-to-day sales work: read, create and edit **own** records, never delete."""
     return tuple(
         permission_code(module, action) for module in _CRM_MODULES for action in _USER_ACTIONS
     )
+
+
+#: Modules whose rows carry an ``owner_id`` that record-level visibility is
+#: resolved against. Everything else is organization-wide reference data or
+#: has its own rule (notes enforce author/visibility in their own service).
+#:
+#: ``activities`` is deliberately absent: an activity is a child of the record
+#: it is logged against, and scoping it by its own owner would hide a
+#: colleague's call from that record's timeline — which is the opposite of
+#: what a shared account history is for.
+OWNER_SCOPED_MODULES: Final[frozenset[str]] = frozenset(
+    {"accounts", "contacts", "leads", "opportunities", "tasks"}
+)
 
 
 #: name -> description, and the permission codes it grants. ``None`` means
@@ -146,6 +164,7 @@ def permissions_for_system_role(name: str) -> tuple[str, ...]:
 __all__ = [
     "ADMIN_ROLE",
     "MANAGER_ROLE",
+    "OWNER_SCOPED_MODULES",
     "PERMISSION_ACTIONS",
     "PERMISSION_MODULES",
     "SYSTEM_ROLES",

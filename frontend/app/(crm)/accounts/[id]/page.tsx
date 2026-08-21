@@ -1,14 +1,19 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Building2, Loader2 } from 'lucide-react';
+import { ArrowLeft, Building2, Loader2, Plus } from 'lucide-react';
 
 import SectionHeader from '@/components/crm/shared/SectionHeader';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
 import { humanize, statusVariant } from '@/components/crm/shared/statusVariants';
 import { ListError } from '@/components/crm/shared/ListStates';
 import { ActivityTimelinePanel, NotesPanel } from '@/components/crm/shared/RecordPanels';
+import {
+  AccountContactsPanel,
+  AccountOpportunitiesPanel,
+} from '@/components/crm/shared/RelatedLists';
 import { useRecord } from '@/components/crm/shared/useRecord';
+import { usePermissions } from '@/context/AuthContext';
 import { getAccount, type Account } from '@/features/crm/accounts';
 
 /* ============================================================
@@ -34,6 +39,9 @@ export default function AccountDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const id = typeof params?.id === 'string' ? params.id : undefined;
+  const { can } = usePermissions();
+  const mayCreateContacts = can('contacts', 'CREATE');
+  const mayCreateOpportunities = can('opportunities', 'CREATE');
 
   const { status, data, error, reload } = useRecord<Account>(getAccount, id, {
     errorMessage: 'Could not load this account.',
@@ -60,7 +68,8 @@ export default function AccountDetailPage() {
         <div className="surface bd rounded-2xl border p-10 text-center">
           <p className="txt text-[14px] font-semibold">Account not found</p>
           <p className="txt-muted mt-1 text-[12.5px]">
-            It may have been archived, or it belongs to another organization.
+            It may have been archived, owned by someone else, or belong to another
+            organization.
           </p>
         </div>
       </div>
@@ -136,6 +145,35 @@ export default function AccountDetailPage() {
           <p className="txt whitespace-pre-wrap pt-1 text-[13.5px]">{account.description}</p>
         </div>
       )}
+
+      {/* Both actions carry this account's id through to the create form, so
+          the account it belongs to is already chosen when the drawer opens
+          and is saved as the real foreign key — not re-typed. */}
+      <div className="flex flex-wrap gap-2">
+        {mayCreateContacts && (
+          <button
+            type="button"
+            onClick={() => router.push(`/contacts?account_id=${account.id}`)}
+            className="ctl bd inline-flex items-center gap-1.5 rounded-lg border px-3.5 py-2 text-[12.5px] font-semibold transition hover:opacity-80"
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" /> New contact
+          </button>
+        )}
+        {mayCreateOpportunities && (
+          <button
+            type="button"
+            onClick={() => router.push(`/opportunities?account_id=${account.id}`)}
+            className="ctl bd inline-flex items-center gap-1.5 rounded-lg border px-3.5 py-2 text-[12.5px] font-semibold transition hover:opacity-80"
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" /> New opportunity
+          </button>
+        )}
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <AccountContactsPanel accountId={account.id} />
+        <AccountOpportunitiesPanel accountId={account.id} />
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <ActivityTimelinePanel entityType="ACCOUNT" entityId={account.id} />

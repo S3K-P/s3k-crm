@@ -35,6 +35,7 @@ const VARIANTS: Record<string, BadgeVariant> = {
   PROPOSAL_SENT: 'warning',
   NEGOTIATION: 'warning',
   CONVERTED: 'success',
+  UNQUALIFIED: 'danger',
   LOST: 'danger',
 
   // Tasks
@@ -48,6 +49,15 @@ const VARIANTS: Record<string, BadgeVariant> = {
 
   // Activities
   PLANNED: 'accent',
+
+  // Campaigns
+  PLANNING: 'neutral',
+  PAUSED: 'warning',
+
+  // Memberships
+  INVITED: 'warning',
+  SUSPENDED: 'danger',
+  DISABLED: 'neutral',
 };
 
 export function statusVariant(value: string | null | undefined): BadgeVariant {

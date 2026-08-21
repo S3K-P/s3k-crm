@@ -217,10 +217,31 @@ def test_converting_a_lead_creates_an_account_and_contact(
     assert response.status_code == 201
     body = response.json()
     assert body["account_id"] and body["contact_id"]
-    assert body["opportunity_id"] is None
+    # Default convert creates a deal so the lifecycle reaches Opportunity.
+    assert body["opportunity_id"] is not None
 
     account = as_alpha_admin.get(f"/crm/accounts/{body['account_id']}").json()
     assert account["name"] == "Hopper Systems"
+    opportunity = as_alpha_admin.get(
+        f"/crm/opportunities/{body['opportunity_id']}"
+    ).json()
+    assert opportunity["account_id"] == body["account_id"]
+    assert opportunity["primary_contact_id"] == body["contact_id"]
+
+
+def test_converting_without_a_deal_skips_the_opportunity(
+    as_alpha_admin: ApiSession,
+) -> None:
+    lead_id = _qualified_lead(as_alpha_admin)
+
+    body = as_alpha_admin.post(
+        f"/crm/leads/{lead_id}/convert", json={"create_opportunity": False}
+    ).json()
+
+    assert body["account_id"] and body["contact_id"]
+    assert body["opportunity_id"] is None
+    lead = as_alpha_admin.get(f"/crm/leads/{lead_id}").json()
+    assert lead["converted_opportunity_id"] is None
 
 
 def test_conversion_marks_the_lead_converted_and_links_the_records(
@@ -235,6 +256,7 @@ def test_conversion_marks_the_lead_converted_and_links_the_records(
     assert lead["converted_at"] is not None
     assert lead["converted_account_id"] == body["account_id"]
     assert lead["converted_contact_id"] == body["contact_id"]
+    assert lead["converted_opportunity_id"] == body["opportunity_id"]
 
 
 def test_conversion_can_create_an_opportunity(as_alpha_admin: ApiSession) -> None:
@@ -445,3 +467,41 @@ def test_an_account_with_open_opportunities_cannot_be_archived(
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "account_has_open_opportunities"
+
+
+# --- Soft deletion and name uniqueness --------------------------------------
+
+
+def test_an_archived_lead_source_name_can_be_used_again(
+    as_alpha_admin: ApiSession,
+) -> None:
+    """Archiving a name must release it, not reserve it forever.
+
+    ``uq_lead_sources_organization_id_name`` was an unconditional unique
+    constraint, so it counted archived rows — while the service's duplicate
+    check filtered on ``deleted_at IS NULL``. The pre-check therefore passed
+    and the INSERT then failed in the database, surfacing as a 500. The
+    constraint is now a partial index with the same predicate the service
+    uses.
+    """
+    first = as_alpha_admin.post("/crm/lead-sources", json={"name": "Trade Show"})
+    assert first.status_code == 201, first.text
+
+    archived = as_alpha_admin.delete(f"/crm/lead-sources/{first.json()['id']}")
+    assert archived.status_code == 204, archived.text
+
+    again = as_alpha_admin.post("/crm/lead-sources", json={"name": "Trade Show"})
+
+    assert again.status_code == 201, again.text
+    assert again.json()["id"] != first.json()["id"]
+
+
+def test_a_live_lead_source_name_is_still_rejected(as_alpha_admin: ApiSession) -> None:
+    """The partial index must not weaken uniqueness among live rows."""
+    created = as_alpha_admin.post("/crm/lead-sources", json={"name": "Webinar"})
+    assert created.status_code == 201, created.text
+
+    duplicate = as_alpha_admin.post("/crm/lead-sources", json={"name": "Webinar"})
+
+    assert duplicate.status_code == 409, duplicate.text
+    assert duplicate.json()["error"]["code"] == "duplicate_lead_source"

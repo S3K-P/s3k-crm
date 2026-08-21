@@ -28,6 +28,7 @@ from app.products.crm.contacts.models import Contact, ContactStatus
 from app.products.crm.shared.pagination import PageParams
 from app.products.crm.shared.repository import TenantScopedRepository
 from app.products.crm.shared.service import TenantScopedService
+from app.products.crm.shared.visibility import RecordVisibility
 
 
 class DuplicateContactEmailError(ConflictError):
@@ -81,8 +82,11 @@ class ContactService(TenantScopedService[Contact]):
         *,
         params: PageParams,
         filters: Sequence[ColumnElement[bool]] = (),
+        visibility: RecordVisibility | None = None,
     ) -> tuple[Sequence[Contact], int]:
-        return await self.list(organization_id, params=params, filters=filters)
+        return await self.list(
+            organization_id, params=params, filters=filters, visibility=visibility
+        )
 
     async def exists(self, contact_id: uuid.UUID, organization_id: uuid.UUID) -> bool:
         """Existence check other CRM modules use when handed a contact id."""

@@ -6,6 +6,8 @@ import { Building2, Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
 
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
+import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
+import { notifyError, notifySuccess, notifyWarning } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
 import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
@@ -60,6 +62,7 @@ const EMPTY_FORM: AccountInput = {
 
 export default function AccountsPage() {
   const router = useRouter();
+  const confirm = useConfirm();
   const { can } = usePermissions();
   const mayCreate = can('accounts', 'CREATE');
   const mayEdit = can('accounts', 'EDIT');
@@ -139,17 +142,39 @@ export default function AccountsPage() {
     if (saved === undefined) {
       // A duplicate name is a warning, not a rejection (decision C03): offer
       // the override rather than making the user rename a real second office.
-      if (!editing && !allowDuplicate) setDuplicateWarning(true);
+      if (!editing && !allowDuplicate) {
+        setDuplicateWarning(true);
+        notifyWarning(
+          'An account with that name already exists',
+          'Press "Save anyway" to create a second record — a separate office or subsidiary, say.',
+        );
+      }
       return;
     }
     setDrawerOpen(false);
     setDuplicateWarning(false);
+    notifySuccess(editing ? 'Account updated' : 'Account created', body.name);
     reload();
   };
 
   const handleDelete = async (row: Account) => {
-    const done = await run(() => archiveAccount(row.id));
-    if (done !== undefined) reload();
+    const ok = await confirm({
+      title: `Archive ${row.name}?`,
+      description:
+        'Its contacts, opportunities and activities stay in the database and keep pointing at it. The backend refuses the archive outright while the account still has open opportunities.',
+      confirmLabel: 'Archive account',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await archiveAccount(row.id);
+      notifySuccess('Account archived', row.name);
+      reload();
+    } catch (caught) {
+      // Typically "this account still has open opportunities" — the reason
+      // the server gave, not a generic failure.
+      notifyError(caught, 'The account could not be archived.');
+    }
   };
 
   const columns = useMemo<ColumnDef<Account>[]>(

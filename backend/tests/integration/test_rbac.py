@@ -122,6 +122,39 @@ def test_a_manager_may_list_organization_members(
     assert as_alpha_manager.get("/organizations/current/members").status_code == 200
 
 
+def test_members_carry_the_identity_of_the_user_behind_them(
+    as_alpha_admin: ApiSession, alpha: Tenant
+) -> None:
+    """``email`` and ``full_name`` are populated, not blank.
+
+    The endpoint used to declare both fields and then hardcode ``""`` and
+    ``None``, so every member rendered as an anonymous row and the admin
+    screen could not identify anyone.
+    """
+    members = as_alpha_admin.get("/organizations/current/members").json()["data"]
+
+    by_email = {member["email"]: member for member in members}
+    assert alpha.admin.email in by_email, "the admin's own membership is missing"
+
+    for member in members:
+        assert member["email"], "a member came back without an email address"
+        assert member["full_name"], "a member came back without a display name"
+
+    # Seeded as first_name=<role>, last_name=<slug title-cased>.
+    assert by_email[alpha.admin.email]["full_name"] == f"Admin {alpha.slug.title()}"
+
+
+def test_member_identities_do_not_cross_organizations(
+    as_alpha_admin: ApiSession, beta: Tenant
+) -> None:
+    """The directory lookup is confined to this organization's memberships."""
+    members = as_alpha_admin.get("/organizations/current/members").json()["data"]
+    emails = {member["email"] for member in members}
+
+    for outsider in (beta.admin.email, beta.manager.email, beta.member.email):
+        assert outsider not in emails
+
+
 # --- Role visibility --------------------------------------------------------
 
 

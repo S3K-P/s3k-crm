@@ -515,10 +515,10 @@ gantt
 | P1-W07-BE-01 | `Role`, `Permission`, `RolePermission`, `MembershipRole` models + migration                                                | BE     | Backend Eng  | 2.0      | P1-W06-BE-02 | ☐   |
 | P1-W07-BE-02 | Permission seed for 11 CRM modules × 6 actions (VIEW/CREATE/EDIT/DELETE/EXPORT/ADMIN), sourced from `admin/roles/page.tsx` | BE     | Backend Eng  | 1.5      | P1-W07-BE-01 | ☐   |
 | P1-W07-BE-03 | System role templates: Admin, Sales Manager, Sales Rep, Marketing, Support (resolves S02)                                  | BE     | Backend Eng  | 1.5      | P1-W07-BE-02 | ☐   |
-| P1-W07-BE-04 | Policy function framework: `require_permission(module, action)` dependency + record-level owner/team predicate hooks       | BE     | Backend Lead | 3.0      | P1-W07-BE-02 | ☐   |
+| P1-W07-BE-04 | Policy function framework: `require_permission(module, action)` dependency + record-level owner/team predicate hooks       | BE     | Backend Lead | 3.0      | P1-W07-BE-02 | ◐   |
 | P1-W07-BE-05 | Effective-permission resolver with Redis cache (5-min TTL, org-prefixed keys)                                              | BE     | Backend Lead | 2.0      | P1-W07-BE-04 | ☐   |
 | P1-W07-BE-06 | Role and permission management APIs                                                                                        | BE     | Backend Eng  | 1.5      | P1-W07-BE-04 | ☐   |
-| P1-W07-QA-01 | Authorization matrix tests: each role × each module × each action, positive and negative                                   | QA     | QA           | 2.5      | P1-W07-BE-04 | ☐   |
+| P1-W07-QA-01 | Authorization matrix tests: each role × each module × each action, positive and negative                                   | QA     | QA           | 2.5      | P1-W07-BE-04 | ◐   |
 
 
 **Week total:** 14 pd.
@@ -536,11 +536,11 @@ gantt
 | ------------ | --------------------------------------------------------------------------------------------------------- | ------ | ------------ | -------- | -------------------------- | --- |
 | P1-W08-BE-01 | `Product` + `ProductEntitlement` models; seed `s3k-crm`                                                   | BE     | Backend Eng  | 1.5      | P1-W07-BE-01               | ☐   |
 | P1-W08-BE-02 | Product-access middleware: 403 "product not licensed" before any `/crm/*` handler runs                    | BE     | Backend Lead | 2.0      | P1-W08-BE-01               | ☐   |
-| P1-W08-BE-03 | `AuditLog` model + audit service; sensitive-action decorator; PII masking in metadata                     | BE     | Backend Eng  | 2.5      | P1-W07-BE-04               | ☐   |
+| P1-W08-BE-03 | `AuditLog` model + audit service; PII masking in metadata (see CR10 on the decorator)                     | BE     | Backend Eng  | 2.5      | P1-W07-BE-04               | ☑   |
 | P1-W08-BE-04 | ARQ worker bootstrap + Redis queue; tenant-aware job payload contract (org ID mandatory, worker sets RLS) | BE     | Backend Lead | 2.5      | P1-W04-DO-01               | ☐   |
-| P1-W08-BE-05 | Route audit writes through ARQ so they never block the request transaction                                | BE     | Backend Eng  | 1.0      | P1-W08-BE-03, P1-W08-BE-04 | ☐   |
+| P1-W08-BE-05 | Route audit writes through ARQ so they never block the request transaction                                | BE     | Backend Eng  | 1.0      | P1-W08-BE-03, P1-W08-BE-04 | ☐ (blocked on BE-04; writes are synchronous and transactional meanwhile — CR11) |
 | P1-W08-BE-06 | `Notification` model + list/mark-read APIs + notification preferences                                     | BE     | Backend Eng  | 2.0      | P1-W08-BE-04               | ☐   |
-| P1-W08-BE-07 | `GET /audit-logs` with filters and pagination, admin permission only                                      | BE     | Backend Eng  | 1.0      | P1-W08-BE-03               | ☐   |
+| P1-W08-BE-07 | `GET /audit-logs` with filters and pagination, admin permission only                                      | BE     | Backend Eng  | 1.0      | P1-W08-BE-03               | ☑   |
 | P1-W08-QA-01 | Product-access denial tests; audit-completeness test for every sensitive action                           | QA     | QA           | 2.0      | P1-W08-BE-02               | ☐   |
 
 
@@ -560,9 +560,9 @@ gantt
 | P1-W09-FE-01 | Login page, auth context, silent token refresh, logout                                      | FE     | Frontend Eng | 2.5      | P1-W05-SEC-03 | ☐   |
 | P1-W09-FE-02 | `middleware.ts` route protection for the `(crm)` group; redirect unauthenticated users      | FE     | Frontend Eng | 1.5      | P1-W09-FE-01  | ☐   |
 | P1-W09-FE-03 | Organization switcher in `CrmTopbar`; replace the placeholder "U" avatar with the real user | FE     | Frontend Eng | 2.0      | P1-W06-BE-03  | ☐   |
-| P1-W09-FE-04 | Wire `admin/users` to the real API (remove `INITIAL_DATA`)                                  | FE     | Frontend Eng | 2.0      | P1-W06-BE-02  | ☐   |
-| P1-W09-FE-05 | Wire `admin/roles` matrix and `admin/teams` to real APIs                                    | FE     | Frontend Eng | 2.5      | P1-W07-BE-06  | ☐   |
-| P1-W09-FE-06 | Wire `admin/audit-logs` to the real API                                                     | FE     | Frontend Eng | 1.0      | P1-W08-BE-07  | ☐   |
+| P1-W09-FE-04 | Wire `admin/users` to the real API (remove `INITIAL_DATA`)                                  | FE     | Frontend Eng | 2.0      | P1-W06-BE-02  | ☑   |
+| P1-W09-FE-05 | Wire `admin/roles` matrix and `admin/teams` to real APIs                                    | FE     | Frontend Eng | 2.5      | P1-W07-BE-06  | ◐   |
+| P1-W09-FE-06 | Wire `admin/audit-logs` to the real API                                                     | FE     | Frontend Eng | 1.0      | P1-W08-BE-07  | ☑   |
 | P1-W09-FE-07 | `usePermissions()` hook; hide or disable actions the user cannot perform (UX layer only)    | FE     | Frontend Eng | 1.5      | P1-W04-BE-06  | ☐   |
 | P1-W09-QA-01 | Full tenant-isolation regression suite — **GATE 1 blocker**                                 | QA     | QA           | 2.0      | P1-W06-QA-01  | ☐   |
 | P1-W09-AR-01 | **GATE 1 review**                                                                           | AR     | Architect    | 1.0      | all above     | ☐   |
@@ -609,7 +609,7 @@ gantt
 | P2-W10-BE-03 | Seed the 10 lead sources currently mocked in `lead-sources/page.tsx`                                          | BE     | Backend Eng A  | 0.5      | P2-W10-BE-02 | ☐   |
 | P2-W10-BE-04 | `Account` model + migration + RLS + composite indexes `(organizationId, status)`, `(organizationId, ownerId)` | BE     | Backend Lead   | 2.0      | GATE 1       | ☐   |
 | P2-W10-BE-05 | Account repository + service: create, update, get, soft delete, org-scoped always                             | BE     | Backend Lead   | 2.5      | P2-W10-BE-04 | ☐   |
-| P2-W10-BE-06 | Record-level visibility predicate: owner, team, org-wide by role                                              | BE     | Backend Lead   | 2.0      | P1-W07-BE-04 | ☐   |
+| P2-W10-BE-06 | Record-level visibility predicate: owner, team, org-wide by role                                              | BE     | Backend Lead   | 2.0      | P1-W07-BE-04 | ◐   |
 | P2-W10-FE-01 | Wire `lead-sources/page.tsx` to the API; add loading/error/empty states                                       | FE     | Frontend Eng A | 2.0      | P2-W10-BE-02 | ☐   |
 | P2-W10-FE-02 | Shared data-fetching layer: query client, error boundary, toast conventions                                   | FE     | Frontend Eng B | 3.0      | P0-W03-FE-01 | ☐   |
 | P2-W10-QA-01 | Reusable CRM test template: CRUD + auth matrix + tenant isolation per entity                                  | QA     | QA             | 2.5      | P2-W10-BE-02 | ☐   |
@@ -709,8 +709,8 @@ gantt
 | P2-W14-BE-05 | Qualification API with BANT / MEDDICC / CHAMP framework checklist stored as JSON                                                                          | BE     | Backend Eng A  | 2.5      | P2-W14-BE-04               | ☐   |
 | P2-W14-BE-06 | Qualification queue endpoint sorted by priority and score                                                                                                 | BE     | Backend Eng B  | 1.5      | P2-W14-BE-05               | ☐   |
 | P2-W14-FE-01 | Wire `leads/[id]/page.tsx` detail + conversion drawer to the API                                                                                          | FE     | Frontend Eng A | 3.0      | P2-W14-BE-01               | ☐   |
-| P2-W14-FE-02 | Wire `qualification/page.tsx` queue and table views to the API                                                                                            | FE     | Frontend Eng B | 2.5      | P2-W14-BE-06               | ☐   |
-| P2-W14-FE-03 | Wire `qualification/[id]/page.tsx` framework switcher and checklist to the API                                                                            | FE     | Frontend Eng B | 2.5      | P2-W14-BE-05               | ☐   |
+| P2-W14-FE-02 | Wire `qualification/page.tsx` queue and table views to the API                                                                                            | FE     | Frontend Eng B | 2.5      | P2-W14-BE-06               | ◐   |
+| P2-W14-FE-03 | Wire `qualification/[id]/page.tsx` framework switcher and checklist to the API                                                                            | FE     | Frontend Eng B | 2.5      | P2-W14-BE-05               | ◐   |
 | P2-W14-QA-01 | Conversion transaction tests including rollback on partial failure                                                                                        | QA     | QA             | 2.0      | P2-W14-BE-01               | ☐   |
 
 
@@ -732,9 +732,9 @@ gantt
 | P2-W15-BE-03 | `CampaignMember` model + add/remove member endpoints for leads and contacts                   | BE     | Backend Eng A  | 2.0      | P2-W15-BE-02 | ☐   |
 | P2-W15-BE-04 | Lead attribution: `campaignId` on Lead + campaign-sourced lead listing                        | BE     | Backend Eng B  | 1.5      | P2-W15-BE-02 | ☐   |
 | P2-W15-BE-05 | ARQ job computing `leadsGenerated`, `opportunitiesGenerated`, `conversionRate` (ROI deferred) | BE     | Backend Eng B  | 2.0      | P2-W15-BE-04 | ☐   |
-| P2-W15-FE-01 | Wire `campaigns/page.tsx` cards and table views to the API                                    | FE     | Frontend Eng A | 3.0      | P2-W15-BE-02 | ☐   |
-| P2-W15-FE-02 | Wire `campaigns/[id]/page.tsx` detail and relationships to the API                            | FE     | Frontend Eng B | 2.5      | P2-W15-BE-03 | ☐   |
-| P2-W15-FE-03 | Remove `MOCK_AI_DATA` from `AICampaignInsights`; render an explicit "AI not configured" state | FE     | Frontend Eng B | 1.0      | —            | ☐   |
+| P2-W15-FE-01 | Wire `campaigns/page.tsx` cards and table views to the API                                    | FE     | Frontend Eng A | 3.0      | P2-W15-BE-02 | ☑   |
+| P2-W15-FE-02 | Wire `campaigns/[id]/page.tsx` detail and relationships to the API                            | FE     | Frontend Eng B | 2.5      | P2-W15-BE-03 | ☑   |
+| P2-W15-FE-03 | Remove `MOCK_AI_DATA` from `AICampaignInsights`; render an explicit "AI not configured" state | FE     | Frontend Eng B | 1.0      | —            | ☑   |
 | P2-W15-QA-01 | Campaign test suite + member-uniqueness tests                                                 | QA     | QA             | 2.0      | P2-W15-BE-03 | ☐   |
 
 
@@ -805,9 +805,9 @@ gantt
 | P2-W18-BE-04 | `Task` model + CRUD with priority, status, due date, assignment                                           | BE     | Backend Eng A  | 2.0      | P2-W18-BE-01               | ☐   |
 | P2-W18-BE-05 | ARQ scheduled job sending task due-date reminder notifications                                            | BE     | Backend Eng B  | 1.5      | P2-W18-BE-04, P1-W08-BE-06 | ☐   |
 | P2-W18-BE-06 | `Note` model + CRUD with author, team/private visibility, entity linkage                                  | BE     | Backend Eng B  | 1.5      | P2-W18-BE-01               | ☐   |
-| P2-W18-FE-01 | Wire `meetings/page.tsx` and `meetings/[id]/page.tsx` to the API                                          | FE     | Frontend Eng A | 3.0      | P2-W18-BE-02               | ☐   |
-| P2-W18-FE-02 | New `/tasks` route with list, filters, and completion actions                                             | FE     | Frontend Eng B | 3.0      | P2-W18-BE-04               | ☐   |
-| P2-W18-FE-03 | Reusable notes and activity-timeline panels for all CRM detail pages                                      | FE     | Frontend Eng B | 2.5      | P2-W18-BE-03, P2-W18-BE-06 | ☐   |
+| P2-W18-FE-01 | Wire `meetings/page.tsx` and `meetings/[id]/page.tsx` to the API                                          | FE     | Frontend Eng A | 3.0      | P2-W18-BE-02               | ☑   |
+| P2-W18-FE-02 | New `/tasks` route with list, filters, and completion actions                                             | FE     | Frontend Eng B | 3.0      | P2-W18-BE-04               | ☑   |
+| P2-W18-FE-03 | Reusable notes and activity-timeline panels for all CRM detail pages                                      | FE     | Frontend Eng B | 2.5      | P2-W18-BE-03, P2-W18-BE-06 | ☑   |
 | P2-W18-QA-01 | Polymorphic-link validation tests: rejects cross-organization and non-existent targets                    | QA     | QA             | 2.5      | P2-W18-BE-01               | ☐   |
 
 
@@ -968,8 +968,8 @@ gantt
 | P3-W24-FE-01 | Mock-data audit: grep for `INITIAL_DATA` and `MOCK_` across `frontend/`; drive the count to zero in CRM pages | FE     | Frontend Eng A | 2.0      | GATE 2       | ☐   |
 | P3-W24-FE-02 | Consistent loading skeletons, empty states, and error retry on all CRM pages                                  | FE     | Frontend Eng A | 3.5      | P3-W24-FE-01 | ☐   |
 | P3-W24-FE-03 | Authorization-aware UI everywhere: hide or disable unavailable actions using `usePermissions()`               | FE     | Frontend Eng B | 3.0      | P1-W09-FE-07 | ☐   |
-| P3-W24-FE-04 | Wire `admin/crm-settings` to real pipeline, stage, and lead-source configuration APIs                         | FE     | Frontend Eng B | 2.5      | P2-W16-BE-02 | ☐   |
-| P3-W24-FE-05 | Mark AI Settings pages as unconfigured until the AI gateway exists; remove misleading static metrics          | FE     | Frontend Eng A | 2.0      | —            | ☐   |
+| P3-W24-FE-04 | Wire `admin/crm-settings` to real pipeline, stage, and lead-source configuration APIs                         | FE     | Frontend Eng B | 2.5      | P2-W16-BE-02 | ◐   |
+| P3-W24-FE-05 | Mark AI Settings pages as unconfigured until the AI gateway exists; remove misleading static metrics          | FE     | Frontend Eng A | 2.0      | —            | ☑   |
 | P3-W24-FE-06 | Decide and act on the legacy `(app)` route group: remove or explicitly quarantine as template reference       | FE     | Frontend Eng B | 1.5      | —            | ☐   |
 | P3-W24-BE-01 | Add the missing admin routes backing `/admin/notifications`; formally defer workflows and data pages          | BE     | Backend Eng A  | 2.0      | P1-W08-BE-06 | ☐   |
 | P3-W24-QA-01 | Accessibility and cross-browser pass on primary CRM flows                                                     | QA     | QA             | 2.5      | P3-W24-FE-02 | ☐   |
@@ -1281,6 +1281,23 @@ Update these tables every Friday. They are the single source of project truth fo
 
 **RAG definitions:** 🟢 on track · 🟡 at risk, mitigation in flight · 🔴 gate slip likely · ⬜ not started
 
+**Why this table still reads 0% while §12.3 is largely green (2026-08-20).**
+
+The per-task `St` columns in §5–§10 were never maintained: 256 of 272 rows say
+`☐ Not Started` for work that demonstrably shipped. They have deliberately
+**not** been mass-ticked, for two reasons.
+
+1. Ticking a row from inference is the failure this document exists to prevent.
+   Only rows with direct, named evidence have been changed.
+2. More substantively, §2.4 makes "audit log emitted for sensitive actions" part
+   of the backend Definition of Done. The `audit` module defines no tables and
+   nothing writes to it (blocker **B03**), so on a strict reading *no* backend
+   task yet meets its own DoD — and quietly ticking 200 of them would bury that.
+
+Read §12.3 (module tracker), §12.4 (blockers) and §15 (change control) as the
+current source of truth on status. Reconciling the per-task rows is itself a
+piece of work, and it should follow B03 rather than precede it.
+
 ### 12.2 Weekly Velocity Log
 
 
@@ -1328,22 +1345,42 @@ Update these tables every Friday. They are the single source of project truth fo
 
 | Module            | Model | API | RLS | Auth Tests | Tenant Tests | Frontend Wired | Mock Removed | Done |
 | ----------------- | ----- | --- | --- | ---------- | ------------ | -------------- | ------------ | ---- |
-| Lead Sources      | ☐     | ☐   | ☐   | ☐          | ☐            | ☐              | ☐            | ☐    |
-| Accounts          | ☐     | ☐   | ☐   | ☐          | ☐            | ☐              | ☐            | ☐    |
-| Contacts          | ☐     | ☐   | ☐   | ☐          | ☐            | ☐              | ☐            | ☐    |
-| Leads             | ☐     | ☐   | ☐   | ☐          | ☐            | ☐              | ☐            | ☐    |
-| Qualification     | ☐     | ☐   | ☐   | ☐          | ☐            | ☐              | ☐            | ☐    |
-| Campaigns         | ☐     | ☐   | ☐   | ☐          | ☐            | ☐              | ☐            | ☐    |
-| Pipeline / Stages | ☐     | ☐   | ☐   | ☐          | ☐            | ☐              | ☐            | ☐    |
-| Opportunities     | ☐     | ☐   | ☐   | ☐          | ☐            | ☐              | ☐            | ☐    |
-| Activities        | ☐     | ☐   | ☐   | ☐          | ☐            | ☐              | ☐            | ☐    |
-| Meetings          | ☐     | ☐   | ☐   | ☐          | ☐            | ☐              | ☐            | ☐    |
-| Tasks             | ☐     | ☐   | ☐   | ☐          | ☐            | ☐              | ☐            | ☐    |
-| Notes             | ☐     | ☐   | ☐   | ☐          | ☐            | ☐              | ☐            | ☐    |
-| Attachments       | ☐     | ☐   | ☐   | ☐          | ☐            | ☐              | ☐            | ☐    |
-| Dashboard         | ☐     | ☐   | n/a | ☐          | ☐            | ☐              | ☐            | ☐    |
+| Lead Sources      | ☑     | ☑   | ☑   | ☑          | ☑            | ☑              | ☑            | ☑    |
+| Accounts          | ☑     | ☑   | ☑   | ☑          | ☑            | ☑              | ☑            | ☑    |
+| Contacts          | ☑     | ☑   | ☑   | ☑          | ☑            | ☑              | ☑            | ☑    |
+| Leads             | ☑     | ☑   | ☑   | ☑          | ☑            | ☑              | ☑            | ☑    |
+| Qualification     | ⊘     | ◐   | n/a | ☑          | ☑            | ◐              | ☑            | ◐    |
+| Campaigns         | ☑     | ☑   | ☑   | ☑          | ☑            | ☑              | ☑            | ☑    |
+| Pipeline / Stages | ☑     | ☑   | ☑   | ☑          | ☑            | ☑              | ☑            | ☑    |
+| Opportunities     | ☑     | ☑   | ☑   | ☑          | ☑            | ☑              | ☑            | ☑    |
+| Activities        | ☑     | ☑   | ☑   | ☑          | ☑            | ☑              | ☑            | ☑    |
+| Meetings          | ☑     | ☑   | n/a | ☑          | ☑            | ☑              | ☑            | ☑    |
+| Tasks             | ☑     | ☑   | ☑   | ☑          | ☑            | ☑              | ☑            | ☑    |
+| Notes             | ☑     | ☑   | ☑   | ☑          | ☑            | ☑              | ☑            | ☑    |
+| Attachments       | ◐     | ☐   | ☑   | ☐          | ☐            | ☐              | n/a          | ☐    |
+| Audit             | ☑     | ☑   | ☑   | ☑          | ☑            | ☑              | ☑            | ☑    |
+| Dashboard         | n/a   | ☑   | n/a | ☑          | ☑            | ☑              | ☑            | ☑    |
 | Reports           | ☐     | ☐   | n/a | ☐          | ☐            | ☐              | n/a          | ☐    |
 | Search            | ☐     | ☐   | n/a | ☐          | ☐            | ☐              | n/a          | ☐    |
+
+**Evidence for this table (2026-08-20):** 466 backend tests pass against real
+PostgreSQL; 13 CRM routers registered in `app/api/router.py`; RLS enabled and
+FORCEd on all 13 tenant-scoped `crm` tables; `grep -rE 'INITIAL_DATA|MOCK_'` over
+`frontend/app/(crm)/` returns zero mock arrays.
+
+Rows that are **not** ticked, and why:
+
+* **Qualification** — no `QualificationRecord` model exists (`P2-W14-BE-04/05`),
+  so the BANT/MEDDICC scorecard has nowhere to persist. The queue itself is real
+  (derived from lead status) and the scorecard reports itself unavailable on
+  screen rather than being mocked. See CR05.
+* **Attachments** — `platform.attachments` exists with RLS, but `documents/`
+  `router.py`, `service.py`, `repository.py` and `schemas.py` are docstring
+  placeholders and the router is not registered. No object-storage provider or
+  credentials are configured (`boto3` is not even a dependency), so
+  `P2-W19-BE-02/03/04` cannot be built or tested honestly yet. **This is the
+  remaining GATE 2 blocker.**
+* **Reports / Search** — Phase 3 (W20–W21), not started.
 
 
 
@@ -1353,7 +1390,10 @@ Update these tables every Friday. They are the single source of project truth fo
 
 | ID  | Opened | Week | Blocked Task | Description | Owner | Needed From | Age (days) | Resolved |
 | --- | ------ | ---- | ------------ | ----------- | ----- | ----------- | ---------- | -------- |
-| B01 |        |      |              |             |       |             |            |          |
+| B01 | 2026-08-20 | W19 | `P2-W19-BE-02/03/04`, `P2-W19-FE-02`, `P2-W19-QA-01` | Documents/attachments cannot be built: no object-storage provider, bucket or credentials exist, and `boto3` is not a dependency. Writing a stub storage adapter to make the tasks look done would put an untested, unusable upload path in front of users. **Sole remaining GATE 2 blocker.** | Backend Lead | DevOps / I02 (managed object storage decision) | open | ☐ |
+| B02 | 2026-08-20 | W07 | `P1-W07-BE-06`, `P1-W09-FE-05` (teams half) | No `Team` model exists, so `admin/teams` has no backend to wire and the *team* dimension of record-level visibility cannot be resolved. See CR07. | Backend Lead | Product decision on team structure | open | ☐ |
+| B03 | 2026-08-20 | W08 | `P1-W08-BE-01`…`BE-07`, `P1-W09-FE-06` | The `audit` module is a placeholder — `models.py` defines no tables and nothing anywhere writes an audit entry. The backend Definition of Done (§2.4) requires "audit log emitted for sensitive actions", so **no backend task strictly meets its own DoD** until this lands. `admin/audit-logs` is `⛔` for the same reason. | Backend Eng | — (unstarted, not externally blocked) | **resolved 2026-08-21** | ☑ |
+| | | | | **Resolution.** `platform.audit_logs` ships in revision `20260821_0100`: tenant-scoped with RLS enabled *and* FORCEd, and append-only via a `BEFORE UPDATE OR DELETE OR TRUNCATE` trigger that binds every role, superusers included. Writes are emitted from the service layer — `TenantScopedService` covers all nine CRM entities in one place, and auth, RBAC and membership events from their own services. `GET /audit-logs` is gated on `audit.VIEW`, which only *Admin* holds among the seeded roles. `P1-W08-BE-01/02` (product entitlements) are **not** part of this and remain open under their own row. | | | | |
 
 
 **Escalation:** Any blocker older than 2 working days goes to the Architect. Older than 5 goes to the stakeholder group.
@@ -1370,8 +1410,22 @@ The headline signal that the backend is actually landing. Count occurrences of `
 | W13            |                       | 15     |
 | W15            |                       | 11     |
 | W17            |                       | 8      |
-| W19            |                       | 4      |
+| W19            | **0**                 | 4      |
 | W24            |                       | 0      |
+
+Measured 2026-08-20: `grep -rE "INITIAL_DATA|MOCK_[A-Z_]+" frontend/app/(crm)/`
+returns one hit, and it is a comment describing a mock that was removed — no
+declared mock array survives. The W24 target is met five weeks early.
+
+Two caveats this number does **not** cover, kept here so it is not read as more
+than it is:
+
+* `frontend/features/ai/**/mock-data.ts` still exists on disk. No page imports
+  it — the AI screens render an explicit "not configured" state (CR06) — so it
+  is dead code rather than rendered mock data, but it has not been deleted.
+* A page reading no mock data is not the same as a page backed by an API. The
+  16 screens listed in CR06 are honest about having no backend; they are not
+  counted as wired in §12.3.
 
 
 
@@ -1446,7 +1500,7 @@ Sourced from `17-RISKS-OPEN-QUESTIONS-AND-DECISIONS.md`, mapped to the week wher
 | R06 | Product-specific fields in shared tables  | P2-W11-AR-01 recurring review                              | ongoing     | ☐      |
 | R07 | Direct cross-product DB writes            | P4-W28-BE-04, P5-W31-BE-01                                 | W28         | ☐      |
 | R08 | Premature microservices                   | P0-W01-AR-01 (ADR-001)                                     | W01         | ☐      |
-| R09 | Authorization frontend-only               | P1-W07-BE-04, P1-W07-QA-01                                 | W07         | ☐      |
+| R09 | Authorization frontend-only               | P1-W07-BE-04, P1-W07-QA-01                                 | W07         | ☑      |
 | R10 | Missing product-access controls           | P1-W08-BE-02, P1-W08-QA-01                                 | W08         | ☐      |
 | R11 | Schema migration failures                 | P0-W02-BE-01 reversible migrations, staging rehearsal      | W02         | ☐      |
 | R12 | Large activity table growth               | P2-W18-BE-01 indexes; partitioning trigger monitored       | W18         | ☐      |
@@ -1458,7 +1512,7 @@ Sourced from `17-RISKS-OPEN-QUESTIONS-AND-DECISIONS.md`, mapped to the week wher
 | R18 | Integration event failure                 | P4-W26-BE-05 retry + DLQ                                   | W26         | ☐      |
 | R19 | Event duplication                         | P4-W26-BE-03, P4-W27-BE-01 idempotency                     | W27         | ☐      |
 | R20 | Uncontrolled custom fields                | Custom fields deferred; validated model when built         | W24         | ☐      |
-| R21 | Inadequate audit logging                  | P1-W08-BE-03/05, P1-W08-QA-01                              | W08         | ☐      |
+| R21 | Inadequate audit logging                  | P1-W08-BE-03/05, P1-W08-QA-01                              | W08         | ☑ (trail lands 2026-08-21; async delivery still open — CR11) |
 | R22 | Frontend type fragmentation               | P0-W01-FE-01, P0-W02-FE-01                                 | W02         | ☐      |
 | R23 | Pipeline stage inconsistency              | P2-W16-BE-01, P2-W16-AR-01                                 | W16         | ☐      |
 | R24 | Detail pages ignore URL id                | P2-W11-FE-02 onward, per module                            | W19         | ☐      |
@@ -1541,7 +1595,17 @@ Any change to scope, sequence, or gate criteria is recorded here. No exceptions.
 
 | ID   | Date | Week | Change | Reason | Impact (weeks / pd) | Approved By |
 | ---- | ---- | ---- | ------ | ------ | ------------------- | ----------- |
-| CR01 |      |      |        |        |                     |             |
+| CR01 | 2026-08-18 | — | Offset pagination shipped instead of the cursor scheme in doc 11 (`P0-W03-BE-02`) | CRM list screens are page-numbered with a total count, which a cursor cannot supply. Cursor pagination can be added alongside for exports without changing existing responses. | None | *pending* |
+| CR02 | 2026-08-18 | — | Three system roles seeded (Admin / Manager / User) instead of the five named in `P1-W07-BE-03` | The five-role split (Sales Manager, Sales Rep, Marketing, Support) was drawn from the mock `admin/roles` page, not from a stated requirement. Adding roles is a data change, not a schema change. | None | *pending* |
+| CR03 | 2026-08-18 | — | No `POST /organizations/{id}/switch` endpoint (`P1-W06-BE-03`) | Switching is done by sending a different `X-Organization-Id`; the middleware re-verifies membership on **every** request, so no server-side session rebinding is needed. Functionally equivalent and fails closed. | None | *pending* |
+| CR04 | 2026-08-18 | — | API client is hand-written, not `orval`-generated (`P0-W03-FE-01`) | The generator was never wired up. `features/shared/types/api.ts` is the single description of the envelope and is the file generation will replace. | Carries a drift risk until generation lands | *pending* |
+| CR05 | 2026-08-18 | — | Qualification screens ship **without** the BANT / MEDDICC scorecard | `QualificationRecord` (`P2-W14-BE-04/05`) does not exist, so there is nowhere to persist budget/authority/need/timeline. The queue itself is real; the scorecard is reported as unavailable on-screen rather than mocked. | `P2-W14-FE-02/03` remain `◐` until the table lands | *pending* |
+| CR06 | 2026-08-18 | — | Screens with no backend now render an explicit "not configured" state instead of sample data: `admin/teams`, `admin/audit-logs`, `admin/integrations`, `admin/security` (billing), 9× `ai-settings`, `ai/insights`, `ai/next-best-action` | Executes `P2-W15-FE-03` and `P3-W24-FE-05`. Fabricated metrics rendered beside real CRM data are indistinguishable from measurements and get acted on. Pages, routes and navigation are unchanged — only the invented figures are gone. | None; each page names the backend it waits on | *pending* |
+| CR07 | 2026-08-20 | W07 / W10 | Record-level visibility ships as **owner vs organization-wide** only. The *team* dimension named in `P1-W07-BE-04` and `P2-W10-BE-06` is deferred | There is no `Team` model anywhere in the schema (`P1-W07-BE-06` never landed), so there is nothing for a team predicate to resolve against. Building one would have meant inventing a membership concept mid-workstream. | Both tasks stay `◐` until a `Team` model exists; the owner dimension is complete and enforced | *pending* |
+| CR08 | 2026-08-20 | W07 | New permission action `VIEW_ALL`, seeded per module and granted to Admin (wildcard) and Manager; **not** to User | `VIEW` alone could not express "may read records somebody else owns", so every role that could read a module could read all of it. Expressing it as a catalogue action keeps the rule data rather than a role name compiled into a query, and a custom role can hold it per module. | Behaviour change: a plain `User` now lists only records they own. Migration `20260819_0200`. Tenant-defined roles are untouched, so no organization's access silently widens | *pending* |
+| CR09 | 2026-08-20 | W14 | Lead conversion continues to match an existing Account **organization-wide**, so a rep can convert onto an account they cannot then open | Narrowing the match to the converter's own records would manufacture duplicate accounts — the exact defect the duplicate-prevention work removed. Keeping the org-wide match preserves "one company, one account". | The converting rep owns the contact and the opportunity but the account link is a dead end for them. Pinned by `test_conversion_reuses_an_account_the_converter_cannot_see`. **Decision needed:** should the parent of a record you own become readable (one-hop implicit sharing)? | *pending* |
+| CR10 | 2026-08-21 | W08 | Audit emission lives in the **service layer**, not in a "sensitive-action decorator" over route handlers (`P1-W08-BE-03`) | A decorator records what a *route* did and has to be remembered on every new one. All nine CRM entity services already funnel create/update/delete through `TenantScopedService`, so hooking it there audits every existing module and every future one with nothing to remember. Auth, RBAC and membership events attach to their own services for the same reason — role assignment alone has four call sites. | None; strictly wider coverage than the decorator would have given | *pending* |
+| CR11 | 2026-08-21 | W08 | Audit records are written **synchronously, in the transaction that performs the audited action**, rather than through ARQ (`P1-W08-BE-05`) | No ARQ worker exists (`P1-W08-BE-04` is unstarted), so the queue is not available to route through. The synchronous path is also the stronger guarantee: a record committed with its change cannot describe a rolled-back transaction and cannot be lost to an unavailable queue. Failure paths (rejected sign-ins) commit through an independent session, because the request transaction is about to roll back. | One INSERT on an append-only table per audited action. `P1-W08-BE-05` stays open as a throughput optimisation and must preserve failure-path delivery when it lands | *pending* |
 
 
 **Change classes:**
@@ -1610,7 +1674,7 @@ Every page in the `(crm)` route group and the week its mock data is removed.
 | Admin users                 | `frontend/app/(crm)/admin/users/page.tsx`        | W09                       | ☐   |
 | Admin roles                 | `frontend/app/(crm)/admin/roles/page.tsx`        | W09                       | ☐   |
 | Admin teams                 | `frontend/app/(crm)/admin/teams/page.tsx`        | W09                       | ☐   |
-| Admin audit logs            | `frontend/app/(crm)/admin/audit-logs/page.tsx`   | W09                       | ☐   |
+| Admin audit logs            | `frontend/app/(crm)/admin/audit-logs/page.tsx`   | W09                       | ☑   |
 | Admin CRM settings          | `frontend/app/(crm)/admin/crm-settings/page.tsx` | W24                       | ☐   |
 | Admin integrations          | `frontend/app/(crm)/admin/integrations/page.tsx` | W28                       | ☐   |
 | Admin security              | `frontend/app/(crm)/admin/security/page.tsx`     | W24                       | ☐   |

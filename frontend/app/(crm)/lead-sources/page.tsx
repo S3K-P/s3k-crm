@@ -5,6 +5,8 @@ import { Globe, Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
 
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
+import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
+import { notifyError, notifySuccess, notifyWarning } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
 import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
@@ -49,6 +51,7 @@ const EMPTY_FORM: LeadSourceInput = {
 };
 
 export default function LeadSourcesPage() {
+  const confirm = useConfirm();
   const { can } = usePermissions();
   const mayCreate = can('lead_sources', 'CREATE');
   const mayEdit = can('lead_sources', 'EDIT');
@@ -115,12 +118,26 @@ export default function LeadSourcesPage() {
     );
     if (saved === undefined) return; // the drawer stays open and shows the error
     setDrawerOpen(false);
+    notifySuccess(editing ? 'Lead source updated' : 'Lead source created', body.name);
     reload();
   };
 
   const handleDelete = async (row: LeadSource) => {
-    const done = await run(() => archiveLeadSource(row.id));
-    if (done !== undefined) reload();
+    const ok = await confirm({
+      title: `Archive ${row.name}?`,
+      description:
+        'It stops being offered when creating a lead. Leads and opportunities already attributed to it keep the attribution, so source reporting stays intact.',
+      confirmLabel: 'Archive source',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await archiveLeadSource(row.id);
+      notifySuccess('Lead source archived', row.name);
+      reload();
+    } catch (caught) {
+      notifyError(caught, 'The lead source could not be archived.');
+    }
   };
 
   const columns = useMemo<ColumnDef<LeadSource>[]>(

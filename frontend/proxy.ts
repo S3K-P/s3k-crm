@@ -41,18 +41,25 @@ function apiSharesOrigin(request: NextRequest): boolean {
  * shipped an ungated application.
  */
 
-/** Paths under the `(crm)` route group that require a session. */
+/**
+ * Paths under the `(crm)` route group that require a session.
+ *
+ * This list must cover every route in `app/(crm)`. A missing entry is not a
+ * security hole — `RequireAuth` still gates the whole group client-side — but
+ * it does mean an unauthenticated visitor renders the shell before being
+ * bounced, which looks like a flash of the application.
+ */
 const PROTECTED_PREFIXES = [
   '/dashboard',
   '/leads',
   '/lead-sources',
-  '/partners',
   '/campaigns',
   '/meetings',
   '/accounts',
   '/contacts',
   '/opportunities',
   '/qualification',
+  '/tasks',
   '/admin',
   '/ai',
   '/ai-settings',

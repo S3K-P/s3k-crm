@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, Request, Response, status
 
 from app.core.config import Settings
 from app.core.database import DbSession
+from app.platform.audit.service import audit_for_session
 from app.platform.auth.dependencies import (
     CurrentUser,
     get_settings_from_request,
@@ -56,6 +57,12 @@ def get_auth_service(
         # Lets failed-login bookkeeping survive the rollback that follows a
         # rejected sign-in.
         session_factory=request.app.state.session_factory,
+        # The same factory reaches the audit service, so a *rejected* sign-in
+        # is still recorded: it commits its record independently of the
+        # transaction the rejection is about to roll back.
+        audit=audit_for_session(
+            session, session_factory=request.app.state.session_factory
+        ),
     )
 
 

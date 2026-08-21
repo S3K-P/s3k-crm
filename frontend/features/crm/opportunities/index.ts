@@ -59,6 +59,7 @@ export interface OpportunityInput {
 export interface OpportunityListParams extends ListParams {
   stage_id?: string | null;
   account_id?: string | null;
+  primary_contact_id?: string | null;
   owner_id?: string | null;
   is_open?: boolean | null;
 }

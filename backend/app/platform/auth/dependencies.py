@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Annotated
 
 import structlog
@@ -29,9 +29,13 @@ from app.core.tenant import TenantContext, require_tenant_context
 from app.platform.auth.models import User
 from app.platform.auth.repository import AuthRepository
 from app.platform.auth.security import InvalidTokenError, TokenIssuer
+from app.platform.authorization.catalog import permission_code
 from app.platform.authorization.models import PermissionAction
 from app.platform.authorization.repository import AuthorizationRepository
-from app.platform.authorization.service import AuthorizationService
+from app.platform.authorization.service import (
+    AuthorizationService,
+    PermissionDeniedError,
+)
 from app.platform.organizations.repository import OrganizationRepository
 
 logger = structlog.get_logger(__name__)
@@ -127,10 +131,25 @@ class Principal:
     user: User
     organization_id: uuid.UUID
     membership_id: uuid.UUID
+    #: Effective ``module.ACTION`` codes in this organization, resolved once
+    #: per request by :func:`require_permission`. Empty when the principal was
+    #: built without an authorization check (``CurrentPrincipal``), so callers
+    #: must use :meth:`has_permission` rather than reading it as truth.
+    permissions: frozenset[str] = frozenset()
 
     @property
     def user_id(self) -> uuid.UUID:
         return self.user.id
+
+    def has_permission(self, module: str, action: PermissionAction) -> bool:
+        """Whether the resolved permission set contains ``module.action``.
+
+        This is a **read of an already-made decision**, not a new check: the
+        set was loaded by ``require_permission`` while authorizing the route.
+        It exists so a handler can ask a secondary question — "may they also
+        see other people's records?" — without a second database round trip.
+        """
+        return f"{module}.{action.value}" in self.permissions
 
 
 async def get_current_principal(user: CurrentUser, session: DbSession) -> Principal:
@@ -199,10 +218,19 @@ def require_permission(
         principal: CurrentPrincipal,
         authorization: AuthorizationServiceDep,
     ) -> Principal:
-        await authorization.require(
-            membership_id=principal.membership_id, module=module, action=action
-        )
-        return principal
+        # Resolved once and attached, rather than checked and thrown away.
+        # The route's own check and any record-level question the handler asks
+        # afterwards then run off the same snapshot — one query, and no window
+        # in which the two could disagree.
+        granted = await authorization.effective_permissions(principal.membership_id)
+        if permission_code(module, action) not in granted:
+            logger.info(
+                "permission_denied",
+                membership_id=str(principal.membership_id),
+                required=permission_code(module, action),
+            )
+            raise PermissionDeniedError
+        return replace(principal, permissions=frozenset(granted))
 
     return dependency
 

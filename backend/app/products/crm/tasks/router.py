@@ -13,6 +13,7 @@ from app.platform.auth.dependencies import Principal, require_permission
 from app.platform.authorization.service import Action as PermissionAction
 from app.products.crm.common import CrmEntityType, Priority
 from app.products.crm.shared.pagination import Page, PageParams, page_params
+from app.products.crm.shared.visibility import RecordVisibility
 from app.products.crm.tasks.models import TaskStatus
 from app.products.crm.tasks.schemas import (
     TaskCreate,
@@ -39,6 +40,16 @@ def get_service(session: DbSession) -> TaskService:
 ServiceDep = Annotated[TaskService, Depends(get_service)]
 
 
+def visible_to(principal: Principal) -> RecordVisibility:
+    """What this caller may read in this module (ADR-010).
+
+    Passed to every read below, including the reads that back an edit or a
+    delete, so a record outside the caller's visibility is a 404 on every
+    verb rather than only on the list.
+    """
+    return RecordVisibility.for_module(principal, MODULE)
+
+
 @router.get("", response_model=Page[TaskResponse])
 async def list_tasks(
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
@@ -63,7 +74,10 @@ async def list_tasks(
         open_only=open_only,
     )
     items, total = await service.list_tasks(
-        principal.organization_id, params=params, filters=filters
+        principal.organization_id,
+        params=params,
+        filters=filters,
+        visibility=visible_to(principal),
     )
     return Page.build(
         [TaskResponse.model_validate(item) for item in items], total=total, params=params
@@ -100,7 +114,9 @@ async def get_task(
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
     service: ServiceDep,
 ) -> TaskResponse:
-    task = await service.get_or_404(task_id, principal.organization_id)
+    task = await service.get_or_404(
+        task_id, principal.organization_id, visibility=visible_to(principal)
+    )
     return TaskResponse.model_validate(task)
 
 
@@ -112,7 +128,9 @@ async def update_task(
     service: ServiceDep,
 ) -> TaskResponse:
     """Partially update a task. ``completed_at`` follows the status."""
-    task = await service.get_or_404(task_id, principal.organization_id)
+    task = await service.get_or_404(
+        task_id, principal.organization_id, visibility=visible_to(principal)
+    )
     updated = await service.update_task(
         task, actor_id=principal.user_id, values=payload.model_dump(exclude_unset=True)
     )
@@ -127,7 +145,9 @@ async def change_task_status(
     service: ServiceDep,
 ) -> TaskResponse:
     """Complete, reopen or cancel a task."""
-    task = await service.get_or_404(task_id, principal.organization_id)
+    task = await service.get_or_404(
+        task_id, principal.organization_id, visibility=visible_to(principal)
+    )
     updated = await service.set_status(
         task, status=payload.status, actor_id=principal.user_id
     )
@@ -140,7 +160,9 @@ async def archive_task(
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.DELETE))],
     service: ServiceDep,
 ) -> Response:
-    task = await service.get_or_404(task_id, principal.organization_id)
+    task = await service.get_or_404(
+        task_id, principal.organization_id, visibility=visible_to(principal)
+    )
     await service.soft_delete(task, actor_id=principal.user_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

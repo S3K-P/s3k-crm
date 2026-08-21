@@ -83,14 +83,23 @@ def test_converted_is_terminal() -> None:
 
 
 def test_a_lead_can_be_lost_from_any_open_status() -> None:
-    open_statuses = set(LeadStatus) - {LeadStatus.CONVERTED, LeadStatus.LOST}
+    open_statuses = set(LeadStatus) - {
+        LeadStatus.CONVERTED,
+        LeadStatus.LOST,
+        LeadStatus.UNQUALIFIED,
+    }
 
     for status in open_statuses:
         assert LeadStatus.LOST in LEAD_TRANSITIONS[status]
+        assert LeadStatus.UNQUALIFIED in LEAD_TRANSITIONS[status]
 
 
 def test_a_lost_lead_can_be_reopened() -> None:
     assert LEAD_TRANSITIONS[LeadStatus.LOST]
+
+
+def test_an_unqualified_lead_can_be_reopened() -> None:
+    assert LeadStatus.CONTACTED in LEAD_TRANSITIONS[LeadStatus.UNQUALIFIED]
 
 
 @pytest.mark.parametrize(

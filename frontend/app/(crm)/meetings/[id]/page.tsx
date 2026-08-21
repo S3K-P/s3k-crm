@@ -1,212 +1,258 @@
 'use client';
 
+import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Calendar as CalendarIcon, Building2, Phone, Mail, FileText, CheckCircle2, Video, Plus, Target, CheckSquare, Sparkles } from 'lucide-react';
+import { ArrowLeft, CalendarDays, Check, Loader2, Video, X } from 'lucide-react';
+
 import SectionHeader from '@/components/crm/shared/SectionHeader';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
-import Tabs, { type TabDef } from '@/components/crm/shared/Tabs';
-import AIMeetingAssistant, { type AIMeetingAssistantData } from '@/components/crm/ai/AIMeetingAssistant';
-import ActivityItem from '@/components/crm/cards/ActivityItem';
+import { humanize, statusVariant } from '@/components/crm/shared/statusVariants';
+import { FormError, ListError } from '@/components/crm/shared/ListStates';
+import { NotesPanel } from '@/components/crm/shared/RecordPanels';
+import NotConfigured from '@/components/crm/shared/NotConfigured';
+import { useRecord } from '@/components/crm/shared/useRecord';
+import { useRelatedRecordOptions } from '@/components/crm/forms/RelatedRecordFields';
+import { usePermissions } from '@/context/AuthContext';
+import { useMutation } from '@/features/shared/hooks/useCollection';
+import {
+  getMeeting,
+  meetingDetail,
+  updateMeeting,
+  type Meeting,
+} from '@/features/crm/meetings';
+import type { ActivityStatus } from '@/features/crm/activities';
 
 /* ============================================================
-   MOCK DATA
-   ============================================================ */
-const MOCK_MEETING = {
-  id: '1',
-  title: 'Q3 Enterprise Proposal Review',
-  type: 'Online',
-  date: '2026-07-15',
-  startTime: '10:00 AM',
-  endTime: '11:00 AM',
-  participants: 'Sarah Chen, John Doe',
-  internalParticipants: 'Mike Johnson, Sales Engineering',
-  account: 'Acme Corp',
-  opportunity: 'Enterprise Expansion - Q3',
-  owner: 'Mike Johnson',
-  location: 'Zoom',
-  link: 'https://zoom.us/j/123456',
-  agenda: '1. Introduction\n2. Review Proposal\n3. Q&A\n4. Next Steps',
-  status: 'Completed',
-};
+   MEETING DETAIL
 
-const MOCK_AI_DATA: AIMeetingAssistantData = {
-  summary: 'The meeting focused on the Q3 Enterprise Expansion proposal. The client was receptive but requested additional details regarding the implementation timeline and data security protocols.',
-  actionItems: [
-    'Send detailed implementation timeline by Friday.',
-    'Provide the security whitepaper to John Doe.',
-    'Schedule a follow-up call with the technical team.'
-  ],
-  customerSentiment: 'Positive',
-  risksDiscussed: 'Potential delays in their internal legal review process which might push the deal to Q4.',
-  suggestedNextSteps: 'Send the requested documents immediately and book the technical follow-up.',
-  emailDraftSnippet: 'Hi Sarah,\n\nThank you for the productive call today. As discussed, I have attached the implementation timeline and our security whitepaper...\n\nBest,\nMike',
-};
+   Resolves the activity named by the route `[id]`. The previous
+   version rendered a module-level `MOCK_MEETING` and never read
+   the URL, so every meeting id showed the same invented record.
 
-const MOCK_ACTIVITIES = [
-  { id: '1', icon: Video, iconGradient: 'from-sky-500 to-blue-600', title: 'Meeting Started', detail: 'Joined by 3 participants.', timestamp: '2 hours ago' },
-  { id: '2', icon: FileText, iconGradient: 'from-amber-500 to-orange-500', title: 'Note Added', detail: '"Client requested security docs."', timestamp: '1 hour ago' },
-  { id: '3', icon: CheckCircle2, iconGradient: 'from-emerald-500 to-green-600', title: 'Meeting Completed', detail: 'Marked as completed by Mike.', timestamp: '30 mins ago' },
-];
-
-/* ============================================================
-   PAGE COMPONENT
+   Marking a meeting completed or cancelled writes through
+   `PATCH /crm/activities/{id}`; the backend derives
+   `completed_at` from the status, so it is never sent.
    ============================================================ */
 
-export default function MeetingDetailsPage() {
+function Field({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div>
+      <p className="txt-muted text-[12px] font-semibold uppercase">{label}</p>
+      <p className="txt mt-1 text-[13.5px]">{value || '—'}</p>
+    </div>
+  );
+}
+
+function formatWhen(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+export default function MeetingDetailPage() {
   const router = useRouter();
-  const { id } = useParams();
-  
-  // Real app would fetch meeting by id here.
-  const meeting = MOCK_MEETING;
+  const params = useParams<{ id: string }>();
+  const id = typeof params?.id === 'string' ? params.id : undefined;
 
-  const tabs: TabDef[] = [
-    {
-      id: 'overview',
-      label: 'Overview',
-      content: (
-        <div className="space-y-6">
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="surface bd rounded-2xl border p-5">
-              <SectionHeader title="Meeting Details" />
-              <div className="space-y-4 pt-2">
-                <div><p className="txt-muted text-[12px] font-semibold uppercase">Date & Time</p><p className="txt text-[13.5px] mt-1 font-medium">{meeting.date} ({meeting.startTime} - {meeting.endTime})</p></div>
-                <div><p className="txt-muted text-[12px] font-semibold uppercase">Location</p><p className="txt text-[13.5px] mt-1">{meeting.location}</p></div>
-                <div>
-                  <p className="txt-muted text-[12px] font-semibold uppercase">Link</p>
-                  <p className="txt text-[13.5px] mt-1"><a href={meeting.link} target="_blank" rel="noreferrer" className="text-[var(--accent)] hover:underline">{meeting.link}</a></p>
-                </div>
-                <div><p className="txt-muted text-[12px] font-semibold uppercase">Owner</p><p className="txt text-[13.5px] mt-1">{meeting.owner}</p></div>
-              </div>
-            </div>
-            
-            <div className="surface bd rounded-2xl border p-5">
-              <SectionHeader title="Participants" />
-              <div className="space-y-4 pt-2">
-                <div><p className="txt-muted text-[12px] font-semibold uppercase">External</p><p className="txt text-[13.5px] mt-1">{meeting.participants}</p></div>
-                <div><p className="txt-muted text-[12px] font-semibold uppercase">Internal</p><p className="txt text-[13.5px] mt-1">{meeting.internalParticipants}</p></div>
-              </div>
-            </div>
-          </div>
+  const { can } = usePermissions();
+  const mayEdit = can('activities', 'EDIT');
 
-          <div className="surface bd rounded-2xl border p-5">
-            <SectionHeader title="Agenda" />
-            <div className="pt-2">
-              <p className="txt text-[13.5px] whitespace-pre-wrap">{meeting.agenda}</p>
-            </div>
-          </div>
+  const { status, data, error, reload } = useRecord<Meeting>(getMeeting, id, {
+    errorMessage: 'Could not load this meeting.',
+  });
 
-          {/* Related Records Widgets */}
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="surface bd rounded-2xl border p-5">
-              <SectionHeader title="Related Records" />
-              <div className="flex flex-col gap-4 pt-2">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--surface-2)] text-[12px] font-bold text-[var(--accent)]">
-                    <Target className="h-5 w-5" />
-                  </div>
-                  <div><p className="txt text-[14px] font-semibold">{meeting.opportunity}</p><p className="txt-faint text-[12px]">Opportunity</p></div>
-                </div>
-                <div className="flex items-center gap-3 border-t border-[var(--border)] pt-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--surface-2)] text-[12px] font-bold text-[var(--accent)]">
-                    <Building2 className="h-5 w-5" />
-                  </div>
-                  <div><p className="txt text-[14px] font-semibold">{meeting.account}</p><p className="txt-faint text-[12px]">Account</p></div>
-                </div>
-              </div>
-            </div>
-            
-            <div className="surface bd rounded-2xl border p-5">
-              <SectionHeader title="Tasks & Follow-ups" action={<button className="flex items-center gap-1 text-[12px] font-semibold text-[var(--accent)] hover:opacity-80"><Plus className="h-3 w-3" /> Add Task</button>} />
-              <div className="flex flex-col gap-3 pt-2">
-                <div className="flex items-center gap-3">
-                  <CheckSquare className="h-5 w-5 text-[var(--muted)]" />
-                  <div><p className="txt text-[13px] font-semibold">Send implementation timeline</p><p className="txt-faint text-[11px]">Due Tomorrow</p></div>
-                </div>
-                <div className="flex items-center gap-3 border-t border-[var(--border)] pt-3">
-                  <CheckSquare className="h-5 w-5 text-[var(--muted)]" />
-                  <div><p className="txt text-[13px] font-semibold">Schedule tech review</p><p className="txt-faint text-[11px]">Due Friday</p></div>
-                </div>
-              </div>
-            </div>
-          </div>
+  const related = useRelatedRecordOptions();
+  const { pending, error: saveError, run } = useMutation();
+  const [actioned, setActioned] = useState<ActivityStatus | null>(null);
+
+  const setStatus = async (next: ActivityStatus) => {
+    if (!id) return;
+    setActioned(next);
+    const saved = await run(() => updateMeeting(id, { status: next }));
+    setActioned(null);
+    if (saved !== undefined) reload();
+  };
+
+  if (status === 'loading') {
+    return (
+      <div className="txt-muted flex items-center gap-2 p-8 text-[13px]">
+        <Loader2 className="h-4 w-4 motion-safe:animate-spin" /> Loading meeting…
+      </div>
+    );
+  }
+
+  if (status === 'missing') {
+    return (
+      <div className="space-y-4 p-6 lg:p-8">
+        <button
+          type="button"
+          onClick={() => router.push('/meetings')}
+          className="txt-muted flex items-center gap-1.5 text-[13px] font-semibold hover:opacity-70"
+        >
+          <ArrowLeft className="h-4 w-4" /> Back to meetings
+        </button>
+        <div className="surface bd rounded-2xl border p-10 text-center">
+          <p className="txt text-[14px] font-semibold">Meeting not found</p>
+          <p className="txt-muted mt-1 text-[12.5px]">
+            It may have been archived, or it belongs to another organization.
+          </p>
         </div>
-      ),
-    },
-    { 
-      id: 'timeline', 
-      label: 'Timeline', 
-      content: (
-        <div className="surface bd rounded-2xl border p-5">
-          <SectionHeader title="Meeting Timeline" />
-          <div className="pt-2">
-            {MOCK_ACTIVITIES.map((activity, i) => (
-              <ActivityItem key={activity.id} activity={activity} showConnector={i < MOCK_ACTIVITIES.length - 1} />
-            ))}
-          </div>
-        </div>
-      ) 
-    },
-    { id: 'notes', label: 'Notes', content: <div className="p-4 text-[13px] txt-faint">No manual notes added. See AI Summary.</div> },
-    { id: 'attachments', label: 'Attachments', content: <div className="p-4 text-[13px] txt-faint">No files attached.</div> },
-  ];
+      </div>
+    );
+  }
+
+  if (status === 'error' || data === null) {
+    return (
+      <div className="p-6 lg:p-8">
+        <ListError message={error ?? 'Could not load this meeting.'} onRetry={reload} />
+      </div>
+    );
+  }
+
+  const meeting = data;
+  const detail = meetingDetail(meeting);
+  const open = meeting.status === 'PLANNED';
 
   return (
-    <div className="flex h-full flex-col space-y-6 p-6 lg:p-8">
-      
-      {/* ── Page Header ── */}
-      <div className="flex flex-col gap-4">
-        <button onClick={() => router.push('/meetings')} className="txt-muted hover:txt flex w-fit items-center gap-1 text-[13px] font-medium transition-colors">
-          <ArrowLeft className="h-4 w-4" /> Back to Meetings
-        </button>
-        
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-start gap-4">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[16px] bg-gradient-to-br from-sky-500 to-blue-600 shadow-sm">
-              <CalendarIcon className="h-6 w-6 text-white" />
-            </div>
-            <div className="mt-1">
-              <div className="flex items-center gap-3">
-                <h1 className="font-display txt text-[24px] font-extrabold leading-tight tracking-tight">
-                  {meeting.title}
-                </h1>
-                <StatusBadge label={meeting.status} variant={meeting.status === 'Completed' ? 'success' : 'accent'} />
-              </div>
-              <div className="txt-muted mt-1.5 flex items-center gap-2 text-[13px] font-medium">
-                <span className="flex items-center gap-1"><Video className="h-4 w-4" /> {meeting.type}</span>
-                <span className="border-l border-[var(--border)] pl-2 ml-1">{meeting.date} at {meeting.startTime}</span>
-              </div>
-            </div>
+    <div className="space-y-6 p-6 lg:p-8">
+      <button
+        type="button"
+        onClick={() => router.push('/meetings')}
+        className="txt-muted flex items-center gap-1.5 text-[13px] font-semibold hover:opacity-70"
+      >
+        <ArrowLeft className="h-4 w-4" /> Back to meetings
+      </button>
+
+      <div className="flex flex-wrap items-center gap-3.5">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-sky-500 to-blue-600">
+          <CalendarDays className="h-5 w-5 text-white" />
+        </div>
+        <div className="min-w-0">
+          <h1 className="font-display txt text-[22px] font-extrabold">{meeting.subject}</h1>
+          <p className="txt-muted mt-0.5 text-[13px]">
+            {formatWhen(detail?.start_time) ?? 'No start time recorded'}
+          </p>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <StatusBadge label={humanize(meeting.status)} variant={statusVariant(meeting.status)} />
+          {mayEdit && open && (
+            <>
+              <button
+                type="button"
+                onClick={() => void setStatus('COMPLETED')}
+                disabled={pending}
+                className="ctl bd flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] font-semibold transition hover:opacity-80 disabled:opacity-50"
+              >
+                {pending && actioned === 'COMPLETED' ? (
+                  <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />
+                ) : (
+                  <Check className="h-3.5 w-3.5" />
+                )}
+                Mark held
+              </button>
+              <button
+                type="button"
+                onClick={() => void setStatus('CANCELLED')}
+                disabled={pending}
+                className="ctl bd flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] font-semibold text-red-500 transition hover:opacity-80 disabled:opacity-50"
+              >
+                {pending && actioned === 'CANCELLED' ? (
+                  <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />
+                ) : (
+                  <X className="h-3.5 w-3.5" />
+                )}
+                Cancel
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      <FormError message={saveError} />
+
+      <div className="grid gap-6 md:grid-cols-2">
+        <div className="surface bd rounded-2xl border p-5">
+          <SectionHeader title="Schedule" />
+          <div className="space-y-4 pt-2">
+            <Field label="Starts" value={formatWhen(detail?.start_time)} />
+            <Field label="Ends" value={formatWhen(detail?.end_time)} />
+            <Field label="Format" value={detail ? humanize(detail.meeting_type) : null} />
+            <Field label="Location" value={detail?.location ?? null} />
           </div>
-          
-          <div className="flex flex-wrap items-center gap-2">
-            <button className="ctl flex items-center gap-2 px-3 py-2 text-[12.5px] font-semibold transition hover:opacity-80">
-              <CheckCircle2 className="h-4 w-4" /> Mark Complete
-            </button>
-            <button className="ctl flex items-center gap-2 px-3 py-2 text-[12.5px] font-semibold transition hover:opacity-80">
-              <Mail className="h-4 w-4" /> Follow-up
-            </button>
-            <button
-              className="flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-semibold text-white shadow-sm transition hover:opacity-90 hover:shadow-md"
+          {detail?.meeting_link && (
+            <a
+              href={detail.meeting_link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-4 inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-[12.5px] font-semibold text-white transition hover:opacity-90"
               style={{ background: 'var(--accent)' }}
             >
-              <Sparkles className="h-4 w-4 text-violet-200" /> Gen. AI Summary
-            </button>
+              <Video className="h-3.5 w-3.5" /> Join meeting
+            </a>
+          )}
+        </div>
+
+        <div className="surface bd rounded-2xl border p-5">
+          <SectionHeader title="Context" />
+          <div className="space-y-4 pt-2">
+            <div>
+              <p className="txt-muted text-[12px] font-semibold uppercase">Linked record</p>
+              {meeting.related_entity_type && meeting.related_entity_id ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const routes: Record<string, string> = {
+                      ACCOUNT: 'accounts',
+                      CONTACT: 'contacts',
+                      LEAD: 'leads',
+                      OPPORTUNITY: 'opportunities',
+                      CAMPAIGN: 'campaigns',
+                    };
+                    const segment = routes[meeting.related_entity_type as string];
+                    if (segment) router.push(`/${segment}/${meeting.related_entity_id}`);
+                  }}
+                  className="mt-1 text-left text-[13.5px] font-semibold hover:underline"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  {related.label(meeting.related_entity_type, meeting.related_entity_id)}
+                </button>
+              ) : (
+                <p className="txt mt-1 text-[13.5px]">Not linked to a record</p>
+              )}
+            </div>
+            <Field label="Agenda" value={detail?.agenda ?? null} />
+            <Field label="Outcome" value={meeting.outcome} />
           </div>
         </div>
       </div>
 
-      {/* ── Content Area: Main + Sidebar ── */}
-      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-        {/* Left: Main Tabs */}
-        <div className="min-w-0">
-           <Tabs tabs={tabs} defaultTab="overview" />
+      {meeting.description && (
+        <div className="surface bd rounded-2xl border p-5">
+          <SectionHeader title="Notes" />
+          <p className="txt whitespace-pre-wrap pt-1 text-[13.5px]">{meeting.description}</p>
         </div>
-        
-        {/* Right: AI Panel Sidebar */}
-        <div className="flex flex-col gap-6">
-          <AIMeetingAssistant data={MOCK_AI_DATA} />
-        </div>
-      </div>
+      )}
+
+      {meeting.related_entity_type && meeting.related_entity_id && (
+        <NotesPanel
+          entityType={meeting.related_entity_type}
+          entityId={meeting.related_entity_id}
+        />
+      )}
+
+      <NotConfigured
+        compact
+        title="Meeting AI assistant is not available"
+        description="Automatic transcription, summaries and follow-up suggestions need the AI gateway, which has not been built. This panel previously showed a fixed sample summary that was never derived from this meeting."
+        requires="AI gateway (ADR-016, Phase 5)"
+      />
     </div>
   );
 }

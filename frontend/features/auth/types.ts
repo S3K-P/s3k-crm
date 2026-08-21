@@ -59,8 +59,24 @@ export interface LoginCredentials {
   organization_id?: string;
 }
 
-/** The six actions every module supports. */
-export type PermissionAction = 'VIEW' | 'CREATE' | 'EDIT' | 'DELETE' | 'EXPORT' | 'ADMIN';
+/**
+ * The actions every module supports. Mirrors `PermissionAction` in
+ * `backend/app/platform/authorization/models.py`.
+ *
+ * `VIEW` and `VIEW_ALL` are separate on purpose. `VIEW` is "may read this
+ * module at all"; `VIEW_ALL` is "may read records somebody else owns". A
+ * caller without `VIEW_ALL` is served only the records they own — the backend
+ * narrows the query itself, so this is not something the UI has to filter,
+ * and not something it could bypass by asking differently.
+ */
+export type PermissionAction =
+  | 'VIEW'
+  | 'VIEW_ALL'
+  | 'CREATE'
+  | 'EDIT'
+  | 'DELETE'
+  | 'EXPORT'
+  | 'ADMIN';
 
 /** Build a permission code, e.g. `permission('leads', 'CREATE')`. */
 export function permission(module: string, action: PermissionAction): string {

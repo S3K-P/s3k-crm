@@ -8,6 +8,21 @@ router, so the rules are unit-testable without HTTP:
   cannot be used to enumerate registered addresses;
 * refresh tokens rotate on every use, and replaying a rotated token revokes the
   entire family.
+
+**Auditing.** Every branch below that succeeds or fails for a *known* user
+appends an audit record (`P1-W05-SEC-02`, `P1-W08-BE-03`). Two details govern
+how:
+
+*Failures are written out of band.* Each one raises, and raising rolls the
+request transaction back — an in-transaction record of a rejected sign-in would
+be discarded along with it. This mirrors ``_register_failure``, which already
+commits the lockout counter through an independent session for the same reason.
+
+*An unknown address is deliberately not audited to any tenant.* There is no
+organization it belongs to, and attributing it to a guess would both be wrong
+and turn the audit screen into the user-enumeration oracle the login response
+is so careful not to be. It goes to the structured log, which is not
+tenant-scoped, and stays there.
 """
 
 from __future__ import annotations
@@ -25,6 +40,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
 from app.core.exceptions import AppError, ConflictError
+from app.core.tenant import get_tenant_context
+from app.platform.audit.service import AUTH_MODULE, Action, AuditService, Status
 from app.platform.auth.models import Session, User, UserProfile, UserStatus
 from app.platform.auth.repository import AuthRepository
 from app.platform.auth.security import (
@@ -36,6 +53,12 @@ from app.platform.auth.security import (
 from app.platform.organizations.repository import OrganizationRepository
 
 logger = structlog.get_logger(__name__)
+
+#: Permission module recorded for actions on an identity — provisioning, a
+#: profile edit, a password reset. Sign-in itself is recorded under
+#: ``AUTH_MODULE`` instead, because it is not permission-gated at all.
+USERS_MODULE = "users"
+
 
 @lru_cache(maxsize=1)
 def _dummy_hash() -> str:
@@ -101,6 +124,7 @@ class AuthService:
         issuer: TokenIssuer,
         settings: Settings,
         session_factory: async_sessionmaker[AsyncSession] | None = None,
+        audit: AuditService | None = None,
     ) -> None:
         self._repository = repository
         self._organizations = organizations
@@ -110,13 +134,32 @@ class AuthService:
         # Used only to persist failed-login bookkeeping outside the request
         # transaction — see :meth:`_register_failure`.
         self._session_factory = session_factory
+        # Optional so provisioning callers (``app.bootstrap``, test fixtures)
+        # can build the service without a database-backed audit trail. Every
+        # HTTP path supplies one; ``_audit`` no-ops when it is absent rather
+        # than making each call site check.
+        self._audit = audit
 
     # --- Provisioning ------------------------------------------------------
 
     async def register_user(
-        self, *, email: str, password: str, first_name: str, last_name: str
+        self,
+        *,
+        email: str,
+        password: str,
+        first_name: str,
+        last_name: str,
+        organization_id: uuid.UUID | None = None,
+        actor_id: uuid.UUID | None = None,
     ) -> User:
         """Create a user and profile.
+
+        Args:
+            organization_id: tenant to record the provisioning against. Omitted
+                by ``app.bootstrap`` and by test fixtures, which run before any
+                organization exists to attribute it to; the HTTP path always
+                supplies it.
+            actor_id: the administrator doing the provisioning.
 
         Raises:
             WeakPasswordError: the password fails the configured policy.
@@ -138,6 +181,21 @@ class AuthService:
             UserProfile(user_id=user.id, first_name=first_name, last_name=last_name)
         )
         logger.info("user_registered", user_id=str(user.id))
+
+        if self._audit is not None and organization_id is not None:
+            await self._audit.record(
+                organization_id=organization_id,
+                action=Action.USER_PROVISIONED,
+                module=USERS_MODULE,
+                actor_id=actor_id,
+                entity_type="USER",
+                entity_id=user.id,
+                entity_label=normalised,
+                # ``email`` is masked by the redaction layer; ``entity_label``
+                # above keeps the full address, because identifying the account
+                # an administrator created is the record's entire purpose.
+                details={"email": normalised, "status": user.status},
+            )
         return user
 
     # --- Login -------------------------------------------------------------
@@ -171,11 +229,17 @@ class AuthService:
 
         if user.is_locked_at(now):
             logger.warning("login_blocked", user_id=str(user.id), reason="locked")
+            await self._audit_auth_failure(
+                user, action=Action.LOGIN_BLOCKED, reason="account_locked"
+            )
             raise AccountLockedError
 
         if user.password_hash is None or not user.is_active:
             self._hasher.verify(password=password, password_hash=_dummy_hash())
             logger.info("login_failed", user_id=str(user.id), reason="inactive_or_no_password")
+            await self._audit_auth_failure(
+                user, action=Action.LOGIN_FAILED, reason="inactive_or_no_password"
+            )
             raise AuthenticationError
 
         valid, needs_rehash = self._hasher.verify(
@@ -210,6 +274,19 @@ class AuthService:
             user_id=str(user.id),
             organization_id=str(resolved_organization_id),
         )
+        # In-transaction: a successful sign-in commits with the session row it
+        # created, so the trail cannot claim a sign-in that did not persist.
+        if self._audit is not None:
+            await self._audit.record(
+                organization_id=resolved_organization_id,
+                action=Action.LOGIN_SUCCEEDED,
+                module=AUTH_MODULE,
+                actor_id=user.id,
+                entity_type="USER",
+                entity_id=user.id,
+                entity_label=user.email,
+                details={"session_id": tokens.session_id},
+            )
         return tokens
 
     async def _register_failure(self, user: User, *, now: dt.datetime) -> None:
@@ -243,10 +320,82 @@ class AuthService:
             logger.warning(
                 "account_locked", user_id=str(user.id), until=locked_until.isoformat()
             )
+            await self._audit_auth_failure(
+                user,
+                action=Action.ACCOUNT_LOCKED,
+                reason="too_many_failed_attempts",
+                extra={
+                    "locked_until": locked_until,
+                    "threshold": self._settings.login_max_failed_attempts,
+                },
+            )
         else:
             logger.info(
                 "login_failed", user_id=str(user.id), reason="bad_password", attempt=attempts
             )
+            await self._audit_auth_failure(
+                user,
+                action=Action.LOGIN_FAILED,
+                reason="bad_password",
+                extra={"consecutive_failures": attempts},
+            )
+
+    async def _audit_auth_failure(
+        self,
+        user: User,
+        *,
+        action: Action,
+        reason: str,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        """Record a rejected sign-in against the user's own organization.
+
+        Written out of band because the caller raises immediately afterwards
+        and the request transaction is rolled back.
+
+        Attributed to the user's **default** organization. A member of several
+        tenants produces one record, in the tenant that owns their sign-in, not
+        one per organization: repeating a failed attempt across every tenant
+        the person belongs to would tell each of those administrators that the
+        others exist.
+
+        Silently does nothing when the user has no organization — there is no
+        tenant to attribute it to and no administrator who could act on it.
+        """
+        if self._audit is None:
+            return
+        organization_id = await self._organizations.default_organization_id(user.id)
+        if organization_id is None:
+            logger.info(
+                "auth_audit_skipped",
+                reason="user belongs to no organization",
+                user_id=str(user.id),
+            )
+            return
+
+        await self._audit.record_out_of_band(
+            organization_id=organization_id,
+            action=action,
+            module=AUTH_MODULE,
+            actor_id=user.id,
+            entity_type="USER",
+            entity_id=user.id,
+            entity_label=user.email,
+            status=Status.FAILURE,
+            details={"reason": reason, **(extra or {})},
+        )
+
+    async def _audit_organization_for(self, user_id: uuid.UUID) -> uuid.UUID | None:
+        """The organization a self-service account action belongs to.
+
+        The active tenant when the request carried one — a password change made
+        while working inside an organization belongs in *that* organization's
+        trail — falling back to the user's default.
+        """
+        context = get_tenant_context()
+        if context is not None:
+            return context.organization_id
+        return await self._organizations.default_organization_id(user_id)
 
     async def _resolve_organization(
         self, *, user_id: uuid.UUID, requested: uuid.UUID | None
@@ -314,6 +463,23 @@ class AuthService:
                 family_id=str(session.family_id),
                 sessions_revoked=revoked,
             )
+            # The single strongest signal of a stolen credential this system
+            # produces, so it belongs in the trail an administrator reads —
+            # out of band, for the same reason the revocation above is.
+            if self._audit is not None and session.organization_id is not None:
+                await self._audit.record_out_of_band(
+                    organization_id=session.organization_id,
+                    action=Action.TOKEN_REUSE_DETECTED,
+                    module=AUTH_MODULE,
+                    actor_id=session.user_id,
+                    entity_type="USER",
+                    entity_id=session.user_id,
+                    status=Status.FAILURE,
+                    details={
+                        "reason": "refresh_token_replayed",
+                        "sessions_revoked": revoked,
+                    },
+                )
             raise AuthenticationError
 
         if not session.is_usable_at(now):
@@ -358,6 +524,31 @@ class AuthService:
             return
         await self._repository.revoke_family(session.family_id, at=now)
         logger.info("logout", user_id=str(session.user_id))
+
+        # The organization the caller is *acting in* takes precedence over the
+        # one their refresh token was minted for. A user who belongs to two
+        # tenants can switch by sending a different ``X-Organization-Id``
+        # without re-authenticating, so the two legitimately differ — and the
+        # request transaction is scoped to the active one, which is the only
+        # organization a record may be written into from here.
+        #
+        # The middleware has already verified membership of that organization,
+        # so this can never attribute a sign-out to a tenant the user does not
+        # belong to.
+        context = get_tenant_context()
+        organization_id = (
+            context.organization_id if context is not None else session.organization_id
+        )
+        if self._audit is not None and organization_id is not None:
+            await self._audit.record(
+                organization_id=organization_id,
+                action=Action.LOGOUT,
+                module=AUTH_MODULE,
+                actor_id=session.user_id,
+                entity_type="USER",
+                entity_id=session.user_id,
+                details={"family_id": session.family_id},
+            )
 
     async def _revoke_family_out_of_band(
         self, family_id: uuid.UUID, *, at: dt.datetime
@@ -413,8 +604,148 @@ class AuthService:
         user.password_hash = self._hasher.hash(new_password)
         # Anything issued before now stops working, including on other devices.
         user.tokens_valid_from = now
-        await self._repository.revoke_all_for_user(user.id, at=now)
+        revoked = await self._repository.revoke_all_for_user(user.id, at=now)
         logger.info("password_changed", user_id=str(user.id))
+
+        organization_id = await self._audit_organization_for(user.id)
+        if self._audit is not None and organization_id is not None:
+            await self._audit.record(
+                organization_id=organization_id,
+                action=Action.PASSWORD_CHANGED,
+                module=USERS_MODULE,
+                actor_id=user.id,
+                entity_type="USER",
+                entity_id=user.id,
+                entity_label=user.email,
+                # Neither password appears here, and neither can: ``details``
+                # is redacted on the way in and both keys would match.
+                details={"sessions_revoked": revoked, "self_service": True},
+            )
+
+    async def set_password(
+        self,
+        *,
+        user: User,
+        new_password: str,
+        organization_id: uuid.UUID | None = None,
+        actor_id: uuid.UUID | None = None,
+    ) -> None:
+        """Replace a password administratively, without the old one.
+
+        Distinct from :meth:`change_password`, which the account holder calls
+        and which proves possession of the current password first. Here the
+        caller has already been authorized through ``users.ADMIN``, so no
+        current password exists to check — which is exactly why the blast
+        radius is contained the same way: every session the user holds is
+        revoked and ``tokens_valid_from`` moves forward, so an access token
+        already in flight stops working on its next request rather than
+        lingering for its remaining TTL.
+
+        Args:
+            organization_id: tenant whose trail records this. Supplied by the
+                caller because an administrator acts *within* an organization,
+                and their own default tenant is not necessarily the subject's.
+            actor_id: the administrator. Distinct from ``user.id`` — recording
+                only the subject would leave "who took this account over?"
+                unanswerable, which is the whole question here.
+
+        Raises:
+            WeakPasswordError: the new password fails the configured policy.
+        """
+        validate_password_policy(new_password, min_length=self._settings.password_min_length)
+
+        now = dt.datetime.now(dt.UTC)
+        user.password_hash = self._hasher.hash(new_password)
+        user.tokens_valid_from = now
+        # An administrator resetting a password is usually recovering an
+        # account, so clear the brute-force lockout in the same step.
+        user.failed_login_count = 0
+        user.locked_until = None
+        revoked = await self._repository.revoke_all_for_user(user.id, at=now)
+        logger.info("password_reset_by_admin", user_id=str(user.id))
+
+        if self._audit is not None and organization_id is not None:
+            await self._audit.record(
+                organization_id=organization_id,
+                action=Action.PASSWORD_RESET_BY_ADMIN,
+                module=USERS_MODULE,
+                actor_id=actor_id,
+                entity_type="USER",
+                entity_id=user.id,
+                entity_label=user.email,
+                details={"sessions_revoked": revoked, "lockout_cleared": True},
+            )
+
+    async def update_profile(
+        self,
+        *,
+        user: User,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        phone: str | None = None,
+        timezone: str | None = None,
+        organization_id: uuid.UUID | None = None,
+        actor_id: uuid.UUID | None = None,
+    ) -> UserProfile:
+        """Edit a user's display attributes.
+
+        A profile row is created when the identity has none — SSO-provisioned
+        users may not have one — so this never silently does nothing.
+
+        ``None`` means "leave unchanged" for the names, which are NOT NULL;
+        ``phone`` is nullable, so passing ``None`` there also leaves it alone
+        and an explicit empty string clears it.
+
+        ``organization_id`` and ``actor_id`` drive the audit record and are
+        optional for the same reason as on :meth:`register_user`. Nothing is
+        recorded when the submitted values match what is already stored — an
+        edit that changed nothing is not an event.
+        """
+        profile = user.profile
+        if profile is None:
+            profile = UserProfile(
+                user_id=user.id,
+                first_name=(first_name or "").strip() or "Unnamed",
+                last_name=(last_name or "").strip() or "User",
+            )
+            await self._repository.add_profile(profile)
+
+        before = {
+            "first_name": profile.first_name,
+            "last_name": profile.last_name,
+            "phone": profile.phone,
+            "timezone": profile.timezone,
+        }
+
+        if first_name is not None and first_name.strip():
+            profile.first_name = first_name.strip()
+        if last_name is not None and last_name.strip():
+            profile.last_name = last_name.strip()
+        if phone is not None:
+            profile.phone = phone.strip() or None
+        if timezone is not None and timezone.strip():
+            profile.timezone = timezone.strip()
+
+        logger.info("user_profile_updated", user_id=str(user.id))
+
+        if self._audit is not None and organization_id is not None:
+            await self._audit.record_change(
+                organization_id=organization_id,
+                action=Action.UPDATED,
+                module=USERS_MODULE,
+                entity_type="USER",
+                entity_id=user.id,
+                entity_label=user.email,
+                actor_id=actor_id,
+                before=before,
+                after={
+                    "first_name": profile.first_name,
+                    "last_name": profile.last_name,
+                    "phone": profile.phone,
+                    "timezone": profile.timezone,
+                },
+            )
+        return profile
 
     # --- Internals ---------------------------------------------------------
 

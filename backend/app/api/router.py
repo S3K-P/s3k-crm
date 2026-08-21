@@ -15,6 +15,7 @@ Path layout follows doc 11:
     /api/v1/auth/*            authentication
     /api/v1/organizations/*   tenants and membership
     /api/v1/roles/*           RBAC
+    /api/v1/audit-logs/*      the audit trail (read-only, admin permission)
     /api/v1/crm/*             S3K CRM business resources
 """
 
@@ -23,6 +24,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.api import health
+from app.platform.audit import router as audit_router
 from app.platform.auth import router as auth_router
 from app.platform.authorization import router as authorization_router
 from app.platform.organizations import router as organizations_router
@@ -50,6 +52,7 @@ api_router.include_router(
 api_router.include_router(
     authorization_router.router, prefix="/roles", tags=["platform:authorization"]
 )
+api_router.include_router(audit_router.router, prefix="/audit-logs", tags=["platform:audit"])
 
 # --- S3K CRM routers --------------------------------------------------------
 api_router.include_router(

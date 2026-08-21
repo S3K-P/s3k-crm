@@ -5,12 +5,17 @@ import { ClipboardList, Plus, Pencil, Trash2, Loader2, Check } from 'lucide-reac
 
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
+import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
+import { notifyError, notifySuccess, notifyWarning } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
 import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
 import { humanize, statusVariant } from '@/components/crm/shared/statusVariants';
 import { FormError, ListEmpty, ListError, ResultCount } from '@/components/crm/shared/ListStates';
+import RelatedRecordFields, {
+  useRelatedRecordOptions,
+} from '@/components/crm/forms/RelatedRecordFields';
 import { usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
 import {
@@ -22,6 +27,7 @@ import {
   createTask,
   listTasks,
   updateTask,
+  type CrmEntityType,
   type Priority,
   type Task,
   type TaskInput,
@@ -37,6 +43,12 @@ import {
    `completed_at` is derived by the backend from the status, so
    the tick button posts a status change rather than trying to
    set a timestamp the server owns.
+
+   A task can be attached to an account, contact, lead,
+   opportunity or campaign. The schema, the API and the wire type
+   all supported that from the start; the form did not offer it,
+   so every task created here was orphaned and appeared on no
+   record's timeline. That is what `RelatedRecordFields` fixes.
    ============================================================ */
 
 const STATUS_FILTER_OPTIONS = [
@@ -55,6 +67,8 @@ const EMPTY_FORM: TaskInput = {
   status: 'PENDING',
   priority: 'MEDIUM',
   due_date: '',
+  related_entity_type: null,
+  related_entity_id: null,
 };
 
 /** `datetime-local` needs "YYYY-MM-DDTHH:mm"; the API returns ISO-8601. */
@@ -79,6 +93,7 @@ function formatDue(iso: string | null): string {
 }
 
 export default function TasksPage() {
+  const confirm = useConfirm();
   const { can } = usePermissions();
   const mayCreate = can('tasks', 'CREATE');
   const mayEdit = can('tasks', 'EDIT');
@@ -109,6 +124,8 @@ export default function TasksPage() {
     { errorMessage: 'Something went wrong loading tasks.' },
   );
 
+  const related = useRelatedRecordOptions();
+
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState<Task | null>(null);
   const [form, setForm] = useState<TaskInput>(EMPTY_FORM);
@@ -129,6 +146,8 @@ export default function TasksPage() {
       status: row.status,
       priority: row.priority,
       due_date: toLocalInput(row.due_date),
+      related_entity_type: row.related_entity_type,
+      related_entity_id: row.related_entity_id,
     });
     clearError();
     setDrawerOpen(true);
@@ -143,24 +162,49 @@ export default function TasksPage() {
       priority: form.priority,
       // An empty input means "no due date", not "the epoch".
       due_date: form.due_date ? new Date(form.due_date).toISOString() : null,
+      // Both halves of the polymorphic link travel together or not at all:
+      // the backend rejects a type without an id.
+      related_entity_type: form.related_entity_id ? (form.related_entity_type ?? null) : null,
+      related_entity_id: form.related_entity_id || null,
     };
     const saved = await run(() =>
       editing ? updateTask(editing.id, body) : createTask(body),
     );
     if (saved === undefined) return;
     setDrawerOpen(false);
+    notifySuccess(editing ? 'Task updated' : 'Task created', body.title);
     reload();
   };
 
+  /* Completing is cheap and reversible from the same control, so it is not
+     confirmed — it only has to report what it did. */
   const handleComplete = async (row: Task) => {
     const next: TaskStatus = row.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED';
-    const done = await run(() => changeTaskStatus(row.id, next));
-    if (done !== undefined) reload();
+    try {
+      await changeTaskStatus(row.id, next);
+      notifySuccess(next === 'COMPLETED' ? 'Task completed' : 'Task reopened', row.title);
+      reload();
+    } catch (caught) {
+      notifyError(caught, 'The task status could not be changed.');
+    }
   };
 
   const handleDelete = async (row: Task) => {
-    const done = await run(() => archiveTask(row.id));
-    if (done !== undefined) reload();
+    const ok = await confirm({
+      title: `Archive "${row.title}"?`,
+      description:
+        'The task leaves the task list and the timeline of the record it is linked to.',
+      confirmLabel: 'Archive task',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await archiveTask(row.id);
+      notifySuccess('Task archived', row.title);
+      reload();
+    } catch (caught) {
+      notifyError(caught, 'The task could not be archived.');
+    }
   };
 
   const columns = useMemo<ColumnDef<Task>[]>(
@@ -184,6 +228,19 @@ export default function TasksPage() {
         label: 'Due',
         hideBelow: 'md',
         render: (row) => <span className="tabular-nums">{formatDue(row.due_date)}</span>,
+      },
+      {
+        key: 'related',
+        label: 'Linked to',
+        hideBelow: 'lg',
+        render: (row) =>
+          row.related_entity_type && row.related_entity_id ? (
+            <span className="txt-muted text-[12.5px]">
+              {related.label(row.related_entity_type, row.related_entity_id)}
+            </span>
+          ) : (
+            <span className="txt-faint">—</span>
+          ),
       },
       {
         key: 'priority',
@@ -252,7 +309,7 @@ export default function TasksPage() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mayEdit, mayDelete],
+    [mayEdit, mayDelete, related],
   );
 
   return (
@@ -396,6 +453,18 @@ export default function TasksPage() {
               options={TASK_STATUSES.map((value) => ({ value, label: humanize(value) }))}
             />
           </FormField>
+          <RelatedRecordFields
+            options={related}
+            entityType={form.related_entity_type ?? ''}
+            entityId={form.related_entity_id ?? ''}
+            onChange={(entityType, entityId) =>
+              setForm({
+                ...form,
+                related_entity_type: entityType || null,
+                related_entity_id: entityId || null,
+              })
+            }
+          />
           <FormField label="Description">
             <FormTextarea
               value={form.description ?? ''}

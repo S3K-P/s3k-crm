@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.application import create_app
 from app.core.config import ConfigurationError, Settings, get_settings
+from app.platform.audit.models import APPEND_ONLY_TRIGGER
 from app.platform.auth.repository import AuthRepository
 from app.platform.auth.security import PasswordHasher
 from app.platform.auth.service import AuthService
@@ -63,6 +64,16 @@ _STATEMENTS_TO_CLEAN = (
     "DELETE FROM crm.pipeline_stages",
     "DELETE FROM crm.pipelines",
     "DELETE FROM crm.accounts",
+    # ``platform.audit_logs`` is append-only: a trigger rejects DELETE for
+    # every role, superusers included. Emptying it between tests therefore
+    # requires disabling that trigger, which is DDL and needs table ownership —
+    # exactly the privileged, deliberate act the migration describes retention
+    # as being. The runtime role has no such privilege, which is the point: if
+    # this DELETE ever starts working on its own, the guarantee is gone and
+    # ``test_audit_immutability`` will say so.
+    f"ALTER TABLE platform.audit_logs DISABLE TRIGGER {APPEND_ONLY_TRIGGER}",
+    "DELETE FROM platform.audit_logs",
+    f"ALTER TABLE platform.audit_logs ENABLE TRIGGER {APPEND_ONLY_TRIGGER}",
     "DELETE FROM platform.attachments",
     "DELETE FROM platform.membership_roles",
     "DELETE FROM platform.organization_memberships",

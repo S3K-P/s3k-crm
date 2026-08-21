@@ -8,9 +8,16 @@ import StatusBadge from '@/components/crm/shared/StatusBadge';
 import { humanize, statusVariant } from '@/components/crm/shared/statusVariants';
 import { FormError } from '@/components/crm/shared/ListStates';
 import { FormTextarea } from '@/components/crm/forms/FormField';
+import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
+import { notifyError, notifySuccess } from '@/components/crm/feedback/notify';
 import { usePermissions } from '@/context/AuthContext';
 import { describeApiError, useMutation } from '@/features/shared/hooks/useCollection';
-import { entityTimeline, type Activity } from '@/features/crm/activities';
+import {
+  createActivity,
+  entityTimeline,
+  type Activity,
+  type ActivityType,
+} from '@/features/crm/activities';
 import {
   archiveNote,
   createNote,
@@ -44,6 +51,10 @@ function formatWhen(iso: string | null): string {
   });
 }
 
+/** Activity kinds that can be logged inline. MEETING is excluded: it needs a
+ *  start time and its own extension record, so it is created on /meetings. */
+const LOGGABLE_TYPES: ActivityType[] = ['CALL', 'EMAIL', 'NOTE', 'TASK'];
+
 export function ActivityTimelinePanel({
   entityType,
   entityId,
@@ -53,9 +64,11 @@ export function ActivityTimelinePanel({
 }) {
   const { can } = usePermissions();
   const mayView = can('activities', 'VIEW');
+  const mayCreate = can('activities', 'CREATE');
 
   const [items, setItems] = useState<Activity[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     if (!mayView) return;
@@ -76,13 +89,110 @@ export function ActivityTimelinePanel({
     return () => {
       cancelled = true;
     };
-  }, [entityType, entityId, mayView]);
+  }, [entityType, entityId, mayView, reloadToken]);
+
+  /* ---- Log an interaction against this record ----
+     Writes through `POST /crm/activities` with the polymorphic pair already
+     filled in, so the entry lands on exactly the timeline it was logged from.
+     Before this, the panel was read-only and there was no way to record a call
+     or an email against a record from anywhere in the UI. */
+  const [composing, setComposing] = useState(false);
+  const [logType, setLogType] = useState<ActivityType>('CALL');
+  const [subject, setSubject] = useState('');
+  const [outcome, setOutcome] = useState('');
+  const { pending, error: saveError, clearError, run } = useMutation();
+
+  const handleLog = async () => {
+    if (!subject.trim()) return;
+    const created = await run(() =>
+      createActivity({
+        type: logType,
+        subject: subject.trim(),
+        description: outcome.trim() || null,
+        status: 'COMPLETED',
+        related_entity_type: entityType,
+        related_entity_id: entityId,
+      }),
+    );
+    if (created === undefined) return;
+    setSubject('');
+    setOutcome('');
+    setComposing(false);
+    notifySuccess('Activity logged', subject.trim());
+    setReloadToken((n) => n + 1);
+  };
 
   if (!mayView) return null;
 
   return (
     <div className="surface bd rounded-2xl border p-5">
-      <SectionHeader title="Activity" />
+      <div className="flex items-center justify-between gap-3">
+        <SectionHeader title="Activity" />
+        {mayCreate && !composing && (
+          <button
+            type="button"
+            onClick={() => {
+              clearError();
+              setComposing(true);
+            }}
+            className="ctl bd flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[12px] font-semibold transition hover:opacity-80"
+          >
+            <Plus className="h-3 w-3" /> Log
+          </button>
+        )}
+      </div>
+
+      {composing && (
+        <div className="bd mt-3 space-y-2.5 rounded-xl border p-3">
+          <select
+            value={logType}
+            onChange={(event) => setLogType(event.target.value as ActivityType)}
+            aria-label="Activity type"
+            className="ctl w-full appearance-none px-3 py-2 text-[13px] outline-none"
+          >
+            {LOGGABLE_TYPES.map((value) => (
+              <option key={value} value={value}>
+                {humanize(value)}
+              </option>
+            ))}
+          </select>
+          <input
+            value={subject}
+            onChange={(event) => setSubject(event.target.value)}
+            placeholder="What happened?"
+            aria-label="Subject"
+            className="ctl w-full px-3 py-2 text-[13px] outline-none"
+          />
+          <FormTextarea
+            value={outcome}
+            onChange={(event) => setOutcome(event.target.value)}
+            rows={2}
+            placeholder="Outcome or detail (optional)"
+            aria-label="Detail"
+          />
+          <FormError message={saveError} />
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setComposing(false)}
+              className="ctl bd rounded-lg border px-3 py-1.5 text-[12.5px] font-semibold"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleLog()}
+              disabled={pending || !subject.trim()}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12.5px] font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ background: 'var(--accent)' }}
+            >
+              {pending && <Loader2 className="h-3 w-3 motion-safe:animate-spin" />}
+              {pending ? 'Saving…' : 'Log activity'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {error !== null ? (
         <p className="text-[12.5px] text-red-500">{error}</p>
       ) : items === null ? (
@@ -134,6 +244,7 @@ export function NotesPanel({
   entityType: CrmEntityType;
   entityId: string;
 }) {
+  const confirm = useConfirm();
   const { can } = usePermissions();
   const mayView = can('notes', 'VIEW');
   const mayCreate = can('notes', 'CREATE');
@@ -188,12 +299,26 @@ export function NotesPanel({
     );
     if (saved === undefined) return;
     setDraft('');
+    notifySuccess('Note added');
     reload();
   };
 
   const handleDelete = async (note: Note) => {
-    const done = await run(() => archiveNote(note.id));
-    if (done !== undefined) reload();
+    const ok = await confirm({
+      title: 'Delete this note?',
+      description:
+        'The note is removed from this record. Its text is not recoverable from the UI.',
+      confirmLabel: 'Delete note',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await archiveNote(note.id);
+      notifySuccess('Note deleted');
+      reload();
+    } catch (caught) {
+      notifyError(caught, 'The note could not be deleted.');
+    }
   };
 
   return (

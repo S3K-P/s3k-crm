@@ -12,7 +12,10 @@ from app.platform.auth.dependencies import Principal, require_permission
 from app.platform.authorization.service import Action as PermissionAction
 from app.products.crm.leads.models import LeadStatus
 from app.products.crm.leads.schemas import (
+    ConversionMatchAccount,
+    ConversionMatchContact,
     LeadConversionResponse,
+    LeadConversionSuggestions,
     LeadConvertRequest,
     LeadCreate,
     LeadOwnerChange,
@@ -23,6 +26,7 @@ from app.products.crm.leads.schemas import (
 )
 from app.products.crm.leads.service import LeadService
 from app.products.crm.shared.pagination import Page, PageParams, page_params
+from app.products.crm.shared.visibility import RecordVisibility
 
 router = APIRouter()
 
@@ -35,6 +39,16 @@ def get_service(session: DbSession) -> LeadService:
 
 
 ServiceDep = Annotated[LeadService, Depends(get_service)]
+
+
+def visible_to(principal: Principal) -> RecordVisibility:
+    """What this caller may read in this module (ADR-010).
+
+    Passed to every read below, including the reads that back an edit or a
+    delete, so a record outside the caller's visibility is a 404 on every
+    verb rather than only on the list.
+    """
+    return RecordVisibility.for_module(principal, MODULE)
 
 
 @router.get("", response_model=Page[LeadResponse])
@@ -52,7 +66,10 @@ async def list_leads(
         search=search, status=lead_status, owner_id=owner_id, lead_source_id=lead_source_id
     )
     items, total = await service.list_leads(
-        principal.organization_id, params=params, filters=filters
+        principal.organization_id,
+        params=params,
+        filters=filters,
+        visibility=visible_to(principal),
     )
     return Page.build(
         [LeadResponse.model_validate(item) for item in items], total=total, params=params
@@ -73,13 +90,17 @@ async def create_lead(
     payload: LeadCreate,
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.CREATE))],
     service: ServiceDep,
+    allow_duplicate: Annotated[bool, Query()] = False,
 ) -> LeadResponse:
     """Create a lead. New leads always start at ``NEW``."""
     values = payload.model_dump(exclude_unset=True)
     if values.get("email") is not None:
         values["email"] = str(values["email"])
-    lead = await service.create(
-        organization_id=principal.organization_id, actor_id=principal.user_id, values=values
+    lead = await service.create_lead(
+        organization_id=principal.organization_id,
+        actor_id=principal.user_id,
+        values=values,
+        allow_duplicate=allow_duplicate,
     )
     return LeadResponse.model_validate(lead)
 
@@ -90,7 +111,9 @@ async def get_lead(
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
     service: ServiceDep,
 ) -> LeadResponse:
-    lead = await service.get_or_404(lead_id, principal.organization_id)
+    lead = await service.get_or_404(
+        lead_id, principal.organization_id, visibility=visible_to(principal)
+    )
     return LeadResponse.model_validate(lead)
 
 
@@ -102,7 +125,9 @@ async def update_lead(
     service: ServiceDep,
 ) -> LeadResponse:
     """Update lead attributes. Status changes go through ``/status``."""
-    lead = await service.get_or_404(lead_id, principal.organization_id)
+    lead = await service.get_or_404(
+        lead_id, principal.organization_id, visibility=visible_to(principal)
+    )
     values = payload.model_dump(exclude_unset=True)
     if values.get("email") is not None:
         values["email"] = str(values["email"])
@@ -118,7 +143,9 @@ async def change_lead_status(
     service: ServiceDep,
 ) -> LeadResponse:
     """Move a lead through the lifecycle. Illegal transitions return 422."""
-    lead = await service.get_or_404(lead_id, principal.organization_id)
+    lead = await service.get_or_404(
+        lead_id, principal.organization_id, visibility=visible_to(principal)
+    )
     updated = await service.change_status(
         lead,
         new_status=payload.status,
@@ -135,11 +162,45 @@ async def assign_lead_owner(
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.EDIT))],
     service: ServiceDep,
 ) -> LeadResponse:
-    lead = await service.get_or_404(lead_id, principal.organization_id)
+    lead = await service.get_or_404(
+        lead_id, principal.organization_id, visibility=visible_to(principal)
+    )
     updated = await service.assign_owner(
         lead, owner_id=payload.owner_id, actor_id=principal.user_id
     )
     return LeadResponse.model_validate(updated)
+
+
+@router.get("/{lead_id}/conversion-suggestions", response_model=LeadConversionSuggestions)
+async def lead_conversion_suggestions(
+    lead_id: uuid.UUID,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
+    service: ServiceDep,
+) -> LeadConversionSuggestions:
+    """Existing accounts/contacts the convert UI should offer to link."""
+    lead = await service.get_or_404(
+        lead_id, principal.organization_id, visibility=visible_to(principal)
+    )
+    suggestions = await service.conversion_suggestions(lead)
+    return LeadConversionSuggestions(
+        matching_accounts=[
+            ConversionMatchAccount(id=account.id, name=account.name)
+            for account in suggestions.matching_accounts
+        ],
+        matching_contacts=[
+            ConversionMatchContact(
+                id=contact.id,
+                full_name=contact.full_name,
+                email=contact.email,
+                account_id=contact.account_id,
+            )
+            for contact in suggestions.matching_contacts
+        ],
+        suggested_account_name=suggestions.suggested_account_name,
+        suggested_contact_name=suggestions.suggested_contact_name,
+        suggested_opportunity_name=suggestions.suggested_opportunity_name,
+        suggested_deal_value=suggestions.suggested_deal_value,
+    )
 
 
 @router.post(
@@ -154,11 +215,14 @@ async def convert_lead(
     service: ServiceDep,
 ) -> LeadConversionResponse:
     """Convert a qualified lead into an account, contact and optional deal."""
-    lead = await service.get_or_404(lead_id, principal.organization_id)
+    lead = await service.get_or_404(
+        lead_id, principal.organization_id, visibility=visible_to(principal)
+    )
     result = await service.convert(
         lead,
         actor_id=principal.user_id,
         account_id=payload.account_id,
+        contact_id=payload.contact_id,
         create_opportunity=payload.create_opportunity,
         opportunity_name=payload.opportunity_name,
         opportunity_value=payload.opportunity_value,
@@ -179,7 +243,9 @@ async def archive_lead(
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.DELETE))],
     service: ServiceDep,
 ) -> Response:
-    lead = await service.get_or_404(lead_id, principal.organization_id)
+    lead = await service.get_or_404(
+        lead_id, principal.organization_id, visibility=visible_to(principal)
+    )
     await service.soft_delete(lead, actor_id=principal.user_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

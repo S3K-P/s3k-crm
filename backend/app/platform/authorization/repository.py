@@ -121,6 +121,32 @@ class AuthorizationRepository:
             )
         )
 
+    async def membership_ids_with_role_name(
+        self, *, organization_id: uuid.UUID, role_name: str
+    ) -> set[uuid.UUID]:
+        """Every membership holding a role of this name, in this organization.
+
+        Deliberately returns membership ids and nothing else: whether those
+        memberships are *active* is the organizations module's question, and
+        this module does not read its table. Callers intersect the two.
+
+        Both the shared system template and a same-named tenant role count —
+        an organization that cloned "Admin" into its own role still has
+        administrators, so the guard must see them.
+        """
+        result = await self._session.execute(
+            select(MembershipRole.membership_id)
+            .join(Role, Role.id == MembershipRole.role_id)
+            .where(
+                Role.name == role_name,
+                or_(
+                    Role.organization_id.is_(None),
+                    Role.organization_id == organization_id,
+                ),
+            )
+        )
+        return set(result.scalars().all())
+
     async def list_roles_for_membership(self, membership_id: uuid.UUID) -> Sequence[Role]:
         result = await self._session.execute(
             select(Role)

@@ -24,6 +24,7 @@ from app.products.crm.shared.pagination import PageParams
 from app.products.crm.shared.relations import validate_related_entity
 from app.products.crm.shared.repository import TenantScopedRepository
 from app.products.crm.shared.service import TenantScopedService
+from app.products.crm.shared.visibility import RecordVisibility
 from app.products.crm.tasks.models import Task, TaskStatus
 
 #: Statuses that mean the task is off someone's plate.
@@ -81,8 +82,11 @@ class TaskService(TenantScopedService[Task]):
         *,
         params: PageParams,
         filters: Sequence[ColumnElement[bool]] = (),
+        visibility: RecordVisibility | None = None,
     ) -> tuple[Sequence[Task], int]:
-        return await self.list(organization_id, params=params, filters=filters)
+        return await self.list(
+            organization_id, params=params, filters=filters, visibility=visibility
+        )
 
     async def counts_by_status(self, organization_id: uuid.UUID) -> dict[str, int]:
         """Per-status totals, with every status present even at zero."""

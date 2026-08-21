@@ -19,6 +19,11 @@ Two details are easy to get wrong and both are handled here:
 
 Superusers and roles with ``BYPASSRLS`` ignore policies entirely. The runtime
 must therefore connect as an ordinary role — see :func:`role_bypasses_rls`.
+
+Calling :func:`enable_rls` is not the same as having called it everywhere it
+was needed. :mod:`app.core.schema_audit` checks the finished schema against the
+database's own catalogues and fails on any tenant-scoped table this module was
+never pointed at.
 """
 
 from __future__ import annotations

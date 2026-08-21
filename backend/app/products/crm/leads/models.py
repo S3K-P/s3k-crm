@@ -20,8 +20,8 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
-    UniqueConstraint,
     Uuid,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -41,6 +41,7 @@ class LeadStatus(enum.StrEnum):
     QUALIFIED = "QUALIFIED"
     PROPOSAL_SENT = "PROPOSAL_SENT"
     NEGOTIATION = "NEGOTIATION"
+    UNQUALIFIED = "UNQUALIFIED"
     CONVERTED = "CONVERTED"
     LOST = "LOST"
 
@@ -55,8 +56,17 @@ class LeadSource(Base, CrmEntityMixin):
 
     __tablename__ = "lead_sources"
     __table_args__ = (
-        UniqueConstraint(
-            "organization_id", "name", name="uq_lead_sources_organization_id_name"
+        # Partial, so uniqueness applies to *live* rows only. An unconditional
+        # constraint counted archived sources too, which meant archiving a name
+        # burned it forever — and because the service's own duplicate check
+        # already excluded archived rows, the INSERT sailed past it and failed
+        # in the database as a 500 instead of a 409.
+        Index(
+            "uq_lead_sources_organization_id_name_live",
+            "organization_id",
+            "name",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
         ),
         Index("ix_lead_sources_organization_id_status", "organization_id", "status"),
         {"schema": CRM_SCHEMA},
@@ -118,6 +128,8 @@ class Lead(Base, CrmEntityMixin):
     industry: Mapped[str | None] = mapped_column(String(120), nullable=True)
     website: Mapped[str | None] = mapped_column(String(512), nullable=True)
     company_size: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: Product or service the prospect asked about — carried into the deal.
+    product_interest: Mapped[str | None] = mapped_column(String(255), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # --- Conversion outcome ------------------------------------------------
@@ -135,7 +147,9 @@ class Lead(Base, CrmEntityMixin):
         nullable=True,
     )
     converted_opportunity_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid(as_uuid=True), nullable=True
+        Uuid(as_uuid=True),
+        ForeignKey(f"{CRM_SCHEMA}.opportunities.id", ondelete="SET NULL"),
+        nullable=True,
     )
     campaign_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),

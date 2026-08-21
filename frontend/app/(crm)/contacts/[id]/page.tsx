@@ -1,14 +1,18 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Contact as ContactIcon, Loader2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ArrowLeft, Contact as ContactIcon, Loader2, Plus } from 'lucide-react';
 
 import SectionHeader from '@/components/crm/shared/SectionHeader';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
 import { humanize, statusVariant } from '@/components/crm/shared/statusVariants';
 import { ListError } from '@/components/crm/shared/ListStates';
 import { ActivityTimelinePanel, NotesPanel } from '@/components/crm/shared/RecordPanels';
+import { ContactOpportunitiesPanel } from '@/components/crm/shared/RelatedLists';
 import { useRecord } from '@/components/crm/shared/useRecord';
+import { usePermissions } from '@/context/AuthContext';
+import { getAccount } from '@/features/crm/accounts';
 import { getContact, type Contact } from '@/features/crm/contacts';
 
 /* ============================================================
@@ -30,9 +34,34 @@ export default function ContactDetailPage() {
   const params = useParams<{ id: string }>();
   const id = typeof params?.id === 'string' ? params.id : undefined;
 
+  const { can } = usePermissions();
+  const mayCreateOpportunities = can('opportunities', 'CREATE');
+
   const { status, data, error, reload } = useRecord<Contact>(getContact, id, {
     errorMessage: 'Could not load this contact.',
   });
+
+  /* Resolve the linked account's name, so the relationship reads as a record
+     rather than as the phrase "View account". A failure leaves the link in
+     place with generic text: losing the name must not lose the route. */
+  const accountId = data?.account_id ?? null;
+  const [accountName, setAccountName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!accountId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const account = await getAccount(accountId);
+        if (!cancelled) setAccountName(account.name);
+      } catch {
+        if (!cancelled) setAccountName(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId]);
 
   if (status === 'loading') {
     return (
@@ -55,7 +84,8 @@ export default function ContactDetailPage() {
         <div className="surface bd rounded-2xl border p-10 text-center">
           <p className="txt text-[14px] font-semibold">Contact not found</p>
           <p className="txt-muted mt-1 text-[12.5px]">
-            It may have been archived, or it belongs to another organization.
+            It may have been archived, owned by someone else, or belong to another
+            organization.
           </p>
         </div>
       </div>
@@ -122,10 +152,10 @@ export default function ContactDetailPage() {
                 <button
                   type="button"
                   onClick={() => router.push(`/accounts/${contact.account_id}`)}
-                  className="mt-1 text-[13.5px] font-semibold hover:opacity-70"
+                  className="mt-1 text-left text-[13.5px] font-semibold hover:underline"
                   style={{ color: 'var(--accent)' }}
                 >
-                  View account →
+                  {accountName ?? 'View account'} →
                 </button>
               ) : (
                 <p className="txt mt-1 text-[13.5px]">—</p>
@@ -135,9 +165,31 @@ export default function ContactDetailPage() {
         </div>
       </div>
 
+      {/* The account and the contact both travel with the link, so the new
+          deal opens already attached to each — no re-picking, and both are
+          written as the foreign keys the backend validates. */}
+      {mayCreateOpportunities && contact.account_id && (
+        <div>
+          <button
+            type="button"
+            onClick={() =>
+              router.push(
+                `/opportunities?account_id=${contact.account_id}&contact_id=${contact.id}`,
+              )
+            }
+            className="ctl bd inline-flex items-center gap-1.5 rounded-lg border px-3.5 py-2 text-[12.5px] font-semibold transition hover:opacity-80"
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" /> New opportunity
+          </button>
+        </div>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-2">
-        <ActivityTimelinePanel entityType="CONTACT" entityId={contact.id} />
-        <NotesPanel entityType="CONTACT" entityId={contact.id} />
+        <ContactOpportunitiesPanel contactId={contact.id} />
+        <div className="space-y-6">
+          <ActivityTimelinePanel entityType="CONTACT" entityId={contact.id} />
+          <NotesPanel entityType="CONTACT" entityId={contact.id} />
+        </div>
       </div>
     </div>
   );

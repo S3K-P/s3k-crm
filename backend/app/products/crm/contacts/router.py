@@ -23,6 +23,7 @@ from app.products.crm.contacts.schemas import (
 )
 from app.products.crm.contacts.service import ContactService
 from app.products.crm.shared.pagination import Page, PageParams, page_params
+from app.products.crm.shared.visibility import RecordVisibility
 
 router = APIRouter()
 
@@ -35,6 +36,16 @@ def get_service(session: DbSession) -> ContactService:
 
 
 ServiceDep = Annotated[ContactService, Depends(get_service)]
+
+
+def visible_to(principal: Principal) -> RecordVisibility:
+    """What this caller may read in this module (ADR-010).
+
+    Passed to every read below, including the reads that back an edit or a
+    delete, so a record outside the caller's visibility is a 404 on every
+    verb rather than only on the list.
+    """
+    return RecordVisibility.for_module(principal, MODULE)
 
 
 @router.get("", response_model=Page[ContactResponse])
@@ -52,7 +63,10 @@ async def list_contacts(
         search=search, status=contact_status, account_id=account_id, owner_id=owner_id
     )
     items, total = await service.list_contacts(
-        principal.organization_id, params=params, filters=filters
+        principal.organization_id,
+        params=params,
+        filters=filters,
+        visibility=visible_to(principal),
     )
     return Page.build(
         [ContactResponse.model_validate(item) for item in items], total=total, params=params
@@ -86,7 +100,9 @@ async def get_contact(
     service: ServiceDep,
 ) -> ContactResponse:
     """Fetch one contact. An id from another organization returns 404."""
-    contact = await service.get_or_404(contact_id, principal.organization_id)
+    contact = await service.get_or_404(
+        contact_id, principal.organization_id, visibility=visible_to(principal)
+    )
     return ContactResponse.model_validate(contact)
 
 
@@ -99,7 +115,9 @@ async def update_contact(
     allow_duplicate: Annotated[bool, Query()] = False,
 ) -> ContactResponse:
     """Partially update a contact."""
-    contact = await service.get_or_404(contact_id, principal.organization_id)
+    contact = await service.get_or_404(
+        contact_id, principal.organization_id, visibility=visible_to(principal)
+    )
     values = payload.model_dump(exclude_unset=True)
     if values.get("email") is not None:
         values["email"] = str(values["email"])
@@ -119,7 +137,9 @@ async def make_primary(
     service: ServiceDep,
 ) -> ContactResponse:
     """Promote a contact to primary on its account, demoting the incumbent."""
-    contact = await service.get_or_404(contact_id, principal.organization_id)
+    contact = await service.get_or_404(
+        contact_id, principal.organization_id, visibility=visible_to(principal)
+    )
     updated = await service.set_primary(contact, actor_id=principal.user_id)
     return ContactResponse.model_validate(updated)
 
@@ -131,7 +151,9 @@ async def archive_contact(
     service: ServiceDep,
 ) -> Response:
     """Archive a contact, clearing it from its account if it was primary."""
-    contact = await service.get_or_404(contact_id, principal.organization_id)
+    contact = await service.get_or_404(
+        contact_id, principal.organization_id, visibility=visible_to(principal)
+    )
     await service.archive_contact(contact, actor_id=principal.user_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

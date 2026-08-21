@@ -22,7 +22,7 @@ from collections.abc import Sequence
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import ColumnElement, Select, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.products.crm.accounts.models import Account
@@ -31,6 +31,7 @@ from app.products.crm.common import CrmEntityType, Priority
 from app.products.crm.contacts.models import Contact
 from app.products.crm.leads.models import Lead, LeadStatus
 from app.products.crm.opportunities.models import Opportunity, PipelineStage
+from app.products.crm.shared.visibility import RecordVisibility
 from app.products.crm.tasks.models import Task, TaskStatus
 
 #: A lead counts as "new" if it was created within this trailing window.
@@ -47,13 +48,44 @@ ACTIVITY_LIMIT = 8
 _CLOSED_TASK_STATUSES = (TaskStatus.COMPLETED, TaskStatus.CANCELLED)
 
 
+def _visible_or_true(
+    visibility: RecordVisibility | None, model: type[Any]
+) -> ColumnElement[bool]:
+    """The visibility predicate, or a true literal when unrestricted.
+
+    Used where the predicate must sit inside a JOIN condition, which has no
+    "add nothing" option the way a chained ``.where()`` does.
+    """
+    if visibility is None:
+        return true()
+    predicate = visibility.filter_for(model)
+    return true() if predicate is None else predicate
+
+
 class DashboardRepository:
-    """Scoped aggregate reads across the CRM tables."""
+    """Scoped aggregate reads across the CRM tables.
+
+    Every count here is narrowed by the same record-level predicate the list
+    endpoints use, taken from :class:`RecordVisibility` rather than restated.
+    A dashboard that counted rows the user cannot open would be worse than no
+    dashboard: the KPI and the list beneath it would disagree, and the user
+    would have no way to tell which one was lying.
+    """
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
     # --- Helpers -----------------------------------------------------------
+
+    @staticmethod
+    def _scoped(
+        statement: Select[Any], visibility: RecordVisibility | None, model: type[Any]
+    ) -> Select[Any]:
+        """Apply record-level visibility, if the caller is narrowed at all."""
+        if visibility is None:
+            return statement
+        predicate = visibility.filter_for(model)
+        return statement if predicate is None else statement.where(predicate)
 
     @staticmethod
     def _open_opportunities(organization_id: uuid.UUID) -> Select[tuple[Opportunity]]:
@@ -72,43 +104,73 @@ class DashboardRepository:
 
     # --- KPIs --------------------------------------------------------------
 
-    async def count_new_leads(self, organization_id: uuid.UUID, *, now: dt.datetime) -> int:
+    async def count_new_leads(
+        self,
+        organization_id: uuid.UUID,
+        *,
+        now: dt.datetime,
+        visibility: RecordVisibility | None = None,
+    ) -> int:
         cutoff = now - dt.timedelta(days=NEW_LEAD_WINDOW_DAYS)
         return await self._scalar_count(
-            select(Lead.id).where(
-                Lead.organization_id == organization_id,
-                Lead.deleted_at.is_(None),
-                Lead.created_at >= cutoff,
+            self._scoped(
+                select(Lead.id).where(
+                    Lead.organization_id == organization_id,
+                    Lead.deleted_at.is_(None),
+                    Lead.created_at >= cutoff,
+                ),
+                visibility,
+                Lead,
             )
         )
 
-    async def count_qualified_leads(self, organization_id: uuid.UUID) -> int:
+    async def count_qualified_leads(
+        self, organization_id: uuid.UUID, *, visibility: RecordVisibility | None = None
+    ) -> int:
         return await self._scalar_count(
-            select(Lead.id).where(
-                Lead.organization_id == organization_id,
-                Lead.deleted_at.is_(None),
-                Lead.status == LeadStatus.QUALIFIED,
+            self._scoped(
+                select(Lead.id).where(
+                    Lead.organization_id == organization_id,
+                    Lead.deleted_at.is_(None),
+                    Lead.status == LeadStatus.QUALIFIED,
+                ),
+                visibility,
+                Lead,
             )
         )
 
-    async def count_open_opportunities(self, organization_id: uuid.UUID) -> int:
+    async def count_open_opportunities(
+        self, organization_id: uuid.UUID, *, visibility: RecordVisibility | None = None
+    ) -> int:
         return await self._scalar_count(
-            self._open_opportunities(organization_id).with_only_columns(Opportunity.id)
+            self._scoped(
+                self._open_opportunities(organization_id).with_only_columns(Opportunity.id),
+                visibility,
+                Opportunity,
+            )
         )
 
-    async def sum_open_pipeline_value(self, organization_id: uuid.UUID) -> Decimal:
+    async def sum_open_pipeline_value(
+        self, organization_id: uuid.UUID, *, visibility: RecordVisibility | None = None
+    ) -> Decimal:
         """Total value of open opportunities. Zero when there are none."""
         result = await self._session.execute(
-            select(func.coalesce(func.sum(Opportunity.deal_value), 0)).where(
-                Opportunity.organization_id == organization_id,
-                Opportunity.deleted_at.is_(None),
-                Opportunity.won_at.is_(None),
-                Opportunity.lost_at.is_(None),
+            self._scoped(
+                select(func.coalesce(func.sum(Opportunity.deal_value), 0)).where(
+                    Opportunity.organization_id == organization_id,
+                    Opportunity.deleted_at.is_(None),
+                    Opportunity.won_at.is_(None),
+                    Opportunity.lost_at.is_(None),
+                ),
+                visibility,
+                Opportunity,
             )
         )
         return Decimal(str(result.scalar_one()))
 
-    async def open_pipeline_currencies(self, organization_id: uuid.UUID) -> list[str]:
+    async def open_pipeline_currencies(
+        self, organization_id: uuid.UUID, *, visibility: RecordVisibility | None = None
+    ) -> list[str]:
         """Distinct currencies among the open opportunities.
 
         ``deal_value`` is per-row and carries its own currency, so a total is
@@ -117,27 +179,37 @@ class DashboardRepository:
         ``$`` on the result.
         """
         result = await self._session.execute(
-            select(Opportunity.currency)
-            .where(
-                Opportunity.organization_id == organization_id,
-                Opportunity.deleted_at.is_(None),
-                Opportunity.won_at.is_(None),
-                Opportunity.lost_at.is_(None),
-            )
-            .distinct()
+            self._scoped(
+                select(Opportunity.currency).where(
+                    Opportunity.organization_id == organization_id,
+                    Opportunity.deleted_at.is_(None),
+                    Opportunity.won_at.is_(None),
+                    Opportunity.lost_at.is_(None),
+                ),
+                visibility,
+                Opportunity,
+            ).distinct()
         )
         return sorted(str(row[0]) for row in result.all())
 
     async def count_opportunities_closing_soon(
-        self, organization_id: uuid.UUID, *, today: dt.date
+        self,
+        organization_id: uuid.UUID,
+        *,
+        today: dt.date,
+        visibility: RecordVisibility | None = None,
     ) -> int:
         horizon = today + dt.timedelta(days=CLOSING_SOON_DAYS)
         return await self._scalar_count(
-            self._open_opportunities(organization_id)
-            .with_only_columns(Opportunity.id)
-            .where(
-                Opportunity.expected_close_date.is_not(None),
-                Opportunity.expected_close_date <= horizon,
+            self._scoped(
+                self._open_opportunities(organization_id)
+                .with_only_columns(Opportunity.id)
+                .where(
+                    Opportunity.expected_close_date.is_not(None),
+                    Opportunity.expected_close_date <= horizon,
+                ),
+                visibility,
+                Opportunity,
             )
         )
 
@@ -167,18 +239,23 @@ class DashboardRepository:
         )
 
     async def count_tasks_due(
-        self, organization_id: uuid.UUID, *, day_end: dt.datetime
+        self,
+        organization_id: uuid.UUID,
+        *,
+        day_end: dt.datetime,
+        visibility: RecordVisibility | None = None,
     ) -> tuple[int, int]:
         """Return ``(due_total, high_priority)`` for incomplete tasks."""
-        base = (
-            select(Task.id)
-            .where(
+        base = self._scoped(
+            select(Task.id).where(
                 Task.organization_id == organization_id,
                 Task.deleted_at.is_(None),
                 Task.status.not_in(_CLOSED_TASK_STATUSES),
                 Task.due_date.is_not(None),
                 Task.due_date <= day_end,
-            )
+            ),
+            visibility,
+            Task,
         )
         total = await self._scalar_count(base)
         high = await self._scalar_count(base.where(Task.priority == Priority.HIGH))
@@ -187,7 +264,7 @@ class DashboardRepository:
     # --- Pipeline ----------------------------------------------------------
 
     async def pipeline_by_stage(
-        self, organization_id: uuid.UUID
+        self, organization_id: uuid.UUID, *, visibility: RecordVisibility | None = None
     ) -> Sequence[tuple[uuid.UUID, str, int, int, Decimal]]:
         """Open stages with their loaded opportunity count and value.
 
@@ -207,7 +284,11 @@ class DashboardRepository:
                 (Opportunity.stage_id == PipelineStage.id)
                 & (Opportunity.deleted_at.is_(None))
                 & (Opportunity.won_at.is_(None))
-                & (Opportunity.lost_at.is_(None)),
+                & (Opportunity.lost_at.is_(None))
+                # Part of the JOIN condition, not a WHERE: filtering after the
+                # LEFT JOIN would drop stages whose only deals belong to
+                # somebody else, and an empty column is information.
+                & _visible_or_true(visibility, Opportunity),
             )
             .where(
                 PipelineStage.organization_id == organization_id,
@@ -225,14 +306,21 @@ class DashboardRepository:
     # --- Lists -------------------------------------------------------------
 
     async def open_tasks(
-        self, organization_id: uuid.UUID, *, limit: int = TASK_LIMIT
+        self,
+        organization_id: uuid.UUID,
+        *,
+        limit: int = TASK_LIMIT,
+        visibility: RecordVisibility | None = None,
     ) -> Sequence[Task]:
         result = await self._session.execute(
-            select(Task)
-            .where(
-                Task.organization_id == organization_id,
-                Task.deleted_at.is_(None),
-                Task.status.not_in(_CLOSED_TASK_STATUSES),
+            self._scoped(
+                select(Task).where(
+                    Task.organization_id == organization_id,
+                    Task.deleted_at.is_(None),
+                    Task.status.not_in(_CLOSED_TASK_STATUSES),
+                ),
+                visibility,
+                Task,
             )
             .order_by(Task.due_date.asc().nulls_last(), Task.created_at.desc())
             .limit(limit)

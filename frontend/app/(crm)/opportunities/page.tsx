@@ -1,12 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Target, Plus, Pencil, Trash2, Loader2, LayoutList, LayoutGrid } from 'lucide-react';
 
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
 import KanbanBoard, { type KanbanColumnDef } from '@/components/crm/kanban/KanbanBoard';
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
+import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
+import { notifyError, notifySuccess } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
 import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
@@ -15,6 +17,7 @@ import { FormError, ListEmpty, ListError, ResultCount } from '@/components/crm/s
 import { usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
 import { listAccounts, type Account } from '@/features/crm/accounts';
+import { listContacts, type Contact } from '@/features/crm/contacts';
 import {
   archiveOpportunity,
   changeStage,
@@ -45,6 +48,7 @@ import {
 const EMPTY_FORM: OpportunityInput = {
   name: '',
   account_id: '',
+  primary_contact_id: '',
   deal_value: '',
   expected_close_date: '',
   notes: '',
@@ -68,13 +72,15 @@ function formatMoney(value: string | null, currency: string): string {
   }
 }
 
-export default function OpportunitiesPage() {
+function OpportunitiesPageContent() {
   const router = useRouter();
+  const confirm = useConfirm();
   const { can } = usePermissions();
   const mayCreate = can('opportunities', 'CREATE');
   const mayEdit = can('opportunities', 'EDIT');
   const mayDelete = can('opportunities', 'DELETE');
   const mayViewAccounts = can('accounts', 'VIEW');
+  const mayViewContacts = can('contacts', 'VIEW');
 
   const [view, setView] = useState<ViewMode>('table');
   const [search, setSearch] = useState('');
@@ -104,6 +110,8 @@ export default function OpportunitiesPage() {
   /* ---- Reference data ---- */
   const [stages, setStages] = useState<PipelineStage[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accountContacts, setAccountContacts] = useState<Contact[]>([]);
+  const [allContacts, setAllContacts] = useState<Contact[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -136,6 +144,26 @@ export default function OpportunitiesPage() {
     };
   }, [mayViewAccounts]);
 
+  useEffect(() => {
+    if (!mayViewContacts) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await listContacts({
+          page_size: 200,
+          sort_by: 'last_name',
+          sort_dir: 'asc',
+        });
+        if (!cancelled) setAllContacts(result.data);
+      } catch {
+        if (!cancelled) setAllContacts([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mayViewContacts]);
+
   const stageNames = useMemo(
     () => new Map(stages.map((stage) => [stage.id, stage.name])),
     [stages],
@@ -156,12 +184,67 @@ export default function OpportunitiesPage() {
     [stages],
   );
 
-  /* ---- Drawer ---- */
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  /* ---- Drawer ----
+
+     Deep link from a record that already knows the answer:
+     `/opportunities?account_id=…&contact_id=…` opens the New opportunity
+     drawer with both links already made. Reached from an account or a
+     contact, the deal never asks for what the originating record already
+     holds — and both values are written as the real foreign keys the backend
+     validates, not copied text.
+
+     Read through `useSearchParams` rather than `window.location`: on a
+     client-side navigation the router renders the new route before the
+     History API entry is in place, so reading the address bar at mount time
+     misses the parameter that was just set. */
+  const searchParams = useSearchParams();
+  const prefill = {
+    account_id: searchParams.get('account_id') ?? '',
+    primary_contact_id: searchParams.get('contact_id') ?? '',
+  };
+
+  const [drawerOpen, setDrawerOpen] = useState(prefill.account_id !== '');
   const [editing, setEditing] = useState<Opportunity | null>(null);
-  const [form, setForm] = useState<OpportunityInput>(EMPTY_FORM);
+  const [form, setForm] = useState<OpportunityInput>(
+    prefill.account_id ? { ...EMPTY_FORM, ...prefill } : EMPTY_FORM,
+  );
   const { pending, error: saveError, clearError, run } = useMutation();
   const [boardError, setBoardError] = useState<string | null>(null);
+
+  /* Contacts filtered to the selected account for the primary-contact picker. */
+  useEffect(() => {
+    if (!drawerOpen || !mayViewContacts || !form.account_id) {
+      setAccountContacts([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const page = await listContacts({
+          account_id: form.account_id,
+          page_size: 100,
+          sort_by: 'last_name',
+          sort_dir: 'asc',
+        });
+        if (cancelled) return;
+        setAccountContacts(page.data);
+        // Drop a primary contact that no longer belongs to this account.
+        if (
+          form.primary_contact_id &&
+          !page.data.some((contact) => contact.id === form.primary_contact_id)
+        ) {
+          setForm((prev) => ({ ...prev, primary_contact_id: '' }));
+        }
+      } catch {
+        if (!cancelled) setAccountContacts([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Only reload when the account (or drawer) changes — not on every form keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawerOpen, mayViewContacts, form.account_id]);
 
   const openAdd = () => {
     setEditing(null);
@@ -175,6 +258,7 @@ export default function OpportunitiesPage() {
     setForm({
       name: row.name,
       account_id: row.account_id,
+      primary_contact_id: row.primary_contact_id ?? '',
       deal_value: row.deal_value ?? '',
       expected_close_date: row.expected_close_date ?? '',
       notes: row.notes ?? '',
@@ -183,51 +267,111 @@ export default function OpportunitiesPage() {
     setDrawerOpen(true);
   };
 
+  /* Creation needs a stage: the backend types it required, because a deal
+     that sits in no stage cannot appear on the board or in a forecast. The
+     picker defaults to the first open stage, but a deal opened straight from
+     an account deep link has never been through the picker — so the same
+     default stands in rather than letting the request fail with a 422. */
+  const startingStageId = form.stage_id || openStages[0]?.id || '';
+
   const handleSave = async () => {
     if (!form.name.trim() || !form.account_id) return;
+    if (!editing && !startingStageId) return;
     const body: OpportunityInput = {
       name: form.name.trim(),
       account_id: form.account_id,
+      primary_contact_id: form.primary_contact_id || null,
       deal_value: form.deal_value || null,
       expected_close_date: form.expected_close_date || null,
       notes: form.notes?.trim() || null,
     };
     // `stage_id` is only meaningful at creation: a PATCH deliberately ignores
     // it so a stage move cannot skip history recording.
-    if (!editing && form.stage_id) body.stage_id = form.stage_id;
+    if (!editing) body.stage_id = startingStageId;
 
     const saved = await run(() =>
       editing ? updateOpportunity(editing.id, body) : createOpportunity(body),
     );
     if (saved === undefined) return;
     setDrawerOpen(false);
+    notifySuccess(editing ? 'Opportunity updated' : 'Opportunity created', body.name);
     reload();
   };
 
   const handleStageChange = async (row: Opportunity, stageId: string) => {
     setBoardError(null);
     const target = stages.find((stage) => stage.id === stageId);
-    // The backend requires a reason for a lost stage. Ask here rather than
-    // letting the request fail, but still let the server be the authority.
+    if (target === undefined || target.id === row.stage_id) return;
+
+    /* Closing a deal is the one stage move that cannot be undone by moving
+       back — it stamps won_at/lost_at and freezes the record until an
+       explicit reopen — so both directions are confirmed. A lost stage also
+       needs a reason, which the backend requires (422 without one) and which
+       is collected in the same dialog rather than a second browser prompt. */
     let lossReason: string | null = null;
-    if (target?.is_lost) {
-      lossReason = window.prompt('Why was this deal lost?')?.trim() || null;
-      if (!lossReason) return;
+    if (target.is_lost) {
+      const answer = await confirm({
+        title: `Mark "${row.name}" as lost?`,
+        description:
+          'The deal closes and is removed from open-pipeline figures. It stays editable only after an explicit reopen.',
+        confirmLabel: 'Mark as lost',
+        tone: 'danger',
+        prompt: {
+          label: 'Why was this deal lost?',
+          required: true,
+          placeholder: 'Lost on price, chose a competitor, project cancelled…',
+          hint: 'Stored on the deal and used for loss analysis.',
+        },
+      });
+      if (!answer) return;
+      lossReason = answer.value;
+    } else if (target.is_won) {
+      const answer = await confirm({
+        title: `Mark "${row.name}" as won?`,
+        description:
+          'The deal closes at 100% and counts towards won revenue. It cannot be edited again without reopening it.',
+        confirmLabel: 'Mark as won',
+        tone: 'warning',
+      });
+      if (!answer) return;
     }
+
     try {
       await changeStage(row.id, { stage_id: stageId, loss_reason: lossReason });
+      notifySuccess(
+        target.is_won
+          ? 'Deal marked as won'
+          : target.is_lost
+            ? 'Deal marked as lost'
+            : 'Stage updated',
+        `${row.name} → ${target.name}`,
+      );
       reload();
     } catch (caught) {
       setBoardError(
         caught instanceof Error ? caught.message : 'That stage change was rejected.',
       );
+      notifyError(caught, 'That stage change was rejected.');
       reload();
     }
   };
 
   const handleDelete = async (row: Opportunity) => {
-    const done = await run(() => archiveOpportunity(row.id));
-    if (done !== undefined) reload();
+    const ok = await confirm({
+      title: `Archive "${row.name}"?`,
+      description:
+        'The deal is soft-deleted and drops out of the pipeline, forecasts and dashboard figures. Its stage history is kept.',
+      confirmLabel: 'Archive deal',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await archiveOpportunity(row.id);
+      notifySuccess('Opportunity archived', row.name);
+      reload();
+    } catch (caught) {
+      notifyError(caught, 'The opportunity could not be archived.');
+    }
   };
 
   const columns = useMemo<ColumnDef<Opportunity>[]>(
@@ -467,7 +611,12 @@ export default function OpportunitiesPage() {
             <button
               type="button"
               onClick={() => void handleSave()}
-              disabled={pending || !form.name.trim() || !form.account_id}
+              disabled={
+                pending ||
+                !form.name.trim() ||
+                !form.account_id ||
+                (!editing && !startingStageId)
+              }
               className="flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               style={{ background: 'var(--accent)' }}
             >
@@ -491,12 +640,18 @@ export default function OpportunitiesPage() {
             hint={
               accounts.length === 0
                 ? 'Create an account first — a deal cannot exist without one.'
-                : undefined
+                : 'Selecting a contact first will fill this automatically.'
             }
           >
             <FormSelect
               value={form.account_id}
-              onChange={(event) => setForm({ ...form, account_id: event.target.value })}
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  account_id: event.target.value,
+                  primary_contact_id: '',
+                })
+              }
               placeholder="Select an account"
               disabled={!mayViewAccounts}
               options={accounts.map((account) => ({
@@ -505,10 +660,43 @@ export default function OpportunitiesPage() {
               }))}
             />
           </FormField>
+          <FormField
+            label="Primary contact"
+            hint={
+              !mayViewContacts
+                ? 'You do not have permission to browse contacts.'
+                : form.account_id && accountContacts.length === 0
+                  ? 'No contacts on this account yet — pick another contact to re-home, or leave blank.'
+                  : 'Pick a contact to auto-select its account.'
+            }
+          >
+            <FormSelect
+              value={form.primary_contact_id ?? ''}
+              onChange={(event) => {
+                const contactId = event.target.value;
+                const contact =
+                  accountContacts.find((row) => row.id === contactId) ??
+                  allContacts.find((row) => row.id === contactId);
+                setForm({
+                  ...form,
+                  primary_contact_id: contactId,
+                  account_id: contact?.account_id || form.account_id,
+                });
+              }}
+              placeholder="No primary contact"
+              disabled={!mayViewContacts}
+              options={(form.account_id ? accountContacts : allContacts).map((contact) => ({
+                value: contact.id,
+                label: contact.email
+                  ? `${contact.full_name} <${contact.email}>`
+                  : contact.full_name,
+              }))}
+            />
+          </FormField>
           {!editing && (
             <FormField label="Starting stage">
               <FormSelect
-                value={form.stage_id ?? ''}
+                value={startingStageId}
                 onChange={(event) => setForm({ ...form, stage_id: event.target.value })}
                 options={openStages.map((stage) => ({
                   value: stage.id,
@@ -546,5 +734,22 @@ export default function OpportunitiesPage() {
         </div>
       </SlideDrawer>
     </div>
+  );
+}
+
+/*  needs a Suspense boundary: without one Next refuses to
+   prerender the route, and the deep link that carries the related record is
+   the whole point of reading the query string here. */
+export default function OpportunitiesPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="txt-muted flex items-center gap-2 p-8 text-[13px]">
+          <Loader2 className="h-4 w-4 motion-safe:animate-spin" /> Loading opportunities…
+        </div>
+      }
+    >
+      <OpportunitiesPageContent />
+    </Suspense>
   );
 }

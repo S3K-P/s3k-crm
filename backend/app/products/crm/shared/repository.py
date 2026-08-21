@@ -45,19 +45,41 @@ class TenantScopedRepository[ModelT: TenantOwnedModel]:
         self._session = session
         self._model = model
 
+    @property
+    def session(self) -> AsyncSession:
+        """The session this repository reads and writes through.
+
+        Exposed so :class:`~app.products.crm.shared.service.TenantScopedService`
+        can append an audit record on the *same* transaction as the change it
+        describes. Without it every one of the thirteen CRM services would need
+        its constructor changed to carry a second dependency.
+
+        This is not an invitation to build queries elsewhere: the rule that
+        only a repository constructs SELECTs for its own table still stands.
+        """
+        return self._session
+
     # --- Query construction ------------------------------------------------
 
     def _base_query(
-        self, organization_id: uuid.UUID, *, include_deleted: bool = False
+        self,
+        organization_id: uuid.UUID,
+        *,
+        include_deleted: bool = False,
+        visibility: ColumnElement[bool] | None = None,
     ) -> Select[Any]:
         """The only place a SELECT for this table is started.
 
-        Both predicates are applied unconditionally so no caller can forget
-        either one.
+        Every predicate is applied here so no caller can forget one:
+        organization scope, soft deletion, and — when the caller may not read
+        across owners — the record-level visibility predicate from
+        :class:`~app.products.crm.shared.visibility.RecordVisibility`.
         """
         statement = select(self._model).where(self._model.organization_id == organization_id)
         if not include_deleted:
             statement = statement.where(self._model.deleted_at.is_(None))
+        if visibility is not None:
+            statement = statement.where(visibility)
         return statement
 
     def _sortable_columns(self) -> dict[str, InstrumentedAttribute[Any]]:
@@ -89,18 +111,25 @@ class TenantScopedRepository[ModelT: TenantOwnedModel]:
     # --- Reads -------------------------------------------------------------
 
     async def get(
-        self, entity_id: uuid.UUID, organization_id: uuid.UUID, *, include_deleted: bool = False
+        self,
+        entity_id: uuid.UUID,
+        organization_id: uuid.UUID,
+        *,
+        include_deleted: bool = False,
+        visibility: ColumnElement[bool] | None = None,
     ) -> ModelT | None:
         """Fetch one row **within the organization**.
 
         Passing another tenant's id returns ``None``, which callers turn into
         404 — this is the primary defence against insecure direct object
-        reference.
+        reference. A row the caller may not see for record-level reasons
+        returns ``None`` through the same path, so "not yours" and "not there"
+        are indistinguishable to a prober.
         """
         result = await self._session.execute(
-            self._base_query(organization_id, include_deleted=include_deleted).where(
-                self._model.id == entity_id
-            )
+            self._base_query(
+                organization_id, include_deleted=include_deleted, visibility=visibility
+            ).where(self._model.id == entity_id)
         )
         return result.scalar_one_or_none()
 
@@ -110,9 +139,10 @@ class TenantScopedRepository[ModelT: TenantOwnedModel]:
         *,
         params: PageParams,
         filters: Sequence[ColumnElement[bool]] = (),
+        visibility: ColumnElement[bool] | None = None,
     ) -> tuple[Sequence[ModelT], int]:
         """Return one page of rows plus the total matching count."""
-        statement = self._base_query(organization_id)
+        statement = self._base_query(organization_id, visibility=visibility)
         for condition in filters:
             statement = statement.where(condition)
 
@@ -124,9 +154,13 @@ class TenantScopedRepository[ModelT: TenantOwnedModel]:
         return result.scalars().all(), total
 
     async def count(
-        self, organization_id: uuid.UUID, *, filters: Sequence[ColumnElement[bool]] = ()
+        self,
+        organization_id: uuid.UUID,
+        *,
+        filters: Sequence[ColumnElement[bool]] = (),
+        visibility: ColumnElement[bool] | None = None,
     ) -> int:
-        statement = self._base_query(organization_id)
+        statement = self._base_query(organization_id, visibility=visibility)
         for condition in filters:
             statement = statement.where(condition)
         result = await self._session.execute(select(func.count()).select_from(statement.subquery()))

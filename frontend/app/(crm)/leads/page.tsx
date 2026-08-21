@@ -9,6 +9,8 @@ import {
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
 import KanbanBoard, { type KanbanColumnDef } from '@/components/crm/kanban/KanbanBoard';
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
+import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
+import { notifyError, notifySuccess, notifyWarning } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
 import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
@@ -18,6 +20,8 @@ import { FormError, ListEmpty, ListError, ResultCount } from '@/components/crm/s
 import { usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
 import { listLeadSources, type LeadSource } from '@/features/crm/lead-sources';
+import { listCampaigns, type Campaign } from '@/features/crm/campaigns';
+import { listMembers, type OrganizationMember } from '@/features/admin/users';
 import {
   LEAD_STATUSES,
   PRIORITIES,
@@ -57,7 +61,7 @@ const KANBAN_COLUMNS: KanbanColumnDef<Lead>[] = LEAD_STATUSES.map((status) => ({
   color:
     status === 'CONVERTED'
       ? '#059669'
-      : status === 'LOST'
+      : status === 'LOST' || status === 'UNQUALIFIED'
         ? '#dc2626'
         : 'var(--accent)',
 }));
@@ -69,7 +73,14 @@ const EMPTY_FORM: LeadInput = {
   email: '',
   phone: '',
   priority: 'MEDIUM',
+  owner_id: '',
   lead_source_id: '',
+  campaign_id: '',
+  industry: '',
+  website: '',
+  company_size: '',
+  product_interest: '',
+  expected_deal_size: '',
   notes: '',
 };
 
@@ -77,11 +88,14 @@ type ViewMode = 'table' | 'kanban';
 
 export default function LeadsPage() {
   const router = useRouter();
+  const confirm = useConfirm();
   const { can } = usePermissions();
   const mayCreate = can('leads', 'CREATE');
   const mayEdit = can('leads', 'EDIT');
   const mayDelete = can('leads', 'DELETE');
   const mayViewSources = can('lead_sources', 'VIEW');
+  const mayViewCampaigns = can('campaigns', 'VIEW');
+  const mayViewMembers = can('users', 'VIEW');
 
   const [view, setView] = useState<ViewMode>('table');
   const [search, setSearch] = useState('');
@@ -127,15 +141,62 @@ export default function LeadsPage() {
     };
   }, [mayViewSources]);
 
+  const [members, setMembers] = useState<OrganizationMember[]>([]);
+  useEffect(() => {
+    if (!mayViewMembers) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await listMembers();
+        if (!cancelled) {
+          setMembers(result.data.filter((member) => member.status === 'ACTIVE'));
+        }
+      } catch {
+        // Non-fatal — owner picker stays empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mayViewMembers]);
+
+  /* Campaigns, for attribution on a new lead. Only the ones still running are
+     offered: attributing a fresh lead to a completed campaign is almost always
+     a mis-click rather than an intention. */
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  useEffect(() => {
+    if (!mayViewCampaigns) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await listCampaigns({ page_size: 200 });
+        if (!cancelled) {
+          setCampaigns(
+            result.data.filter(
+              (campaign) => campaign.status === 'ACTIVE' || campaign.status === 'PLANNING',
+            ),
+          );
+        }
+      } catch {
+        // Non-fatal — the picker is simply empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mayViewCampaigns]);
+
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState<Lead | null>(null);
   const [form, setForm] = useState<LeadInput>(EMPTY_FORM);
+  const [duplicateWarning, setDuplicateWarning] = useState(false);
   const { pending, error: saveError, clearError, run } = useMutation();
   const [boardError, setBoardError] = useState<string | null>(null);
 
   const openAdd = () => {
     setEditing(null);
     setForm(EMPTY_FORM);
+    setDuplicateWarning(false);
     clearError();
     setDrawerOpen(true);
   };
@@ -149,14 +210,21 @@ export default function LeadsPage() {
       email: row.email ?? '',
       phone: row.phone ?? '',
       priority: row.priority ?? 'MEDIUM',
+      owner_id: row.owner_id ?? '',
       lead_source_id: row.lead_source_id ?? '',
+      industry: row.industry ?? '',
+      website: row.website ?? '',
+      company_size: row.company_size ?? '',
+      product_interest: row.product_interest ?? '',
+      expected_deal_size: row.expected_deal_size ?? '',
       notes: row.notes ?? '',
     });
+    setDuplicateWarning(false);
     clearError();
     setDrawerOpen(true);
   };
 
-  const handleSave = async () => {
+  const handleSave = async (allowDuplicate = false) => {
     if (!form.first_name.trim() || !form.last_name.trim()) return;
     const body: LeadInput = {
       first_name: form.first_name.trim(),
@@ -165,26 +233,72 @@ export default function LeadsPage() {
       email: form.email?.trim() || null,
       phone: form.phone?.trim() || null,
       priority: form.priority,
+      owner_id: form.owner_id || null,
       lead_source_id: form.lead_source_id || null,
+      industry: form.industry?.trim() || null,
+      website: form.website?.trim() || null,
+      company_size: form.company_size?.trim() || null,
+      product_interest: form.product_interest?.trim() || null,
+      expected_deal_size: form.expected_deal_size || null,
       notes: form.notes?.trim() || null,
     };
+    // Campaign attribution is create-only: `LeadUpdate` does not accept it,
+    // so sending it on an edit would be silently discarded.
+    if (!editing && form.campaign_id) body.campaign_id = form.campaign_id;
     const saved = await run(() =>
-      editing ? updateLead(editing.id, body) : createLead(body),
+      editing ? updateLead(editing.id, body) : createLead(body, allowDuplicate),
     );
-    if (saved === undefined) return;
+    if (saved === undefined) {
+      // A duplicate email is a warning, not a hard rejection: offer the
+      // override rather than forcing the user to invent a second address.
+      if (!editing && !allowDuplicate) {
+        setDuplicateWarning(true);
+        notifyWarning(
+          'A lead with that email already exists',
+          'Press "Save anyway" to create a second record for the same address.',
+        );
+      }
+      return;
+    }
     setDrawerOpen(false);
+    setDuplicateWarning(false);
+    notifySuccess(
+      editing ? 'Lead updated' : 'Lead created',
+      `${body.first_name} ${body.last_name}`,
+    );
     reload();
   };
 
   const handleDelete = async (row: Lead) => {
-    const done = await run(() => archiveLead(row.id));
-    if (done !== undefined) reload();
+    const name = `${row.first_name} ${row.last_name}`;
+    const ok = await confirm({
+      title: `Archive ${name}?`,
+      description:
+        'The lead is soft-deleted: it disappears from lists and reports but its activities and notes are kept. Ask an administrator to restore it if this was a mistake.',
+      confirmLabel: 'Archive lead',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    // Deliberately not routed through `run`: that hook feeds the drawer's
+    // inline FormError, which is not on screen for a row action. Here the
+    // toast is the only channel, so the backend's own message must reach it.
+    try {
+      await archiveLead(row.id);
+      notifySuccess('Lead archived', name);
+      reload();
+    } catch (caught) {
+      notifyError(caught, 'The lead could not be archived.');
+    }
   };
 
   const handleStatusChange = async (row: Lead, next: LeadStatus) => {
     setBoardError(null);
     try {
       await changeLeadStatus(row.id, next);
+      notifySuccess(
+        'Status updated',
+        `${row.first_name} ${row.last_name} → ${humanize(next)}`,
+      );
       reload();
     } catch (caught) {
       // The backend rejected the transition. Say so and reload, so the board
@@ -194,6 +308,7 @@ export default function LeadsPage() {
           ? caught.message
           : 'That status change is not allowed from the current status.',
       );
+      notifyError(caught, 'That status change is not allowed from the current status.');
       reload();
     }
   };
@@ -436,13 +551,13 @@ export default function LeadsPage() {
             </button>
             <button
               type="button"
-              onClick={() => void handleSave()}
+              onClick={() => void handleSave(duplicateWarning)}
               disabled={pending || !form.first_name.trim() || !form.last_name.trim()}
               className="flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               style={{ background: 'var(--accent)' }}
             >
               {pending && <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />}
-              {pending ? 'Saving…' : 'Save'}
+              {duplicateWarning ? 'Save anyway' : pending ? 'Saving…' : 'Save'}
             </button>
           </div>
         }
@@ -481,6 +596,46 @@ export default function LeadsPage() {
               onChange={(event) => setForm({ ...form, phone: event.target.value })}
             />
           </FormField>
+          <FormField label="Industry">
+            <FormInput
+              value={form.industry ?? ''}
+              onChange={(event) => setForm({ ...form, industry: event.target.value })}
+            />
+          </FormField>
+          <FormField label="Website">
+            <FormInput
+              value={form.website ?? ''}
+              onChange={(event) => setForm({ ...form, website: event.target.value })}
+              placeholder="https://"
+            />
+          </FormField>
+          <FormField label="Company size">
+            <FormInput
+              value={form.company_size ?? ''}
+              onChange={(event) => setForm({ ...form, company_size: event.target.value })}
+              placeholder="e.g. 51–200"
+            />
+          </FormField>
+          <FormField label="Product / service interest">
+            <FormInput
+              value={form.product_interest ?? ''}
+              onChange={(event) =>
+                setForm({ ...form, product_interest: event.target.value })
+              }
+              placeholder="What are they evaluating?"
+            />
+          </FormField>
+          <FormField label="Expected deal size">
+            <FormInput
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.expected_deal_size ?? ''}
+              onChange={(event) =>
+                setForm({ ...form, expected_deal_size: event.target.value })
+              }
+            />
+          </FormField>
           <FormField label="Priority">
             <FormSelect
               value={form.priority ?? 'MEDIUM'}
@@ -488,6 +643,18 @@ export default function LeadsPage() {
                 setForm({ ...form, priority: event.target.value as Priority })
               }
               options={PRIORITIES.map((value) => ({ value, label: humanize(value) }))}
+            />
+          </FormField>
+          <FormField label="Lead owner">
+            <FormSelect
+              value={form.owner_id ?? ''}
+              onChange={(event) => setForm({ ...form, owner_id: event.target.value })}
+              placeholder="Unassigned"
+              disabled={!mayViewMembers}
+              options={members.map((member) => ({
+                value: member.user_id,
+                label: member.full_name?.trim() || member.email,
+              }))}
             />
           </FormField>
           <FormField label="Lead source">
@@ -499,6 +666,22 @@ export default function LeadsPage() {
               options={sources.map((source) => ({ value: source.id, label: source.name }))}
             />
           </FormField>
+          {!editing && mayViewCampaigns && (
+            <FormField
+              label="Campaign"
+              hint="Attribution can only be set when the lead is created."
+            >
+              <FormSelect
+                value={form.campaign_id ?? ''}
+                onChange={(event) => setForm({ ...form, campaign_id: event.target.value })}
+                placeholder="No campaign"
+                options={campaigns.map((campaign) => ({
+                  value: campaign.id,
+                  label: campaign.name,
+                }))}
+              />
+            </FormField>
+          )}
           <FormField label="Notes">
             <FormTextarea
               value={form.notes ?? ''}

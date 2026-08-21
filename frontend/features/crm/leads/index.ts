@@ -15,6 +15,7 @@ export type LeadStatus =
   | 'QUALIFIED'
   | 'PROPOSAL_SENT'
   | 'NEGOTIATION'
+  | 'UNQUALIFIED'
   | 'CONVERTED'
   | 'LOST';
 
@@ -27,6 +28,7 @@ export const LEAD_STATUSES: LeadStatus[] = [
   'QUALIFIED',
   'PROPOSAL_SENT',
   'NEGOTIATION',
+  'UNQUALIFIED',
   'CONVERTED',
   'LOST',
 ];
@@ -47,6 +49,7 @@ export interface Lead extends RecordMeta {
   industry: string | null;
   website: string | null;
   company_size: string | null;
+  product_interest: string | null;
   expected_deal_size: string | null;
   ai_score: number | null;
   notes: string | null;
@@ -69,8 +72,15 @@ export interface LeadInput {
   industry?: string | null;
   website?: string | null;
   company_size?: string | null;
+  product_interest?: string | null;
   expected_deal_size?: string | null;
   notes?: string | null;
+  /**
+   * Marketing attribution. Accepted by `LeadCreate` but **not** by
+   * `LeadUpdate`, so it can only be set when the lead is created — sending it
+   * on a PATCH is silently ignored by the backend.
+   */
+  campaign_id?: string | null;
 }
 
 export interface LeadListParams extends ListParams {
@@ -90,6 +100,28 @@ export interface LeadConversionResult {
   opportunity_id: string | null;
 }
 
+export interface ConversionMatchAccount {
+  id: string;
+  name: string;
+}
+
+export interface ConversionMatchContact {
+  id: string;
+  full_name: string;
+  email: string | null;
+  account_id: string | null;
+}
+
+/** Existing records the convert UI should offer to link instead of recreate. */
+export interface LeadConversionSuggestions {
+  matching_accounts: ConversionMatchAccount[];
+  matching_contacts: ConversionMatchContact[];
+  suggested_account_name: string;
+  suggested_contact_name: string;
+  suggested_opportunity_name: string;
+  suggested_deal_value: string | null;
+}
+
 export const listLeads = (params?: LeadListParams) =>
   api.get<Page<Lead>>(`/crm/leads${toQuery(params)}`);
 
@@ -98,7 +130,9 @@ export const getLead = (id: string) => api.get<Lead>(`/crm/leads/${id}`);
 export const leadStatusCounts = () =>
   api.get<LeadStatusCounts>('/crm/leads/status-counts');
 
-export const createLead = (body: LeadInput) => api.post<Lead>('/crm/leads', body);
+/** `allowDuplicate` re-submits past the duplicate-email warning. */
+export const createLead = (body: LeadInput, allowDuplicate = false) =>
+  api.post<Lead>(`/crm/leads${allowDuplicate ? '?allow_duplicate=true' : ''}`, body);
 
 export const updateLead = (id: string, body: Partial<LeadInput>) =>
   api.patch<Lead>(`/crm/leads/${id}`, body);
@@ -110,13 +144,19 @@ export const changeLeadStatus = (id: string, status: LeadStatus, lostReason?: st
 export const assignLeadOwner = (id: string, ownerId: string | null) =>
   api.post<Lead>(`/crm/leads/${id}/owner`, { owner_id: ownerId });
 
+export const getLeadConversionSuggestions = (id: string) =>
+  api.get<LeadConversionSuggestions>(`/crm/leads/${id}/conversion-suggestions`);
+
 export const convertLead = (
   id: string,
   body: {
     account_id?: string | null;
+    contact_id?: string | null;
     create_opportunity?: boolean;
     opportunity_name?: string | null;
     opportunity_value?: string | null;
+    /** Opening stage for the new deal. Omitted, the backend picks the first. */
+    stage_id?: string | null;
     expected_close_date?: string | null;
   },
 ) => api.post<LeadConversionResult>(`/crm/leads/${id}/convert`, body);

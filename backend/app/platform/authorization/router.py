@@ -13,11 +13,21 @@ from fastapi import APIRouter, Depends, Response, status
 from pydantic import BaseModel, ConfigDict
 
 from app.core.database import DbSession
+from app.platform.audit.service import audit_for_session
 from app.platform.auth.dependencies import Principal, require_permission
-from app.platform.authorization.catalog import PERMISSION_MODULES, all_permission_codes
+from app.platform.authorization.catalog import (
+    ADMIN_ROLE,
+    PERMISSION_MODULES,
+    all_permission_codes,
+)
 from app.platform.authorization.models import PermissionAction
 from app.platform.authorization.repository import AuthorizationRepository
 from app.platform.authorization.service import AuthorizationService
+from app.platform.organizations.repository import OrganizationRepository
+from app.platform.organizations.service import (
+    OrganizationService,
+    ensure_administrator_remains,
+)
 
 router = APIRouter()
 
@@ -52,7 +62,11 @@ class RoleAssignmentRequest(BaseModel):
 
 
 def get_service(session: DbSession) -> AuthorizationService:
-    return AuthorizationService(AuthorizationRepository(session))
+    # Audit-aware: every grant and revocation made through these routes lands
+    # in the tenant's trail, in the same transaction as the change itself.
+    return AuthorizationService(
+        AuthorizationRepository(session), audit=audit_for_session(session)
+    )
 
 
 ServiceDep = Annotated[AuthorizationService, Depends(get_service)]
@@ -109,6 +123,7 @@ async def assign_role(
         membership_id=payload.membership_id,
         role_id=payload.role_id,
         organization_id=principal.organization_id,
+        actor_id=principal.user_id,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -120,12 +135,28 @@ async def revoke_role(
     payload: RoleAssignmentRequest,
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.ADMIN))],
     service: ServiceDep,
+    session: DbSession,
 ) -> Response:
-    """Revoke a role from a membership in the active organization."""
+    """Revoke a role from a membership in the active organization.
+
+    Refused when it would strip Admin from the organization's last active
+    administrator: role assignment itself requires ``roles.ADMIN``, so that
+    revocation would make the state unrecoverable through the API.
+    """
+    role = await service.get_role(payload.role_id, principal.organization_id)
+    if role.name == ADMIN_ROLE:
+        await ensure_administrator_remains(
+            organizations=OrganizationService(OrganizationRepository(session)),
+            authorization=service,
+            organization_id=principal.organization_id,
+            losing_admin_membership_id=payload.membership_id,
+        )
+
     await service.revoke_role_from_membership(
         membership_id=payload.membership_id,
         role_id=payload.role_id,
         organization_id=principal.organization_id,
+        actor_id=principal.user_id,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

@@ -22,6 +22,7 @@ from app.products.crm.opportunities.models import Opportunity
 from app.products.crm.shared.pagination import PageParams
 from app.products.crm.shared.repository import TenantScopedRepository
 from app.products.crm.shared.service import TenantScopedService
+from app.products.crm.shared.visibility import RecordVisibility
 
 
 class DuplicateAccountError(ConflictError):
@@ -74,8 +75,11 @@ class AccountService(TenantScopedService[Account]):
         *,
         params: PageParams,
         filters: Sequence[ColumnElement[bool]] = (),
+        visibility: RecordVisibility | None = None,
     ) -> tuple[Sequence[Account], int]:
-        return await self.list(organization_id, params=params, filters=filters)
+        return await self.list(
+            organization_id, params=params, filters=filters, visibility=visibility
+        )
 
     async def exists(self, account_id: uuid.UUID, organization_id: uuid.UUID) -> bool:
         """Whether the account exists **in this organization**.

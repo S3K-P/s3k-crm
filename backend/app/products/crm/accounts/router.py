@@ -23,6 +23,7 @@ from app.products.crm.accounts.schemas import (
 )
 from app.products.crm.accounts.service import AccountService
 from app.products.crm.shared.pagination import Page, PageParams, page_params
+from app.products.crm.shared.visibility import RecordVisibility
 
 router = APIRouter()
 
@@ -35,6 +36,16 @@ def get_service(session: DbSession) -> AccountService:
 
 
 ServiceDep = Annotated[AccountService, Depends(get_service)]
+
+
+def visible_to(principal: Principal) -> RecordVisibility:
+    """What this caller may read in this module (ADR-010).
+
+    Passed to every read below, including the reads that back an edit or a
+    delete, so a record outside the caller's visibility is a 404 on every
+    verb rather than only on the list.
+    """
+    return RecordVisibility.for_module(principal, MODULE)
 
 
 @router.get("", response_model=Page[AccountResponse])
@@ -52,7 +63,10 @@ async def list_accounts(
         search=search, status=account_status, industry=industry, owner_id=owner_id
     )
     items, total = await service.list_accounts(
-        principal.organization_id, params=params, filters=filters
+        principal.organization_id,
+        params=params,
+        filters=filters,
+        visibility=visible_to(principal),
     )
     return Page.build(
         [AccountResponse.model_validate(item) for item in items], total=total, params=params
@@ -83,7 +97,9 @@ async def get_account(
     service: ServiceDep,
 ) -> AccountResponse:
     """Fetch one account. An id from another organization returns 404."""
-    account = await service.get_or_404(account_id, principal.organization_id)
+    account = await service.get_or_404(
+        account_id, principal.organization_id, visibility=visible_to(principal)
+    )
     return AccountResponse.model_validate(account)
 
 
@@ -95,7 +111,9 @@ async def update_account(
     service: ServiceDep,
 ) -> AccountResponse:
     """Partially update an account."""
-    account = await service.get_or_404(account_id, principal.organization_id)
+    account = await service.get_or_404(
+        account_id, principal.organization_id, visibility=visible_to(principal)
+    )
     updated = await service.update(
         account, actor_id=principal.user_id, values=payload.model_dump(exclude_unset=True)
     )
@@ -109,7 +127,9 @@ async def archive_account(
     service: ServiceDep,
 ) -> Response:
     """Archive an account. Blocked while it has open opportunities."""
-    account = await service.get_or_404(account_id, principal.organization_id)
+    account = await service.get_or_404(
+        account_id, principal.organization_id, visibility=visible_to(principal)
+    )
     await service.archive_account(account, actor_id=principal.user_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

@@ -23,6 +23,7 @@ import os
 import sys
 
 import structlog
+from pydantic import EmailStr, TypeAdapter, ValidationError
 
 from app.core.config import Settings, load_settings_or_exit
 from app.core.database import create_engine, create_session_factory
@@ -123,6 +124,23 @@ async def bootstrap(
         await engine.dispose()
 
 
+def _validated_email(raw: str) -> str:
+    """Reject an address ``/auth/login`` would refuse.
+
+    ``register_user`` takes a plain string, but the login route validates its
+    payload as ``EmailStr`` — so without this check bootstrap will happily
+    create an administrator who can never sign in (a ``.local`` domain, for
+    instance, is accepted here and rejected there). Failing at provisioning
+    time is far cheaper than discovering it at the login screen.
+    """
+    try:
+        return str(TypeAdapter(EmailStr).validate_python(raw.strip()))
+    except ValidationError as error:
+        reason = error.errors()[0]["msg"] if error.errors() else "not a valid address"
+        print(f"FATAL: --email {raw!r} is unusable: {reason}", file=sys.stderr)
+        raise SystemExit(1) from error
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Create the first organization and administrator."
@@ -130,6 +148,8 @@ def main() -> None:
     parser.add_argument("--organization", required=True, help="Organization display name.")
     parser.add_argument("--email", required=True, help="Administrator email address.")
     args = parser.parse_args()
+
+    args.email = _validated_email(args.email)
 
     settings = load_settings_or_exit()
     password = _read_password()

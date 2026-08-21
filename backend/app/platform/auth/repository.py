@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from collections.abc import Sequence
 from typing import Any, cast
 
 from sqlalchemy import CursorResult, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.platform.auth.models import Session, User, UserProfile
 
@@ -32,6 +34,26 @@ class AuthRepository:
             select(User).where(User.id == user_id, User.deleted_at.is_(None))
         )
         return result.scalar_one_or_none()
+
+    async def list_users(self, user_ids: Sequence[uuid.UUID]) -> Sequence[User]:
+        """Look up several users at once, with their profiles loaded.
+
+        A directory read: the organizations module uses it to put a name and an
+        address against each membership row. Profiles are eager-loaded because
+        the caller always needs them, and lazy-loading them one at a time
+        raises ``MissingGreenlet`` under asyncio.
+
+        An empty request returns an empty sequence rather than issuing a query
+        with an empty ``IN`` clause.
+        """
+        if not user_ids:
+            return []
+        result = await self._session.execute(
+            select(User)
+            .options(selectinload(User.profile))
+            .where(User.id.in_(list(user_ids)), User.deleted_at.is_(None))
+        )
+        return result.scalars().all()
 
     async def add_user(self, user: User) -> User:
         self._session.add(user)

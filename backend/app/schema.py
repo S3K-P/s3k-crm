@@ -22,6 +22,7 @@ from sqlalchemy import MetaData
 from app.core.metadata import target_metadata as target_metadata
 
 # --- Shared Platform models -------------------------------------------------
+from app.platform.audit import models as audit_models
 from app.platform.auth import models as auth_models
 from app.platform.authorization import models as authorization_models
 from app.platform.documents import models as document_models
@@ -44,6 +45,7 @@ metadata: MetaData = target_metadata
 __all__ = [
     "account_models",
     "activity_models",
+    "audit_models",
     "auth_models",
     "authorization_models",
     "campaign_models",

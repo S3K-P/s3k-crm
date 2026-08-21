@@ -29,6 +29,7 @@ from app.core.database import (
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.redis import close_redis_client, create_redis_client
+from app.core.request_context import REQUEST_ID_HEADER, RequestContextMiddleware
 from app.core.tenant import (
     ORGANIZATION_HEADER,
     MembershipVerifier,
@@ -127,6 +128,13 @@ def create_app(
         principal_resolver=principal_resolver or JwtPrincipalResolver(token_issuer),
     )
 
+    # Added *after* the tenant middleware, so it wraps it: the correlation id
+    # must already be bound while tenant resolution runs, or its warnings — a
+    # forged organization header being the one that matters — cannot be traced
+    # back to the request that produced them. It is also what stamps
+    # ``request_id`` on every audit record.
+    app.add_middleware(RequestContextMiddleware)
+
     # CORS must be the outermost middleware (added last) so preflight OPTIONS
     # is answered with Access-Control-* headers before any other layer runs.
     # ``allow_credentials`` is required so the refresh cookie travels, which is
@@ -138,7 +146,15 @@ def create_app(
             allow_origins=settings.cors_origins,
             allow_credentials=True,
             allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-            allow_headers=["Authorization", "Content-Type", ORGANIZATION_HEADER],
+            allow_headers=[
+                "Authorization",
+                "Content-Type",
+                ORGANIZATION_HEADER,
+                REQUEST_ID_HEADER,
+            ],
+            # So a browser client can read the correlation id back off a failed
+            # response and quote it in a bug report.
+            expose_headers=[REQUEST_ID_HEADER],
         )
 
     app.include_router(root_router)

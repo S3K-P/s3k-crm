@@ -25,6 +25,7 @@ class LeadCreate(BaseModel):
     industry: str | None = Field(default=None, max_length=120)
     website: str | None = Field(default=None, max_length=512)
     company_size: str | None = Field(default=None, max_length=64)
+    product_interest: str | None = Field(default=None, max_length=255)
     notes: str | None = None
     campaign_id: uuid.UUID | None = None
 
@@ -38,11 +39,13 @@ class LeadUpdate(BaseModel):
     email: EmailStr | None = None
     phone: str | None = Field(default=None, max_length=32)
     lead_source_id: uuid.UUID | None = None
+    owner_id: uuid.UUID | None = None
     priority: Priority | None = None
     expected_deal_size: Decimal | None = Field(default=None, ge=0)
     industry: str | None = Field(default=None, max_length=120)
     website: str | None = Field(default=None, max_length=512)
     company_size: str | None = Field(default=None, max_length=64)
+    product_interest: str | None = Field(default=None, max_length=255)
     notes: str | None = None
     ai_score: int | None = Field(default=None, ge=0, le=100)
 
@@ -61,16 +64,42 @@ class LeadOwnerChange(BaseModel):
 class LeadConvertRequest(BaseModel):
     """Convert a qualified lead.
 
-    Supplying ``account_id`` attaches to an existing account; omitting it
-    creates one from the lead's company name (decision C02).
+    Supply ``account_id`` / ``contact_id`` to link existing records instead of
+    creating duplicates. When omitted, the service auto-links an exact name /
+    email match when one exists; otherwise it creates new records from the
+    lead. Create a deal by default so the lifecycle reaches Opportunity.
     """
 
     account_id: uuid.UUID | None = None
-    create_opportunity: bool = False
+    contact_id: uuid.UUID | None = None
+    create_opportunity: bool = True
     opportunity_name: str | None = Field(default=None, max_length=255)
     opportunity_value: Decimal | None = Field(default=None, ge=0)
     stage_id: uuid.UUID | None = None
     expected_close_date: dt.date | None = None
+
+
+class ConversionMatchAccount(BaseModel):
+    id: uuid.UUID
+    name: str
+
+
+class ConversionMatchContact(BaseModel):
+    id: uuid.UUID
+    full_name: str
+    email: str | None
+    account_id: uuid.UUID | None
+
+
+class LeadConversionSuggestions(BaseModel):
+    """Existing records the convert UI should offer to link instead of recreate."""
+
+    matching_accounts: list[ConversionMatchAccount]
+    matching_contacts: list[ConversionMatchContact]
+    suggested_account_name: str
+    suggested_contact_name: str
+    suggested_opportunity_name: str
+    suggested_deal_value: Decimal | None
 
 
 class LeadResponse(BaseModel):
@@ -92,6 +121,7 @@ class LeadResponse(BaseModel):
     industry: str | None
     website: str | None
     company_size: str | None
+    product_interest: str | None
     notes: str | None
     lost_reason: str | None
     converted_at: dt.datetime | None
@@ -156,7 +186,10 @@ class LeadSourceResponse(BaseModel):
 
 
 __all__ = [
+    "ConversionMatchAccount",
+    "ConversionMatchContact",
     "LeadConversionResponse",
+    "LeadConversionSuggestions",
     "LeadConvertRequest",
     "LeadCreate",
     "LeadOwnerChange",

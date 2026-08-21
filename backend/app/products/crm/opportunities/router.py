@@ -23,6 +23,7 @@ from app.products.crm.opportunities.schemas import (
 )
 from app.products.crm.opportunities.service import OpportunityService
 from app.products.crm.shared.pagination import Page, PageParams, page_params
+from app.products.crm.shared.visibility import RecordVisibility
 
 router = APIRouter()
 
@@ -37,6 +38,16 @@ def get_service(session: DbSession) -> OpportunityService:
 ServiceDep = Annotated[OpportunityService, Depends(get_service)]
 
 
+def visible_to(principal: Principal) -> RecordVisibility:
+    """What this caller may read in this module (ADR-010).
+
+    Passed to every read below, including the reads that back an edit or a
+    delete, so a record outside the caller's visibility is a 404 on every
+    verb rather than only on the list.
+    """
+    return RecordVisibility.for_module(principal, MODULE)
+
+
 @router.get("", response_model=Page[OpportunityResponse])
 async def list_opportunities(
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
@@ -45,6 +56,7 @@ async def list_opportunities(
     search: Annotated[str | None, Query(max_length=255)] = None,
     stage_id: Annotated[uuid.UUID | None, Query()] = None,
     account_id: Annotated[uuid.UUID | None, Query()] = None,
+    primary_contact_id: Annotated[uuid.UUID | None, Query()] = None,
     owner_id: Annotated[uuid.UUID | None, Query()] = None,
     is_open: Annotated[bool | None, Query()] = None,
 ) -> Page[OpportunityResponse]:
@@ -53,11 +65,15 @@ async def list_opportunities(
         search=search,
         stage_id=stage_id,
         account_id=account_id,
+        primary_contact_id=primary_contact_id,
         owner_id=owner_id,
         is_open=is_open,
     )
     items, total = await service.list_opportunities(
-        principal.organization_id, params=params, filters=filters
+        principal.organization_id,
+        params=params,
+        filters=filters,
+        visibility=visible_to(principal),
     )
     return Page.build(
         [OpportunityResponse.model_validate(item) for item in items],
@@ -107,7 +123,9 @@ async def get_opportunity(
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
     service: ServiceDep,
 ) -> OpportunityResponse:
-    opportunity = await service.get_or_404(opportunity_id, principal.organization_id)
+    opportunity = await service.get_or_404(
+        opportunity_id, principal.organization_id, visibility=visible_to(principal)
+    )
     return OpportunityResponse.model_validate(opportunity)
 
 
@@ -119,7 +137,9 @@ async def update_opportunity(
     service: ServiceDep,
 ) -> OpportunityResponse:
     """Update an open deal. Editing a closed one returns 409."""
-    opportunity = await service.get_or_404(opportunity_id, principal.organization_id)
+    opportunity = await service.get_or_404(
+        opportunity_id, principal.organization_id, visibility=visible_to(principal)
+    )
     updated = await service.update_open(
         opportunity, actor_id=principal.user_id, values=payload.model_dump(exclude_unset=True)
     )
@@ -134,7 +154,9 @@ async def change_stage(
     service: ServiceDep,
 ) -> OpportunityResponse:
     """Move a deal to another stage, closing it if the stage is terminal."""
-    opportunity = await service.get_or_404(opportunity_id, principal.organization_id)
+    opportunity = await service.get_or_404(
+        opportunity_id, principal.organization_id, visibility=visible_to(principal)
+    )
     updated = await service.change_stage(
         opportunity,
         stage_id=payload.stage_id,
@@ -154,7 +176,9 @@ async def reopen_opportunity(
     service: ServiceDep,
 ) -> OpportunityResponse:
     """Return a closed deal to an open stage."""
-    opportunity = await service.get_or_404(opportunity_id, principal.organization_id)
+    opportunity = await service.get_or_404(
+        opportunity_id, principal.organization_id, visibility=visible_to(principal)
+    )
     updated = await service.reopen(
         opportunity, stage_id=payload.stage_id, actor_id=principal.user_id
     )
@@ -168,7 +192,9 @@ async def stage_history(
     service: ServiceDep,
 ) -> list[StageHistoryEntry]:
     """Every stage movement for this deal, newest first."""
-    opportunity = await service.get_or_404(opportunity_id, principal.organization_id)
+    opportunity = await service.get_or_404(
+        opportunity_id, principal.organization_id, visibility=visible_to(principal)
+    )
     entries = await service.stage_history(opportunity)
     return [StageHistoryEntry.model_validate(entry) for entry in entries]
 
@@ -179,7 +205,9 @@ async def archive_opportunity(
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.DELETE))],
     service: ServiceDep,
 ) -> Response:
-    opportunity = await service.get_or_404(opportunity_id, principal.organization_id)
+    opportunity = await service.get_or_404(
+        opportunity_id, principal.organization_id, visibility=visible_to(principal)
+    )
     await service.soft_delete(opportunity, actor_id=principal.user_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

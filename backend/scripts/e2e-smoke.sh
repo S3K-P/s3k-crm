@@ -56,7 +56,11 @@ get "crm/accounts/$AID"; check "$(field "$BODY" ".industry")" "Verified" "update
 check "$(code POST "crm/accounts" '{"name":"E2E Verify Ltd"}')" "409" "duplicate name warns"
 
 echo "== CONTACTS =="
-post "crm/contacts" "{\"first_name\":\"Ada\",\"last_name\":\"Verify\",\"account_id\":\"$AID\",\"email\":\"ada.verify@e2e.test\"}"
+# The address uses .example, not .test: email_validator treats .test as a
+# reserved special-use TLD and refuses it, so a .test fixture is a 422 from the
+# API rather than a contact — and the three assertions below then fail against
+# a perfectly correct backend.
+post "crm/contacts" "{\"first_name\":\"Ada\",\"last_name\":\"Verify\",\"account_id\":\"$AID\",\"email\":\"ada.verify@e2e.example\"}"
 check "$CODE" "201" "create -> 201"
 CID=$(field "$BODY" ".id")
 get "crm/contacts/$CID"

@@ -15,12 +15,86 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 from app.core.rls import disable_rls, enable_rls
-from app.platform.authorization.catalog import (
-    PERMISSION_ACTIONS,
-    PERMISSION_MODULES,
-    SYSTEM_ROLES,
-    permissions_for_system_role,
+
+# ---------------------------------------------------------------------------
+# The permission vocabulary **as of this revision**, pinned.
+#
+# This migration used to import PERMISSION_ACTIONS / PERMISSION_MODULES /
+# SYSTEM_ROLES from `app.platform.authorization.catalog`, on the reasoning that
+# the database could then never disagree with the code. The opposite happened:
+# the catalogue is living code, this migration is history, and the moment an
+# action was added to the catalogue (`VIEW_ALL`, revision 20260819_0200) a
+# **fresh** database broke — the seed tried to insert a value the CREATE TYPE
+# a few hundred lines below does not contain:
+#
+#     invalid input value for enum platform.permission_action: "VIEW_ALL"
+#
+# Existing databases were unaffected, because the seed had already run there,
+# which is exactly why it went unnoticed until a from-zero run.
+#
+# So the vocabulary is a literal snapshot now. It must match the enum values
+# in the `permissions.action` column definition below and must never be
+# "kept in sync" with the catalogue again: a later action is a later migration.
+# ---------------------------------------------------------------------------
+
+_ACTIONS: tuple[str, ...] = ("VIEW", "CREATE", "EDIT", "DELETE", "EXPORT", "ADMIN")
+
+_MODULES: tuple[str, ...] = (
+    "users",
+    "organizations",
+    "roles",
+    "audit",
+    "accounts",
+    "contacts",
+    "leads",
+    "lead_sources",
+    "opportunities",
+    "campaigns",
+    "activities",
+    "tasks",
+    "notes",
+    "documents",
+    "dashboard",
 )
+
+_CRM_MODULES: tuple[str, ...] = (
+    "accounts",
+    "contacts",
+    "leads",
+    "lead_sources",
+    "opportunities",
+    "campaigns",
+    "activities",
+    "tasks",
+    "notes",
+    "documents",
+    "dashboard",
+)
+
+
+def _codes(modules: tuple[str, ...], actions: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(f"{module}.{action}" for module in modules for action in actions)
+
+
+#: name -> (description, granted codes). Mirrors SYSTEM_ROLES at this revision.
+_SYSTEM_ROLES: dict[str, tuple[str, tuple[str, ...]]] = {
+    "Admin": (
+        "Full access to the organization, its members and all CRM data.",
+        _codes(_MODULES, _ACTIONS),
+    ),
+    "Manager": (
+        "Manages CRM data and the sales pipeline; may delete and export records.",
+        (
+            *_codes(_CRM_MODULES, ("VIEW", "CREATE", "EDIT", "DELETE", "EXPORT")),
+            "users.VIEW",
+            "organizations.VIEW",
+        ),
+    ),
+    "User": (
+        "Works day to day in the CRM: may read, create and edit records.",
+        _codes(_CRM_MODULES, ("VIEW", "CREATE", "EDIT")),
+    ),
+}
 
 revision: str = "8224845a67ac"
 down_revision: str | None = "0001_initial_schemas"
@@ -117,11 +191,11 @@ def _drop_enum_types(connection: sa.engine.Connection) -> None:
 def _seed_permissions_and_system_roles(connection: sa.engine.Connection) -> None:
     """Insert the permission vocabulary and the Admin/Manager/User templates.
 
-    Sourced from :mod:`app.platform.authorization.catalog` so the database can
-    never disagree with the code about which permissions exist.
+    Sourced from the pinned snapshot at the top of this file, **not** from the
+    live catalogue — see the note there for why.
     """
-    for module in PERMISSION_MODULES:
-        for action in PERMISSION_ACTIONS:
+    for module in _MODULES:
+        for action in _ACTIONS:
             connection.execute(
                 sa.text(
                     "INSERT INTO platform.permissions (module, action, description) "
@@ -130,12 +204,12 @@ def _seed_permissions_and_system_roles(connection: sa.engine.Connection) -> None
                 ),
                 {
                     "module": module,
-                    "action": action.value,
-                    "description": f"{action.value.title()} access to {module.replace('_', ' ')}.",
+                    "action": action,
+                    "description": f"{action.title()} access to {module.replace('_', ' ')}.",
                 },
             )
 
-    for role_name, (description, _codes) in SYSTEM_ROLES.items():
+    for role_name, (description, granted) in _SYSTEM_ROLES.items():
         connection.execute(
             sa.text(
                 "INSERT INTO platform.roles (organization_id, name, description, is_system) "
@@ -145,7 +219,7 @@ def _seed_permissions_and_system_roles(connection: sa.engine.Connection) -> None
             {"name": role_name, "description": description},
         )
 
-        for code in permissions_for_system_role(role_name):
+        for code in granted:
             module, _, action = code.partition(".")
             connection.execute(
                 sa.text(

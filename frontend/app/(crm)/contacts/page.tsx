@@ -1,11 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Contact as ContactIcon, Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
 
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
+import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
+import { notifyError, notifySuccess, notifyWarning } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect } from '@/components/crm/forms/FormField';
 import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
@@ -50,8 +52,9 @@ const EMPTY_FORM: ContactInput = {
   status: 'ACTIVE',
 };
 
-export default function ContactsPage() {
+function ContactsPageContent() {
   const router = useRouter();
+  const confirm = useConfirm();
   const { can } = usePermissions();
   const mayCreate = can('contacts', 'CREATE');
   const mayEdit = can('contacts', 'EDIT');
@@ -107,9 +110,22 @@ export default function ContactsPage() {
     [accounts],
   );
 
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  /* Deep link from an account: `/contacts?account_id=…` opens the New contact
+     drawer with that account already linked, so someone who arrived from an
+     account never has to find it again in a picker. The value goes straight
+     into `account_id`, so what is saved is the real foreign key.
+
+     Read through `useSearchParams` rather than `window.location`: on a
+     client-side navigation the router renders the new route before the
+     History API entry is in place, so reading the address bar at mount time
+     misses the parameter that was just set. */
+  const prefilledAccountId = useSearchParams().get('account_id') ?? '';
+
+  const [drawerOpen, setDrawerOpen] = useState(prefilledAccountId !== '');
   const [editing, setEditing] = useState<Contact | null>(null);
-  const [form, setForm] = useState<ContactInput>(EMPTY_FORM);
+  const [form, setForm] = useState<ContactInput>(
+    prefilledAccountId ? { ...EMPTY_FORM, account_id: prefilledAccountId } : EMPTY_FORM,
+  );
   const [duplicateWarning, setDuplicateWarning] = useState(false);
   const { pending, error: saveError, clearError, run } = useMutation();
 
@@ -156,17 +172,40 @@ export default function ContactsPage() {
     );
 
     if (saved === undefined) {
-      if (!allowDuplicate) setDuplicateWarning(true);
+      if (!allowDuplicate) {
+        setDuplicateWarning(true);
+        notifyWarning(
+          'A contact with those details already exists',
+          'Press "Save anyway" to keep both records.',
+        );
+      }
       return;
     }
     setDrawerOpen(false);
     setDuplicateWarning(false);
+    notifySuccess(
+      editing ? 'Contact updated' : 'Contact created',
+      `${body.first_name} ${body.last_name}`,
+    );
     reload();
   };
 
   const handleDelete = async (row: Contact) => {
-    const done = await run(() => archiveContact(row.id));
-    if (done !== undefined) reload();
+    const ok = await confirm({
+      title: `Archive ${row.full_name}?`,
+      description:
+        'The contact leaves lists and pickers. Opportunities that name them as the primary contact keep the link, so no deal loses its history.',
+      confirmLabel: 'Archive contact',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await archiveContact(row.id);
+      notifySuccess('Contact archived', row.full_name);
+      reload();
+    } catch (caught) {
+      notifyError(caught, 'The contact could not be archived.');
+    }
   };
 
   const columns = useMemo<ColumnDef<Contact>[]>(
@@ -410,5 +449,22 @@ export default function ContactsPage() {
         </div>
       </SlideDrawer>
     </div>
+  );
+}
+
+/*  needs a Suspense boundary: without one Next refuses to
+   prerender the route, and the deep link that carries the related record is
+   the whole point of reading the query string here. */
+export default function ContactsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="txt-muted flex items-center gap-2 p-8 text-[13px]">
+          <Loader2 className="h-4 w-4 motion-safe:animate-spin" /> Loading contacts…
+        </div>
+      }
+    >
+      <ContactsPageContent />
+    </Suspense>
   );
 }

@@ -22,9 +22,9 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
-    UniqueConstraint,
     Uuid,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -38,7 +38,14 @@ class Pipeline(Base, CrmEntityMixin):
 
     __tablename__ = "pipelines"
     __table_args__ = (
-        UniqueConstraint("organization_id", "name", name="uq_pipelines_organization_id_name"),
+        # Partial: an archived pipeline must not reserve its name forever.
+        Index(
+            "uq_pipelines_organization_id_name_live",
+            "organization_id",
+            "name",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
         {"schema": CRM_SCHEMA},
     )
 
@@ -59,7 +66,15 @@ class PipelineStage(Base, CrmEntityMixin):
 
     __tablename__ = "pipeline_stages"
     __table_args__ = (
-        UniqueConstraint("pipeline_id", "name", name="uq_pipeline_stages_pipeline_id_name"),
+        # Partial, for the same reason: a renamed-then-restored stage would
+        # otherwise collide with the archived row it replaced.
+        Index(
+            "uq_pipeline_stages_pipeline_id_name_live",
+            "pipeline_id",
+            "name",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+        ),
         Index("ix_pipeline_stages_pipeline_id_sort_order", "pipeline_id", "sort_order"),
         CheckConstraint(
             "default_probability IS NULL OR "

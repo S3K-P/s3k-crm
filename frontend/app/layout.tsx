@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Sora } from "next/font/google";
 import { Toaster } from "sonner";
 import { AuthProvider } from "@/context/AuthContext";
+import { ConfirmProvider } from "@/components/crm/dialogs/ConfirmDialog";
 import { ThemeProvider, themeInitScript } from "@/context/ThemeContext";
 import { BRAND } from "@/config/site";
 import "./globals.css";
@@ -36,7 +37,10 @@ export default function RootLayout({
       <body className="antialiased">
         <ThemeProvider>
           <AuthProvider>
-            {children}
+            {/* One dialog host and one toast host for the whole app: every
+                confirmation and every success/error notice in the CRM is
+                raised through these two, so they cannot drift per screen. */}
+            <ConfirmProvider>{children}</ConfirmProvider>
             <Toaster position="bottom-right" richColors closeButton />
           </AuthProvider>
         </ThemeProvider>

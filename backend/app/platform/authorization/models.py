@@ -42,9 +42,18 @@ PLATFORM_SCHEMA = "platform"
 
 
 class PermissionAction(enum.StrEnum):
-    """The six actions every module supports (doc 04)."""
+    """The actions every module supports (doc 04).
+
+    ``VIEW`` and ``VIEW_ALL`` are deliberately separate. ``VIEW`` answers
+    *may this caller read this module at all*; ``VIEW_ALL`` answers *may they
+    read records somebody else owns*. Splitting them is what makes
+    record-level authorization (ADR-010) a data question the catalogue
+    answers, rather than a role name hardcoded in a query.
+    """
 
     VIEW = "VIEW"
+    #: Read across owners. Without it a caller sees only records they own.
+    VIEW_ALL = "VIEW_ALL"
     CREATE = "CREATE"
     EDIT = "EDIT"
     DELETE = "DELETE"
