@@ -1,5 +1,15 @@
-"""Domain events emitted by the documents module (ADR-013).
+"""Domain events for the documents module (ADR-013).
 
-Placeholder. Events are written to the PostgreSQL outbox in the same
-transaction as the state change and dispatched by the ARQ worker.
+Deliberately empty, and this records why rather than leaving it ambiguous.
+
+Doc 11 lists ``platform.document.uploaded`` as an event the search indexer will
+consume. That needs the transactional outbox (`P4-W26`), which does not exist,
+and there is no search indexer to consume it (`P3-W20`). Publishing to nothing
+would be ceremony.
+
+Until then the module's observable trail is its **audit** records —
+``ATTACHMENT_UPLOADED``, ``ATTACHMENT_DOWNLOADED``, ``ATTACHMENT_DELETED`` —
+written synchronously in the transaction that performs the action, so they
+cannot describe an upload that was rolled back. See
+:mod:`app.platform.audit.service`.
 """

@@ -107,9 +107,60 @@ class Settings(BaseSettings):
     #: served from the same host.
     cors_allowed_origins: str = ""
 
+    # --- Object storage (ADR-014, doc 13 "File Upload Security") -----------
+    #
+    # Cloudflare R2 in deployed environments, MinIO locally. Both speak the S3
+    # API, so one boto3 client serves both and only these values differ. Every
+    # credential field defaults to ``None`` rather than to a local value: a
+    # deployment that forgets them must fail the validator below, not quietly
+    # sign URLs against somebody else's bucket.
+    storage_bucket: str | None = Field(
+        default=None, description="Bucket holding attachment objects."
+    )
+    #: S3 endpoint the **backend** signs against. ``None`` targets real AWS S3;
+    #: R2 and MinIO both need it set.
+    storage_endpoint_url: str | None = None
+    #: Endpoint the **browser** should reach, when it differs from the one the
+    #: backend uses. Inside Docker the API talks to ``http://minio:9000`` while
+    #: the browser can only reach ``http://localhost:9000``; a pre-signed URL
+    #: built for the first host is unreachable from the second. Unset in
+    #: production, where R2 is the same host for everyone.
+    storage_public_endpoint_url: str | None = None
+    storage_access_key_id: str | None = None
+    storage_secret_access_key: str | None = None
+    #: R2 ignores the region but boto3 requires one; ``auto`` is R2's own value.
+    storage_region: str = "auto"
+    #: R2 and MinIO both address buckets by path rather than by subdomain.
+    storage_force_path_style: bool = True
+    #: Doc 13: pre-signed download URLs expire in 15 minutes.
+    storage_download_url_ttl_seconds: int = Field(default=900, ge=60, le=3600)
+    #: Upload URLs are equally short-lived; a browser uses one immediately.
+    storage_upload_url_ttl_seconds: int = Field(default=900, ge=60, le=3600)
+    storage_connect_timeout_seconds: float = Field(default=5.0, gt=0)
+    storage_read_timeout_seconds: float = Field(default=15.0, gt=0)
+
     # --- Observability (ADR-018) -------------------------------------------
     log_level: LogLevel = "INFO"
     log_json: bool = True
+
+    @property
+    def storage_configured(self) -> bool:
+        """Whether object storage has everything it needs to sign a URL.
+
+        Attachment endpoints report 503 when this is false rather than failing
+        deep inside boto3 with a credentials error. Outside development the
+        validator below makes the false case unreachable.
+        """
+        return bool(
+            self.storage_bucket
+            and self.storage_access_key_id
+            and self.storage_secret_access_key
+        )
+
+    @property
+    def storage_browser_endpoint_url(self) -> str | None:
+        """Endpoint a pre-signed URL handed to a browser must be built against."""
+        return self.storage_public_endpoint_url or self.storage_endpoint_url
 
     @property
     def cookie_secure(self) -> bool:
@@ -183,6 +234,14 @@ class Settings(BaseSettings):
                 f"ENVIRONMENT={self.environment}. Generate an Ed25519 keypair and supply "
                 "both in PEM format; an ephemeral key would invalidate every token on "
                 "restart and cannot be shared between replicas."
+            )
+            raise ValueError(msg)
+        if self.environment in ("staging", "production") and not self.storage_configured:
+            msg = (
+                "STORAGE_BUCKET, STORAGE_ACCESS_KEY_ID and STORAGE_SECRET_ACCESS_KEY "
+                f"are required when ENVIRONMENT={self.environment}. Attachments have "
+                "nowhere to go without them, and starting anyway would accept uploads "
+                "that fail at the last step."
             )
             raise ValueError(msg)
         return self

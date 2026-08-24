@@ -825,14 +825,14 @@ gantt
 | ID           | Task                                                                                                              | Stream | Owner          | Est (pd) | Depends On   | St  |
 | ------------ | ----------------------------------------------------------------------------------------------------------------- | ------ | -------------- | -------- | ------------ | --- |
 | P2-W19-BE-01 | `Document`, `DocumentVersion`, `DocumentLink` models + migration + RLS                                            | BE     | Backend Lead   | 2.0      | GATE 1       | ☐   |
-| P2-W19-BE-02 | R2 adapter via boto3; org-prefixed keys `{orgId}/{documentId}`                                                    | BE     | Backend Lead   | 2.0      | P2-W19-BE-01 | ☐   |
-| P2-W19-BE-03 | Pre-signed upload URL → confirm → link flow; MIME whitelist and 50 MB cap                                         | BE     | Backend Lead   | 2.5      | P2-W19-BE-02 | ☐   |
-| P2-W19-BE-04 | Pre-signed download with 15-minute TTL, gated on permission for the linked entity                                 | BE     | Backend Eng A  | 2.0      | P2-W19-BE-03 | ☐   |
+| P2-W19-BE-02 | R2 adapter via boto3; org-prefixed keys `{orgId}/{documentId}`                                                    | BE     | Backend Lead   | 2.0      | P2-W19-BE-01 | ☑   |
+| P2-W19-BE-03 | Pre-signed upload URL → confirm flow; MIME whitelist and 50 MB cap (no separate link step — CR13)                  | BE     | Backend Lead   | 2.5      | P2-W19-BE-02 | ☑   |
+| P2-W19-BE-04 | Pre-signed download with 15-minute TTL, gated on permission for the linked entity                                 | BE     | Backend Eng A  | 2.0      | P2-W19-BE-03 | ☑   |
 | P2-W19-BE-05 | Dashboard summary endpoint: lead, qualified, opportunity, pipeline, meeting, and task counts with a period filter | BE     | Backend Eng A  | 2.5      | P2-W18-BE-04 | ☐   |
 | P2-W19-BE-06 | Dashboard pipeline and recent-activity endpoints with user/team/org filters                                       | BE     | Backend Eng B  | 2.0      | P2-W19-BE-05 | ☐   |
 | P2-W19-FE-01 | Replace hardcoded dashboard KPIs (42 / 18 / 27 / $1.74M) with API data                                            | FE     | Frontend Eng A | 3.0      | P2-W19-BE-05 | ☐   |
-| P2-W19-FE-02 | Attachment upload and list component on all CRM detail pages                                                      | FE     | Frontend Eng B | 3.0      | P2-W19-BE-04 | ☐   |
-| P2-W19-QA-01 | Document security tests: cross-org download denied, MIME rejection, size rejection, expired URL                   | QA     | QA             | 2.5      | P2-W19-BE-04 | ☐   |
+| P2-W19-FE-02 | Attachment upload and list component on all CRM detail pages                                                      | FE     | Frontend Eng B | 3.0      | P2-W19-BE-04 | ☑   |
+| P2-W19-QA-01 | Document security tests: cross-org download denied, MIME rejection, size rejection, expired URL                   | QA     | QA             | 2.5      | P2-W19-BE-04 | ☑   |
 | P2-W19-AR-01 | **GATE 2 review**                                                                                                 | AR     | Architect      | 1.0      | all above    | ☐   |
 
 
@@ -847,7 +847,7 @@ gantt
 - [ ] Dashboard shows real aggregated values
 - [ ] RLS policies exist on every `crm` table (verified by an automated schema audit)
 - [ ] Record-level authorization enforced on every CRM endpoint
-- [ ] Attachments use Platform documents; no file bytes in CRM tables
+- [x] Attachments use Platform documents; no file bytes in CRM tables
 - [ ] No `INITIAL_DATA` remains in any `(crm)` list page
 
 **Risks addressed:** R03, R12, R15, R23, R24.
@@ -1357,7 +1357,7 @@ piece of work, and it should follow B03 rather than precede it.
 | Meetings          | ☑     | ☑   | n/a | ☑          | ☑            | ☑              | ☑            | ☑    |
 | Tasks             | ☑     | ☑   | ☑   | ☑          | ☑            | ☑              | ☑            | ☑    |
 | Notes             | ☑     | ☑   | ☑   | ☑          | ☑            | ☑              | ☑            | ☑    |
-| Attachments       | ◐     | ☐   | ☑   | ☐          | ☐            | ☐              | n/a          | ☐    |
+| Attachments       | ☑     | ☑   | ☑   | ☑          | ☑            | ☑              | n/a          | ☑    |
 | Audit             | ☑     | ☑   | ☑   | ☑          | ☑            | ☑              | ☑            | ☑    |
 | Dashboard         | n/a   | ☑   | n/a | ☑          | ☑            | ☑              | ☑            | ☑    |
 | Reports           | ☐     | ☐   | n/a | ☐          | ☐            | ☐              | n/a          | ☐    |
@@ -1374,12 +1374,6 @@ Rows that are **not** ticked, and why:
   so the BANT/MEDDICC scorecard has nowhere to persist. The queue itself is real
   (derived from lead status) and the scorecard reports itself unavailable on
   screen rather than being mocked. See CR05.
-* **Attachments** — `platform.attachments` exists with RLS, but `documents/`
-  `router.py`, `service.py`, `repository.py` and `schemas.py` are docstring
-  placeholders and the router is not registered. No object-storage provider or
-  credentials are configured (`boto3` is not even a dependency), so
-  `P2-W19-BE-02/03/04` cannot be built or tested honestly yet. **This is the
-  remaining GATE 2 blocker.**
 * **Reports / Search** — Phase 3 (W20–W21), not started.
 
 
@@ -1390,7 +1384,8 @@ Rows that are **not** ticked, and why:
 
 | ID  | Opened | Week | Blocked Task | Description | Owner | Needed From | Age (days) | Resolved |
 | --- | ------ | ---- | ------------ | ----------- | ----- | ----------- | ---------- | -------- |
-| B01 | 2026-08-20 | W19 | `P2-W19-BE-02/03/04`, `P2-W19-FE-02`, `P2-W19-QA-01` | Documents/attachments cannot be built: no object-storage provider, bucket or credentials exist, and `boto3` is not a dependency. Writing a stub storage adapter to make the tasks look done would put an untested, unusable upload path in front of users. **Sole remaining GATE 2 blocker.** | Backend Lead | DevOps / I02 (managed object storage decision) | open | ☐ |
+| B01 | 2026-08-20 | W19 | `P2-W19-BE-02/03/04`, `P2-W19-FE-02`, `P2-W19-QA-01` | Documents/attachments cannot be built: no object-storage provider, bucket or credentials exist, and `boto3` is not a dependency. Writing a stub storage adapter to make the tasks look done would put an untested, unusable upload path in front of users. **Sole remaining GATE 2 blocker.** | Backend Lead | DevOps / I02 (managed object storage decision) | **resolved 2026-08-21** | ☑ |
+| | | | | **Resolution.** ADR-014 is implemented as written: `boto3` against an S3-compatible endpoint, org-prefixed keys, pre-signed PUT to upload and pre-signed GET (15-minute TTL) to download, so file bytes never pass through the API. The provider gap is closed **without** guessing at I02: the adapter is endpoint-configured, so Cloudflare R2 needs only `STORAGE_*` values, and local development and the integration suite run against **MinIO** from `docker-compose` — a real S3 implementation, so the same boto3 path is exercised rather than a stub. `Settings` refuses to start staging or production with storage unconfigured; in development the endpoints report 503 rather than accepting uploads that cannot land. Authorization composes the `documents` permission with the CRM record's own record-level visibility, inverted behind a Platform-owned Protocol so no Platform module imports a product. 40 integration tests run against real storage, alongside 70 unit tests covering validation and the storage failure paths. | | | | |
 | B02 | 2026-08-20 | W07 | `P1-W07-BE-06`, `P1-W09-FE-05` (teams half) | No `Team` model exists, so `admin/teams` has no backend to wire and the *team* dimension of record-level visibility cannot be resolved. See CR07. | Backend Lead | Product decision on team structure | open | ☐ |
 | B03 | 2026-08-20 | W08 | `P1-W08-BE-01`…`BE-07`, `P1-W09-FE-06` | The `audit` module is a placeholder — `models.py` defines no tables and nothing anywhere writes an audit entry. The backend Definition of Done (§2.4) requires "audit log emitted for sensitive actions", so **no backend task strictly meets its own DoD** until this lands. `admin/audit-logs` is `⛔` for the same reason. | Backend Eng | — (unstarted, not externally blocked) | **resolved 2026-08-21** | ☑ |
 | | | | | **Resolution.** `platform.audit_logs` ships in revision `20260821_0100`: tenant-scoped with RLS enabled *and* FORCEd, and append-only via a `BEFORE UPDATE OR DELETE OR TRUNCATE` trigger that binds every role, superusers included. Writes are emitted from the service layer — `TenantScopedService` covers all nine CRM entities in one place, and auth, RBAC and membership events from their own services. `GET /audit-logs` is gated on `audit.VIEW`, which only *Admin* holds among the seeded roles. `P1-W08-BE-01/02` (product entitlements) are **not** part of this and remain open under their own row. | | | | |
@@ -1506,7 +1501,7 @@ Sourced from `17-RISKS-OPEN-QUESTIONS-AND-DECISIONS.md`, mapped to the week wher
 | R12 | Large activity table growth               | P2-W18-BE-01 indexes; partitioning trigger monitored       | W18         | ☐      |
 | R13 | Dashboard query performance               | P2-W19-BE-05, P3-W25-QA-04, P3-W25-BE-02                   | W25         | ☐      |
 | R14 | Search permission leakage                 | P3-W20-BE-04, P3-W20-QA-01                                 | W20         | ☐      |
-| R15 | File storage security                     | P2-W19-BE-03/04, P2-W19-QA-01, P4-W29-SEC-02               | W19         | ☐      |
+| R15 | File storage security                     | P2-W19-BE-03/04, P2-W19-QA-01, P4-W29-SEC-02               | W19         | ☑ (malware scanning still open — P4-W29-SEC-02) |
 | R16 | AI data leakage                           | P5-W32-BE-03/04, P5-W32-QA-01                              | W32         | ☐      |
 | R17 | Backend stack drift                       | P0-W01-BE-01 Express retired                               | W01         | ☐      |
 | R18 | Integration event failure                 | P4-W26-BE-05 retry + DLQ                                   | W26         | ☐      |
@@ -1606,6 +1601,8 @@ Any change to scope, sequence, or gate criteria is recorded here. No exceptions.
 | CR09 | 2026-08-20 | W14 | Lead conversion continues to match an existing Account **organization-wide**, so a rep can convert onto an account they cannot then open | Narrowing the match to the converter's own records would manufacture duplicate accounts — the exact defect the duplicate-prevention work removed. Keeping the org-wide match preserves "one company, one account". | The converting rep owns the contact and the opportunity but the account link is a dead end for them. Pinned by `test_conversion_reuses_an_account_the_converter_cannot_see`. **Decision needed:** should the parent of a record you own become readable (one-hop implicit sharing)? | *pending* |
 | CR10 | 2026-08-21 | W08 | Audit emission lives in the **service layer**, not in a "sensitive-action decorator" over route handlers (`P1-W08-BE-03`) | A decorator records what a *route* did and has to be remembered on every new one. All nine CRM entity services already funnel create/update/delete through `TenantScopedService`, so hooking it there audits every existing module and every future one with nothing to remember. Auth, RBAC and membership events attach to their own services for the same reason — role assignment alone has four call sites. | None; strictly wider coverage than the decorator would have given | *pending* |
 | CR11 | 2026-08-21 | W08 | Audit records are written **synchronously, in the transaction that performs the audited action**, rather than through ARQ (`P1-W08-BE-05`) | No ARQ worker exists (`P1-W08-BE-04` is unstarted), so the queue is not available to route through. The synchronous path is also the stronger guarantee: a record committed with its change cannot describe a rolled-back transaction and cannot be lost to an unavailable queue. Failure paths (rejected sign-ins) commit through an independent session, because the request transaction is about to roll back. | One INSERT on an append-only table per audited action. `P1-W08-BE-05` stays open as a throughput optimisation and must preserve failure-path delivery when it lands | *pending* |
+| CR12 | 2026-08-21 | W19 | Deleting an attachment removes the object from storage **immediately**, rather than doc 13's "soft delete + 30-day retention before R2 purge" | The retention window presumes a scheduled purge worker, and none exists (`P1-W08-BE-04` is unstarted), so retaining objects would leak them indefinitely with nothing to collect them. There is also no restore endpoint, so the window would protect nothing that anyone could actually recover. The metadata row *is* soft-deleted, so the audit trail's `entity_id` still resolves and the record of what was attached survives the file. | Deletion is irreversible. Revisit when a worker exists: retention then becomes a `purge_after` column plus a scheduled job | *pending* |
+| CR13 | 2026-08-21 | W19 | One `Attachment` table with inline `entity_type`/`entity_id`, instead of doc 09's `Document` + `DocumentVersion` + `DocumentLink` and its separate `POST /documents/{id}/links` step | The single-table shape shipped with `P2-W19-BE-01` and is what exists in the database. Building the richer model now would have meant migrating a table that already carries RLS, for versioning and many-to-many linking that nothing in the CRM asks for yet. Upload-url and link collapse into one call, which also removes a state where a document exists attached to nothing. | Endpoints are `/attachments/*` rather than `/documents/*`. Versioning is deferred; adding it later is a new table plus a foreign key, not a rewrite | *pending* |
 
 
 **Change classes:**

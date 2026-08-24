@@ -8,6 +8,7 @@ import SectionHeader from '@/components/crm/shared/SectionHeader';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
 import { humanize, statusVariant } from '@/components/crm/shared/statusVariants';
 import { FormError, ListError } from '@/components/crm/shared/ListStates';
+import AttachmentsPanel from '@/components/crm/shared/AttachmentsPanel';
 import { ActivityTimelinePanel, NotesPanel } from '@/components/crm/shared/RecordPanels';
 import NotConfigured from '@/components/crm/shared/NotConfigured';
 import { useRecord } from '@/components/crm/shared/useRecord';
@@ -357,6 +358,7 @@ export default function CampaignDetailPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <ActivityTimelinePanel entityType="CAMPAIGN" entityId={campaign.id} />
         <NotesPanel entityType="CAMPAIGN" entityId={campaign.id} />
+        <AttachmentsPanel entityType="CAMPAIGN" entityId={campaign.id} />
       </div>
 
       <NotConfigured

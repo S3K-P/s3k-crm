@@ -8,6 +8,7 @@ import SectionHeader from '@/components/crm/shared/SectionHeader';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
 import { humanize, statusVariant } from '@/components/crm/shared/statusVariants';
 import { ListError } from '@/components/crm/shared/ListStates';
+import AttachmentsPanel from '@/components/crm/shared/AttachmentsPanel';
 import { ActivityTimelinePanel, NotesPanel } from '@/components/crm/shared/RecordPanels';
 import { ContactOpportunitiesPanel } from '@/components/crm/shared/RelatedLists';
 import { useRecord } from '@/components/crm/shared/useRecord';
@@ -189,6 +190,7 @@ export default function ContactDetailPage() {
         <div className="space-y-6">
           <ActivityTimelinePanel entityType="CONTACT" entityId={contact.id} />
           <NotesPanel entityType="CONTACT" entityId={contact.id} />
+        <AttachmentsPanel entityType="CONTACT" entityId={contact.id} />
         </div>
       </div>
     </div>

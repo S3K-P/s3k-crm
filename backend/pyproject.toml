@@ -17,6 +17,8 @@ dependencies = [
     "structlog>=24.4.0",
     "argon2-cffi>=23.1.0",
     "pyjwt[crypto]>=2.10.0",
+    # ADR-014: object storage on Cloudflare R2, which speaks the S3 API.
+    "boto3>=1.35.0",
 ]
 
 [dependency-groups]
@@ -27,6 +29,8 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "httpx>=0.28.0",
     "asyncpg-stubs>=0.30.0",
+    # boto3 ships no inline types; mypy runs strict here.
+    "boto3-stubs[s3]>=1.35.0",
     "tzdata>=2024.1",
 ]
 

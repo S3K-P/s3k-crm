@@ -38,6 +38,7 @@ from app.core.tenant import (
 )
 from app.platform.auth.dependencies import DatabaseMembershipVerifier, JwtPrincipalResolver
 from app.platform.auth.security import TokenIssuer
+from app.platform.documents.storage import build_storage
 
 # Registers every models module on the shared metadata. Needed at runtime, not
 # only for migrations: SQLAlchemy resolves a foreign key's target table lazily
@@ -58,6 +59,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.engine = engine
     app.state.session_factory = create_session_factory(engine)
     app.state.redis = create_redis_client(settings)
+    # Built once: constructing a boto3 client parses configuration and
+    # builds a signer, and the client is thread-safe for the metadata calls
+    # the documents module makes. ``None`` when no bucket is configured,
+    # which the attachment routes surface as 503 rather than a 500.
+    app.state.object_storage = build_storage(settings)
 
     logger.info(
         "application_started",

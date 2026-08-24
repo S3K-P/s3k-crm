@@ -17,6 +17,14 @@ VALID_ENV = {
     # Required from staging upwards; harmless in development/test.
     "JWT_PRIVATE_KEY": TEST_JWT_PRIVATE_KEY,
     "JWT_PUBLIC_KEY": TEST_JWT_PUBLIC_KEY,
+    # Likewise required from staging upwards: attachments have nowhere to go
+    # without them, so a deployed environment refuses to start. Placeholders —
+    # nothing here reaches an object store. That the requirement is *enforced*
+    # is pinned separately by
+    # ``test_attachment_storage_failures.test_staging_refuses_to_start_without_storage``.
+    "STORAGE_BUCKET": "test-attachments",
+    "STORAGE_ACCESS_KEY_ID": "test-key-id",
+    "STORAGE_SECRET_ACCESS_KEY": "test-secret",
 }
 
 

@@ -7,6 +7,7 @@ import { ArrowLeft, Target, Loader2, RotateCcw } from 'lucide-react';
 import SectionHeader from '@/components/crm/shared/SectionHeader';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
 import { ListError } from '@/components/crm/shared/ListStates';
+import AttachmentsPanel from '@/components/crm/shared/AttachmentsPanel';
 import { ActivityTimelinePanel, NotesPanel } from '@/components/crm/shared/RecordPanels';
 import { useRecord } from '@/components/crm/shared/useRecord';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
@@ -419,6 +420,7 @@ export default function OpportunityDetailPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <ActivityTimelinePanel entityType="OPPORTUNITY" entityId={opportunity.id} />
         <NotesPanel entityType="OPPORTUNITY" entityId={opportunity.id} />
+        <AttachmentsPanel entityType="OPPORTUNITY" entityId={opportunity.id} />
       </div>
     </div>
   );

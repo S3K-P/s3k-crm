@@ -94,6 +94,16 @@ class AuditAction(enum.StrEnum):
     MEMBER_STATUS_CHANGED = "MEMBER_STATUS_CHANGED"
     USER_PROVISIONED = "USER_PROVISIONED"
 
+    # --- Attachments -------------------------------------------------------
+    #
+    # Downloads are audited as well as writes: a pre-signed URL is a bearer
+    # credential and the storage layer's own logs are neither tenant-scoped nor
+    # visible to an organization's administrator, so this is the only record of
+    # who read which file (doc 13, "Data Access Control").
+    ATTACHMENT_UPLOADED = "ATTACHMENT_UPLOADED"
+    ATTACHMENT_DOWNLOADED = "ATTACHMENT_DOWNLOADED"
+    ATTACHMENT_DELETED = "ATTACHMENT_DELETED"
+
     # --- CRM state transitions ---------------------------------------------
     LEAD_STATUS_CHANGED = "LEAD_STATUS_CHANGED"
     LEAD_CONVERTED = "LEAD_CONVERTED"

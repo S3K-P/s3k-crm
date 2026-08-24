@@ -16,6 +16,7 @@ Path layout follows doc 11:
     /api/v1/organizations/*   tenants and membership
     /api/v1/roles/*           RBAC
     /api/v1/audit-logs/*      the audit trail (read-only, admin permission)
+    /api/v1/attachments/*     file metadata + pre-signed object-storage URLs
     /api/v1/crm/*             S3K CRM business resources
 """
 
@@ -27,6 +28,7 @@ from app.api import health
 from app.platform.audit import router as audit_router
 from app.platform.auth import router as auth_router
 from app.platform.authorization import router as authorization_router
+from app.platform.documents import router as documents_router
 from app.platform.organizations import router as organizations_router
 from app.products.crm.accounts import router as accounts_router
 from app.products.crm.activities import router as activities_router
@@ -37,6 +39,7 @@ from app.products.crm.leads import router as leads_router
 from app.products.crm.leads import source_router as lead_sources_router
 from app.products.crm.notes import router as notes_router
 from app.products.crm.opportunities import router as opportunities_router
+from app.products.crm.shared.attachments import crm_entity_access
 from app.products.crm.tasks import router as tasks_router
 
 root_router = APIRouter()
@@ -53,6 +56,21 @@ api_router.include_router(
     authorization_router.router, prefix="/roles", tags=["platform:authorization"]
 )
 api_router.include_router(audit_router.router, prefix="/audit-logs", tags=["platform:audit"])
+
+# Attachments are the one place a Platform module needs a product's answer:
+# whether the caller may reach the CRM record a file hangs off depends on
+# ``owner_id`` and on record-level visibility, neither of which Platform may
+# import (ARCHITECTURE-BOUNDARIES.md rule 1). The documents module inverts it
+# behind a Protocol; this file — already the one module permitted to see both
+# layers — supplies the CRM implementation.
+#
+# Registered *before* the router is included, and the registry denies
+# everything until it is, so an attachment route can never be served without a
+# record-access check behind it.
+documents_router.register_entity_access(crm_entity_access)
+api_router.include_router(
+    documents_router.router, prefix="/attachments", tags=["platform:documents"]
+)
 
 # --- S3K CRM routers --------------------------------------------------------
 api_router.include_router(
