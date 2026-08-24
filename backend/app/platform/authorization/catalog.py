@@ -23,6 +23,9 @@ PERMISSION_MODULES: Final[tuple[str, ...]] = (
     "organizations",
     "roles",
     "audit",
+    #: Team and department administration (B02). A Platform module, not a CRM
+    #: one — it is gated separately from the CRM data teams affect.
+    "teams",
     # CRM
     "accounts",
     "contacts",
@@ -110,6 +113,10 @@ def _manager_permissions() -> tuple[str, ...]:
     ]
     codes.append(permission_code("users", PermissionAction.VIEW))
     codes.append(permission_code("organizations", PermissionAction.VIEW))
+    #: A manager reads the org chart but does not restructure it: team
+    #: membership decides who can see whose records, so editing it is an
+    #: administrative act.
+    codes.append(permission_code("teams", PermissionAction.VIEW))
     return tuple(codes)
 
 

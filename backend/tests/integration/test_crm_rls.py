@@ -310,6 +310,58 @@ async def test_platform_attachments_is_tenant_isolated(owner_engine: AsyncEngine
     assert not findings, format_findings(findings)
 
 
+async def test_platform_teams_are_tenant_isolated(owner_engine: AsyncEngine) -> None:
+    """Team membership feeds record-level visibility, so its tables are in scope.
+
+    ``departments`` and ``teams`` carry a non-null ``organization_id`` and take
+    the standard policy. ``team_memberships`` is checked separately below: it
+    has no tenant column at all, by design.
+    """
+    tables = {table.name: table for table in await _discover(owner_engine, PLATFORM_SCHEMA)}
+
+    for name in ("departments", "teams"):
+        table = tables.get(name)
+        assert table is not None, f"platform.{name} does not exist"
+        findings = audit_tenant_isolation((table,), exemptions={})
+        assert not findings, format_findings(findings)
+
+
+async def test_team_memberships_is_isolated_through_its_team(
+    owner_engine: AsyncEngine,
+) -> None:
+    """The join has no ``organization_id``, so the blanket rule cannot apply.
+
+    Its isolation comes from an ``EXISTS`` policy over ``platform.teams``,
+    which is itself tenant-scoped. This asserts the policy is present *and*
+    forced, because a membership readable across tenants would leak who works
+    with whom — and, through ``VIEW_TEAM``, widen what they can read.
+    """
+    async with owner_engine.connect() as connection:
+        enabled, forced = (
+            await connection.execute(
+                text(
+                    "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+                    "WHERE oid = 'platform.team_memberships'::regclass"
+                )
+            )
+        ).one()
+        predicate = (
+            await connection.execute(
+                text(
+                    "SELECT pg_get_expr(polqual, polrelid) FROM pg_policy "
+                    "WHERE polrelid = 'platform.team_memberships'::regclass"
+                )
+            )
+        ).scalar_one_or_none()
+
+    assert enabled is True, "RLS is not enabled on platform.team_memberships"
+    assert forced is True, "RLS is not FORCEd on platform.team_memberships"
+    assert predicate is not None, "platform.team_memberships has no policy"
+    # The policy must reach the tenant through teams, not trust a local column.
+    assert "teams" in predicate
+    assert "current_setting" in predicate
+
+
 # --- Policy coverage: the audit's own failure modes -------------------------
 
 

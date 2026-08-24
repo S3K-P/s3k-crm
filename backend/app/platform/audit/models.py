@@ -104,6 +104,20 @@ class AuditAction(enum.StrEnum):
     ATTACHMENT_DOWNLOADED = "ATTACHMENT_DOWNLOADED"
     ATTACHMENT_DELETED = "ATTACHMENT_DELETED"
 
+    # --- Teams and departments ---------------------------------------------
+    #
+    # Membership changes are audited as carefully as permission changes,
+    # because they have the same effect: moving somebody onto a team widens
+    # what they can read, through ``VIEW_TEAM``, without touching a role.
+    DEPARTMENT_CREATED = "DEPARTMENT_CREATED"
+    DEPARTMENT_UPDATED = "DEPARTMENT_UPDATED"
+    DEPARTMENT_DELETED = "DEPARTMENT_DELETED"
+    TEAM_CREATED = "TEAM_CREATED"
+    TEAM_UPDATED = "TEAM_UPDATED"
+    TEAM_DELETED = "TEAM_DELETED"
+    TEAM_MEMBER_ADDED = "TEAM_MEMBER_ADDED"
+    TEAM_MEMBER_REMOVED = "TEAM_MEMBER_REMOVED"
+
     # --- CRM state transitions ---------------------------------------------
     LEAD_STATUS_CHANGED = "LEAD_STATUS_CHANGED"
     LEAD_CONVERTED = "LEAD_CONVERTED"

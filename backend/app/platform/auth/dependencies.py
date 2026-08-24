@@ -14,7 +14,7 @@ Products import from this module (never from ``auth.repository`` or
 from __future__ import annotations
 
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass, replace
 from typing import Annotated
 
@@ -136,6 +136,12 @@ class Principal:
     #: built without an authorization check (``CurrentPrincipal``), so callers
     #: must use :meth:`has_permission` rather than reading it as truth.
     permissions: frozenset[str] = frozenset()
+    #: Users sharing a team with this one, resolved once by
+    #: :func:`require_permission` and only when the caller actually holds a
+    #: ``VIEW_TEAM`` grant — a principal without one never pays for the query.
+    #: Empty is the safe value: it degrades ``VIEW_TEAM`` to owner-only rather
+    #: than to organization-wide (B02).
+    team_peer_ids: frozenset[uuid.UUID] = frozenset()
 
     @property
     def user_id(self) -> uuid.UUID:
@@ -217,6 +223,7 @@ def require_permission(
     async def dependency(
         principal: CurrentPrincipal,
         authorization: AuthorizationServiceDep,
+        session: DbSession,
     ) -> Principal:
         # Resolved once and attached, rather than checked and thrown away.
         # The route's own check and any record-level question the handler asks
@@ -230,9 +237,42 @@ def require_permission(
                 required=permission_code(module, action),
             )
             raise PermissionDeniedError
-        return replace(principal, permissions=frozenset(granted))
+
+        peers = await _team_peer_ids(principal, granted, session)
+        return replace(
+            principal, permissions=frozenset(granted), team_peer_ids=peers
+        )
 
     return dependency
+
+
+async def _team_peer_ids(
+    principal: Principal, granted: Collection[str], session: AsyncSession
+) -> frozenset[uuid.UUID]:
+    """Team-mates of the caller, or empty when no ``VIEW_TEAM`` is held.
+
+    Resolved here, beside the permission snapshot, so that every existing
+    ``RecordVisibility.for_module`` call site gains the team dimension without
+    changing — 29 of them across five routers. Resolving it lazily at each call
+    site instead would have meant five places to remember, and the first one
+    forgotten would be a module where team visibility silently did nothing.
+
+    The query is skipped entirely unless some module grants ``VIEW_TEAM``, so
+    the common case — an Admin with ``VIEW_ALL``, or a rep with neither — costs
+    nothing.
+    """
+    suffix = f".{PermissionAction.VIEW_TEAM.value}"
+    if not any(code.endswith(suffix) for code in granted):
+        return frozenset()
+
+    # Imported here rather than at module scope: ``teams.service`` imports
+    # ``Principal`` from this module, so a top-level import would be a cycle.
+    from app.platform.teams.service import teams_for_session
+
+    peers = await teams_for_session(session).peer_user_ids(
+        principal.user_id, principal.organization_id
+    )
+    return frozenset(peers)
 
 
 class JwtPrincipalResolver:

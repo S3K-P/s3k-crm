@@ -30,6 +30,7 @@ from app.platform.auth import router as auth_router
 from app.platform.authorization import router as authorization_router
 from app.platform.documents import router as documents_router
 from app.platform.organizations import router as organizations_router
+from app.platform.teams import router as teams_router
 from app.products.crm.accounts import router as accounts_router
 from app.products.crm.activities import router as activities_router
 from app.products.crm.campaigns import router as campaigns_router
@@ -56,6 +57,10 @@ api_router.include_router(
     authorization_router.router, prefix="/roles", tags=["platform:authorization"]
 )
 api_router.include_router(audit_router.router, prefix="/audit-logs", tags=["platform:audit"])
+api_router.include_router(teams_router.router, prefix="/teams", tags=["platform:teams"])
+api_router.include_router(
+    teams_router.department_router, prefix="/departments", tags=["platform:teams"]
+)
 
 # Attachments are the one place a Platform module needs a product's answer:
 # whether the caller may reach the CRM record a file hangs off depends on

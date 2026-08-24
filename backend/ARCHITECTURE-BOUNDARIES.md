@@ -13,7 +13,7 @@ if the boundaries hold from the first commit.
 ```
 app/core/       Infrastructure: config, database, redis, logging, exceptions
 app/platform/   Shared Platform: auth, organizations, authorization,
-                documents, audit, notifications
+                teams, documents, audit, notifications
 app/products/   Products: crm/{accounts,contacts,leads,opportunities,
                 activities,tasks,notes,dashboard}
 ```
