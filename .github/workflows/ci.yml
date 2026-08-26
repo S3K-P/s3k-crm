@@ -1,0 +1,246 @@
+# S3K CRM — continuous integration (P0-W03-DO-01, P0-W03-DO-02).
+#
+# Closes the gap the GATE 2 review recorded as F01(a): the repository had no
+# pipeline at all, so a suite of 800+ tests, a strict type check, an RLS
+# schema audit and a module-boundary linter all ran only when somebody
+# remembered. Everything below already existed and already passed — this makes
+# it obligatory rather than optional.
+#
+# ── On service containers instead of testcontainers ─────────────────────────
+# P0-W03-DO-01 says "pytest with testcontainers". GitHub Actions **service
+# containers** are used instead, and the difference is packaging rather than
+# fidelity: both give the suite a real PostgreSQL 18, a real Redis and a real
+# MinIO, which is the property the tests depend on (RLS is enforced by the
+# database, and `test_attachments` signs URLs against real object storage).
+# Service containers are declared next to the job that needs them and start
+# before it, where testcontainers would add a Python dependency that reaches
+# for a Docker socket from inside the runner. Recorded as CR17.
+#
+# ── Why the boundary linter needs no new tool (P0-W03-DO-02) ────────────────
+# It already exists. `pyproject.toml` configures ruff's
+# `flake8-tidy-imports.banned-api` to reject `app.products` imports from the
+# Platform layer, with per-file exemptions for the three composition roots
+# permitted to see both. Running ruff here is what makes it block a merge;
+# `tests/unit/test_module_boundaries.py` covers the rules ruff cannot express.
+
+name: CI
+
+on:
+  push:
+    branches: [main, 'feat/**', 'claude/**']
+  pull_request:
+  # Lets a green run be demanded on a branch before it is merged, without
+  # waiting for a push.
+  workflow_dispatch:
+
+# A second push to the same branch makes the first run irrelevant. Cancelling
+# it keeps the queue honest — but never on main, where every commit's result
+# is a record worth keeping.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  # Pinned so a runner image bump cannot silently change the interpreter under
+  # a `requires-python = ">=3.13,<3.14"` project.
+  PYTHON_VERSION: '3.13'
+  NODE_VERSION: '22'
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Fast feedback: no services, no database. Fails in ~1 minute on the
+  # mistakes that are most common, so a broken formatting run does not wait
+  # behind fifteen minutes of integration tests.
+  # ──────────────────────────────────────────────────────────────────────────
+  backend-static:
+    name: Backend · lint and types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Set up Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
+        working-directory: backend
+
+      - name: Install dependencies
+        run: uv sync --frozen
+        working-directory: backend
+
+      # Also enforces the module boundary: ruff's banned-api rule rejects
+      # `app.products` imports from the Platform layer (ADR-003 / ADR-004).
+      - name: Ruff
+        run: uv run ruff check app tests migrations
+        working-directory: backend
+
+      - name: mypy (strict)
+        run: uv run mypy app
+        working-directory: backend
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # The real suite, against real infrastructure. RLS cannot be tested against
+  # a stub: the policies are enforced by PostgreSQL, so a fake database would
+  # prove nothing about tenant isolation.
+  # ──────────────────────────────────────────────────────────────────────────
+  backend-tests:
+    name: Backend · tests
+    runs-on: ubuntu-latest
+    needs: backend-static
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: s3k
+          POSTGRES_PASSWORD: s3k_ci
+          POSTGRES_DB: s3k_crm
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U s3k -d s3k_crm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+      minio:
+        image: bitnami/minio:latest
+        env:
+          MINIO_ROOT_USER: s3k-ci
+          MINIO_ROOT_PASSWORD: s3k_ci_secret
+          # Bitnami's image creates the bucket on boot, which replaces the
+          # separate `mc` init container docker-compose.yml uses locally.
+          MINIO_DEFAULT_BUCKETS: s3k-attachments
+        ports: ['9000:9000']
+        options: >-
+          --health-cmd "mc ready local || curl -f http://localhost:9000/minio/health/live"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # The runtime deliberately refuses to start without these; CI is not
+      # exempt from that. Values are throwaway and match the services above.
+      DATABASE_URL: postgresql+asyncpg://s3k:s3k_ci@localhost:5432/s3k_crm
+      REDIS_URL: redis://localhost:6379/0
+      ENVIRONMENT: development
+      STORAGE_BUCKET: s3k-attachments
+      STORAGE_ENDPOINT_URL: http://localhost:9000
+      STORAGE_ACCESS_KEY_ID: s3k-ci
+      STORAGE_SECRET_ACCESS_KEY: s3k_ci_secret
+      STORAGE_REGION: auto
+      STORAGE_FORCE_PATH_STYLE: 'true'
+      CORS_ALLOWED_ORIGINS: http://localhost:3000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Set up Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
+        working-directory: backend
+
+      - name: Install dependencies
+        run: uv sync --frozen
+        working-directory: backend
+
+      # Migrations run from zero on every CI run, which is the from-scratch
+      # check a long-lived development database never performs. A revision
+      # that only works against an already-migrated schema fails here.
+      - name: Apply migrations
+        run: uv run alembic upgrade head
+        working-directory: backend
+
+      # `--durations` surfaces the slowest tests, because this suite takes
+      # ~14 minutes locally and the first question about a slow CI run is
+      # always which test to look at.
+      - name: pytest
+        run: uv run pytest -q --durations=15
+        working-directory: backend
+
+      # Reversibility is a claim every migration makes in its `downgrade()`
+      # and nothing else checks. Runs after the suite so a failure here never
+      # masks a test failure.
+      - name: Migrations are reversible
+        run: |
+          uv run alembic downgrade base
+          uv run alembic upgrade head
+        working-directory: backend
+
+  frontend:
+    name: Frontend · lint, types and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      # `npm ci` rather than `install`: it honours the lockfile exactly and
+      # fails if the lockfile and package.json disagree, which is a defect
+      # worth failing on rather than silently resolving.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck --workspace=frontend
+
+      - name: Lint
+        run: npm run lint --workspace=frontend
+
+      # The build is the only step that exercises prerendering, which is where
+      # a server/client boundary mistake actually surfaces.
+      - name: Production build
+        run: npm run build --workspace=frontend
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Dependency audit. Reports rather than blocks: a transitive advisory with
+  # no available fix should not stop an unrelated change from merging, and an
+  # audit that routinely has to be overridden stops being read at all. Revisit
+  # at GATE 4, where P4-W29 owns the security posture.
+  # ──────────────────────────────────────────────────────────────────────────
+  audit:
+    name: Dependency audit (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Python advisories
+        run: |
+          uv export --frozen --no-dev --format requirements-txt > /tmp/requirements.txt
+          uvx pip-audit --requirement /tmp/requirements.txt
+        working-directory: backend
+
+      - name: npm advisories
+        run: npm audit --audit-level=high
