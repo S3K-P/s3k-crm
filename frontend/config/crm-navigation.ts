@@ -1,5 +1,6 @@
 import {
   LayoutDashboard,
+  Filter,
   Megaphone,
   Users,
   Building2,
@@ -45,6 +46,7 @@ export const CRM_NAV_SECTIONS: CrmNavSection[] = [
     title: 'Overview',
     items: [
       { id: 'dashboard', label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+      { id: 'pipeline-journey', label: 'Pipeline Journey', href: '/pipeline-journey', icon: Filter },
     ],
   },
   {
@@ -91,6 +93,7 @@ export const CRM_NAV_ITEMS: CrmNavItem[] = CRM_NAV_SECTIONS.flatMap(s => s.items
  */
 export const BREADCRUMB_LABELS: Record<string, string> = {
   dashboard: 'Dashboard',
+  'pipeline-journey': 'Pipeline Journey',
   'lead-sources': 'Lead Sources',
   leads: 'Leads',
   partners: 'Partners',
