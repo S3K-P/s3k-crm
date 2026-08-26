@@ -32,7 +32,7 @@ export default function PipelineStageCard({ stage, className }: PipelineStageCar
           className="rounded-full px-2 py-[2px] text-[10.5px] font-bold"
           style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}
         >
-          {stage.count} deals
+          {stage.count} {stage.count === 1 ? 'deal' : 'deals'}
         </span>
       </div>
 

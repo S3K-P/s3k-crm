@@ -1,242 +1,443 @@
 'use client';
 
+import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Megaphone, Target, Users, Play, Pause, Copy, Download, Sparkles, Building2, TrendingUp, BarChart3, Activity } from 'lucide-react';
+import { ArrowLeft, Loader2, Megaphone, Plus, Trash2, UserPlus } from 'lucide-react';
+
 import SectionHeader from '@/components/crm/shared/SectionHeader';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
-import Tabs, { type TabDef } from '@/components/crm/shared/Tabs';
-import AICampaignInsights, { type AICampaignInsightsData } from '@/components/crm/ai/AICampaignInsights';
-import AICommandBar from '@/components/crm/ai/AICommandBar';
-import ActivityItem from '@/components/crm/cards/ActivityItem';
-import { cn } from '@/lib/utils';
+import { humanize, statusVariant } from '@/components/crm/shared/statusVariants';
+import { FormError, ListError } from '@/components/crm/shared/ListStates';
+import AttachmentsPanel from '@/components/crm/shared/AttachmentsPanel';
+import { ActivityTimelinePanel, NotesPanel } from '@/components/crm/shared/RecordPanels';
+import NotConfigured from '@/components/crm/shared/NotConfigured';
+import { useRecord } from '@/components/crm/shared/useRecord';
+import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
+import FormField, { FormSelect } from '@/components/crm/forms/FormField';
+import { usePermissions } from '@/context/AuthContext';
+import { describeApiError, useMutation } from '@/features/shared/hooks/useCollection';
+import {
+  addCampaignMember,
+  getCampaign,
+  listCampaignMembers,
+  removeCampaignMember,
+  type Campaign,
+  type CampaignMember,
+  type CampaignMemberType,
+} from '@/features/crm/campaigns';
+import { listLeads, type Lead } from '@/features/crm/leads';
+import { listContacts, type Contact } from '@/features/crm/contacts';
 
 /* ============================================================
-   MOCK DATA
-   ============================================================ */
-const MOCK_CAMPAIGN = {
-  id: '1',
-  name: 'Q3 Enterprise Outreach',
-  type: 'Email',
-  owner: 'Sarah Chen',
-  startDate: '2026-07-01',
-  endDate: '2026-09-30',
-  budget: '$15,000',
-  status: 'Active',
-  targetAudience: 'CTOs, IT Directors',
-  leadSource: 'Marketing - Email',
-  products: 'Enterprise Suite',
-};
+   CAMPAIGN DETAIL
 
-const MOCK_RELATIONSHIPS = {
-  leadsGenerated: 450,
-  leadsConverted: 45,
-  accountsCreated: 12,
-  opportunitiesCreated: 45,
-  pipelineValue: '$2,500,000',
-  revenueAttributed: '$150,000',
-};
+   Loads the campaign named by the route `[id]`. The previous
+   version of this page read a module-level constant and ignored
+   the URL entirely, so every campaign rendered the same
+   fabricated record (risk R24) — that is what this replaces.
 
-const MOCK_AI_DATA: AICampaignInsightsData = {
-  performanceSummary: 'The campaign is outperforming Q2 benchmarks by 15%. Open rates are solid, but click-through to the landing page has slowed in week 3.',
-  predictedRoi: '185%',
-  audienceQuality: 'High',
-  bestPerformingChannel: 'Targeted Email Sequences (Sequence A)',
-  suggestedImprovements: 'A/B test the subject lines for the week 4 email drop to re-engage the segment that hasn\'t opened previous emails.',
-  recommendedNextCampaign: 'Enterprise Expansion - Q4 Follow-up (Webinar)',
-  executiveSummary: 'Strong pipeline generation early in the quarter. The 10% conversion rate from lead to opportunity indicates high audience resonance.',
-};
-
-const MOCK_ACTIVITIES = [
-  { id: '1', icon: Megaphone, iconGradient: 'from-sky-500 to-blue-600', title: 'Campaign Launched', detail: 'Email sequence A initiated to 5,000 contacts.', timestamp: '3 weeks ago' },
-  { id: '2', icon: Target, iconGradient: 'from-amber-500 to-orange-500', title: 'Milestone Reached', detail: 'Generated 100 leads.', timestamp: '2 weeks ago' },
-  { id: '3', icon: Activity, iconGradient: 'from-emerald-500 to-green-600', title: 'Opportunity Won', detail: 'First deal closed attributed to this campaign ($25k).', timestamp: '1 week ago' },
-];
-
-/* ============================================================
-   PAGE COMPONENT
+   Members are real rows from `crm.campaign_members`, added and
+   removed through the API. The AI insights panel is gone: there
+   is no AI backend, and a panel of invented "predicted ROI"
+   numbers next to real ones is worse than no panel.
    ============================================================ */
 
-export default function CampaignDetailsPage() {
-  const router = useRouter();
-  const { id } = useParams();
-  
-  const campaign = MOCK_CAMPAIGN;
-  const rels = MOCK_RELATIONSHIPS;
-
-  const tabs: TabDef[] = [
-    {
-      id: 'overview',
-      label: 'Overview',
-      content: (
-        <div className="space-y-6">
-          {/* CRM Relationship Widgets */}
-          <div className="surface bd rounded-2xl border p-5">
-            <SectionHeader title="CRM Pipeline Impact" />
-            <p className="txt-muted text-[13px] mb-4">Direct attribution of marketing efforts to sales revenue.</p>
-            <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
-              <div className="surface-2 rounded-xl border border-[var(--border)] p-3">
-                <div className="flex items-center gap-1.5 mb-1 text-[var(--muted)]"><Users className="h-3.5 w-3.5" /><span className="text-[10px] font-bold uppercase tracking-wider">Leads</span></div>
-                <span className="font-display txt text-[20px] font-bold">{rels.leadsGenerated}</span>
-              </div>
-              <div className="surface-2 rounded-xl border border-[var(--border)] p-3">
-                <div className="flex items-center gap-1.5 mb-1 text-[var(--muted)]"><CheckCircle2 className="h-3.5 w-3.5" /><span className="text-[10px] font-bold uppercase tracking-wider">Converted</span></div>
-                <span className="font-display txt text-[20px] font-bold">{rels.leadsConverted}</span>
-              </div>
-              <div className="surface-2 rounded-xl border border-[var(--border)] p-3">
-                <div className="flex items-center gap-1.5 mb-1 text-[var(--muted)]"><Building2 className="h-3.5 w-3.5" /><span className="text-[10px] font-bold uppercase tracking-wider">Accounts</span></div>
-                <span className="font-display txt text-[20px] font-bold">{rels.accountsCreated}</span>
-              </div>
-              <div className="surface-2 rounded-xl border border-[var(--border)] p-3">
-                <div className="flex items-center gap-1.5 mb-1 text-[var(--muted)]"><Target className="h-3.5 w-3.5" /><span className="text-[10px] font-bold uppercase tracking-wider">Opps</span></div>
-                <span className="font-display txt text-[20px] font-bold">{rels.opportunitiesCreated}</span>
-              </div>
-              <div className="surface-2 rounded-xl border border-[var(--border)] p-3">
-                <div className="flex items-center gap-1.5 mb-1 text-[var(--muted)]"><BarChart3 className="h-3.5 w-3.5" /><span className="text-[10px] font-bold uppercase tracking-wider">Pipeline</span></div>
-                <span className="font-display txt text-[16px] font-bold">{rels.pipelineValue}</span>
-              </div>
-              <div className="surface-2 rounded-xl border border-[var(--border)] p-3 bg-emerald-500/10 border-emerald-500/20">
-                <div className="flex items-center gap-1.5 mb-1 text-emerald-600 dark:text-emerald-400"><TrendingUp className="h-3.5 w-3.5" /><span className="text-[10px] font-bold uppercase tracking-wider">Revenue</span></div>
-                <span className="font-display text-[16px] font-bold text-emerald-600 dark:text-emerald-400">{rels.revenueAttributed}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="surface bd rounded-2xl border p-5">
-              <SectionHeader title="Campaign Details" />
-              <div className="space-y-4 pt-2">
-                <div><p className="txt-muted text-[12px] font-semibold uppercase">Schedule</p><p className="txt text-[13.5px] mt-1 font-medium">{campaign.startDate} to {campaign.endDate}</p></div>
-                <div><p className="txt-muted text-[12px] font-semibold uppercase">Target Audience</p><p className="txt text-[13.5px] mt-1">{campaign.targetAudience}</p></div>
-                <div><p className="txt-muted text-[12px] font-semibold uppercase">Lead Source Code</p><p className="txt text-[13.5px] mt-1 font-mono text-[var(--accent)] bg-[var(--surface-2)] inline-block px-2 py-0.5 rounded">{campaign.leadSource}</p></div>
-                <div><p className="txt-muted text-[12px] font-semibold uppercase">Products</p><p className="txt text-[13.5px] mt-1">{campaign.products}</p></div>
-              </div>
-            </div>
-            
-            <div className="surface bd rounded-2xl border p-5">
-              <SectionHeader title="Active Team" />
-              <div className="flex flex-col gap-4 pt-2">
-                <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--surface-2)] text-[11px] font-bold text-[var(--accent)]">SC</div>
-                    <div><p className="txt text-[13px] font-semibold">{campaign.owner}</p><p className="txt-faint text-[11px]">Campaign Manager</p></div>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--surface-2)] text-[11px] font-bold text-[var(--accent)]">MJ</div>
-                    <div><p className="txt text-[13px] font-semibold">Mike Johnson</p><p className="txt-faint text-[11px]">Sales Lead</p></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      ),
-    },
-    { id: 'leads', label: 'Leads Generated', content: <div className="p-4 text-[13px] txt-faint">List of 450 generated leads coming soon.</div> },
-    { id: 'opportunities', label: 'Opportunities', content: <div className="p-4 text-[13px] txt-faint">List of 45 opportunities coming soon.</div> },
-    { id: 'performance', label: 'Performance', content: <div className="p-4 text-[13px] txt-faint">Detailed charts and analytics coming soon.</div> },
-    { 
-      id: 'timeline', 
-      label: 'Timeline', 
-      content: (
-        <div className="surface bd rounded-2xl border p-5">
-          <SectionHeader title="Campaign Activities" />
-          <div className="pt-2">
-            {MOCK_ACTIVITIES.map((activity, i) => (
-              <ActivityItem key={activity.id} activity={activity} showConnector={i < MOCK_ACTIVITIES.length - 1} />
-            ))}
-          </div>
-        </div>
-      ) 
-    },
-    { id: 'notes', label: 'Notes', content: <div className="p-4 text-[13px] txt-faint">No manual notes added.</div> },
-  ];
-
+function Field({ label, value }: { label: string; value: string | null }) {
   return (
-    <div className="flex h-full flex-col space-y-6 p-6 lg:p-8">
-      
-      {/* ── AI Command Bar ── */}
-      <AICommandBar />
-
-      {/* ── Page Header ── */}
-      <div className="flex flex-col gap-4">
-        <button onClick={() => router.push('/campaigns')} className="txt-muted hover:txt flex w-fit items-center gap-1 text-[13px] font-medium transition-colors">
-          <ArrowLeft className="h-4 w-4" /> Back to Campaigns
-        </button>
-        
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex items-start gap-4">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[16px] bg-gradient-to-br from-rose-500 to-orange-600 shadow-sm">
-              <Megaphone className="h-6 w-6 text-white" />
-            </div>
-            <div className="mt-1">
-              <div className="flex items-center gap-3">
-                <h1 className="font-display txt text-[24px] font-extrabold leading-tight tracking-tight">
-                  {campaign.name}
-                </h1>
-                <StatusBadge label={campaign.status} variant="success" />
-              </div>
-              <div className="txt-muted mt-1.5 flex items-center gap-2 text-[13px] font-medium">
-                <span className="flex items-center gap-1"><Target className="h-4 w-4" /> {campaign.type}</span>
-                <span className="border-l border-[var(--border)] pl-2 ml-1">Budget: <span className="font-display font-bold txt">{campaign.budget}</span></span>
-              </div>
-            </div>
-          </div>
-          
-          <div className="flex flex-wrap items-center gap-2">
-            <button className="ctl flex items-center gap-2 px-3 py-2 text-[12.5px] font-semibold transition hover:opacity-80">
-              <Pause className="h-4 w-4" /> Pause
-            </button>
-            <button className="ctl flex items-center gap-2 px-3 py-2 text-[12.5px] font-semibold transition hover:opacity-80">
-              <Copy className="h-4 w-4" /> Duplicate
-            </button>
-            <button className="ctl flex items-center gap-2 px-3 py-2 text-[12.5px] font-semibold transition hover:opacity-80">
-              <Download className="h-4 w-4" /> Export ROI
-            </button>
-            <button
-              className="flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-semibold text-white shadow-sm transition hover:opacity-90 hover:shadow-md"
-              style={{ background: 'var(--accent)' }}
-            >
-              <Sparkles className="h-4 w-4 text-violet-200" /> Gen. AI Report
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Content Area: Main + Sidebar ── */}
-      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-        {/* Left: Main Tabs */}
-        <div className="min-w-0">
-           <Tabs tabs={tabs} defaultTab="overview" />
-        </div>
-        
-        {/* Right: AI Panel Sidebar */}
-        <div className="flex flex-col gap-6">
-          <AICampaignInsights data={MOCK_AI_DATA} />
-        </div>
-      </div>
+    <div>
+      <p className="txt-muted text-[12px] font-semibold uppercase">{label}</p>
+      <p className="txt mt-1 text-[13.5px]">{value || '—'}</p>
     </div>
   );
 }
 
-// Dummy CheckCircle2 icon definition (used above)
-function CheckCircle2(props: any) {
+function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-      <polyline points="22 4 12 14.01 9 11.01" />
-    </svg>
+    <div className="surface bd rounded-xl border p-4">
+      <p className="txt-faint text-[10.5px] font-bold uppercase tracking-wide">{label}</p>
+      <p className="font-display txt mt-1 text-[22px] font-bold leading-none tabular-nums">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function formatMoney(value: string | null): string {
+  if (value === null || value === '') return '—';
+  const amount = Number(value);
+  if (Number.isNaN(amount)) return value;
+  return amount.toLocaleString(undefined, {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  });
+}
+
+export default function CampaignDetailPage() {
+  const router = useRouter();
+  const params = useParams<{ id: string }>();
+  const id = typeof params?.id === 'string' ? params.id : undefined;
+
+  const { can } = usePermissions();
+  const mayEdit = can('campaigns', 'EDIT');
+  const mayViewLeads = can('leads', 'VIEW');
+  const mayViewContacts = can('contacts', 'VIEW');
+
+  const { status, data, error, reload } = useRecord<Campaign>(getCampaign, id, {
+    errorMessage: 'Could not load this campaign.',
+  });
+
+  /* ---- Members ---- */
+  const [members, setMembers] = useState<CampaignMember[] | null>(null);
+  const [membersError, setMembersError] = useState<string | null>(null);
+  const [membersAttempt, setMembersAttempt] = useState(0);
+
+  const reloadMembers = useCallback(() => setMembersAttempt((n) => n + 1), []);
+
+  // Inline, so nothing is assigned to state before the first await.
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const loaded = await listCampaignMembers(id);
+        if (!cancelled) {
+          setMembers(loaded);
+          setMembersError(null);
+        }
+      } catch (caught) {
+        if (!cancelled) {
+          setMembersError(describeApiError(caught, 'Could not load campaign members.'));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, membersAttempt]);
+
+  /* ---- Candidate pickers, so members show names rather than raw ids ---- */
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      if (mayViewLeads) {
+        try {
+          const page = await listLeads({ page_size: 200, sort_by: 'created_at', sort_dir: 'desc' });
+          if (!cancelled) setLeads(page.data);
+        } catch {
+          // The list still renders; member rows fall back to their id.
+        }
+      }
+      if (mayViewContacts) {
+        try {
+          const page = await listContacts({ page_size: 200, sort_by: 'last_name', sort_dir: 'asc' });
+          if (!cancelled) setContacts(page.data);
+        } catch {
+          /* as above */
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mayViewLeads, mayViewContacts]);
+
+  const memberLabel = (member: CampaignMember): string => {
+    if (member.entity_type === 'LEAD') {
+      const lead = leads.find((candidate) => candidate.id === member.entity_id);
+      return lead ? `${lead.first_name} ${lead.last_name}` : member.entity_id;
+    }
+    const contact = contacts.find((candidate) => candidate.id === member.entity_id);
+    return contact ? contact.full_name : member.entity_id;
+  };
+
+  /* ---- Add-member drawer ---- */
+  const [addOpen, setAddOpen] = useState(false);
+  const [memberType, setMemberType] = useState<CampaignMemberType>('LEAD');
+  const [entityId, setEntityId] = useState('');
+  const { pending, error: mutationError, clearError, run } = useMutation();
+
+  const handleAdd = async () => {
+    if (!id || !entityId) return;
+    const added = await run(() =>
+      addCampaignMember(id, { entity_type: memberType, entity_id: entityId }),
+    );
+    if (added === undefined) return;
+    setAddOpen(false);
+    setEntityId('');
+    reloadMembers();
+    reload(); // member_count is computed server-side
+  };
+
+  const handleRemove = async (member: CampaignMember) => {
+    if (!id) return;
+    const done = await run(() => removeCampaignMember(id, member.id));
+    if (done === undefined) return;
+    reloadMembers();
+    reload();
+  };
+
+  if (status === 'loading') {
+    return (
+      <div className="txt-muted flex items-center gap-2 p-8 text-[13px]">
+        <Loader2 className="h-4 w-4 motion-safe:animate-spin" /> Loading campaign…
+      </div>
+    );
+  }
+
+  if (status === 'missing') {
+    return (
+      <div className="space-y-4 p-6 lg:p-8">
+        <button
+          type="button"
+          onClick={() => router.push('/campaigns')}
+          className="txt-muted flex items-center gap-1.5 text-[13px] font-semibold hover:opacity-70"
+        >
+          <ArrowLeft className="h-4 w-4" /> Back to campaigns
+        </button>
+        <div className="surface bd rounded-2xl border p-10 text-center">
+          <p className="txt text-[14px] font-semibold">Campaign not found</p>
+          <p className="txt-muted mt-1 text-[12.5px]">
+            It may have been archived, or it belongs to another organization.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === 'error' || data === null) {
+    return (
+      <div className="p-6 lg:p-8">
+        <ListError message={error ?? 'Could not load this campaign.'} onRetry={reload} />
+      </div>
+    );
+  }
+
+  const campaign = data;
+  const candidates = memberType === 'LEAD' ? leads : contacts;
+  const enrolled = new Set((members ?? []).map((member) => member.entity_id));
+
+  return (
+    <div className="space-y-6 p-6 lg:p-8">
+      <button
+        type="button"
+        onClick={() => router.push('/campaigns')}
+        className="txt-muted flex items-center gap-1.5 text-[13px] font-semibold hover:opacity-70"
+      >
+        <ArrowLeft className="h-4 w-4" /> Back to campaigns
+      </button>
+
+      <div className="flex flex-wrap items-center gap-3.5">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-fuchsia-500 to-purple-600">
+          <Megaphone className="h-5 w-5 text-white" />
+        </div>
+        <div>
+          <h1 className="font-display txt text-[22px] font-extrabold">{campaign.name}</h1>
+          <p className="txt-muted mt-0.5 text-[13px]">{humanize(campaign.type)}</p>
+        </div>
+        <div className="ml-auto">
+          <StatusBadge
+            label={humanize(campaign.status)}
+            variant={statusVariant(campaign.status)}
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Metric label="Leads generated" value={String(campaign.leads_generated)} />
+        <Metric label="Opportunities" value={String(campaign.opportunities_generated)} />
+        <Metric label="Members" value={String(campaign.member_count)} />
+        <Metric label="Budget" value={formatMoney(campaign.budget)} />
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2">
+        <div className="surface bd rounded-2xl border p-5">
+          <SectionHeader title="Schedule and targeting" />
+          <div className="space-y-4 pt-2">
+            <Field label="Starts" value={campaign.start_date} />
+            <Field label="Ends" value={campaign.end_date} />
+            <Field label="Target audience" value={campaign.target_audience} />
+            <Field label="Products" value={campaign.products} />
+          </div>
+        </div>
+
+        <div className="surface bd rounded-2xl border p-5">
+          <SectionHeader title="Financials" />
+          <div className="space-y-4 pt-2">
+            <Field label="Budget" value={formatMoney(campaign.budget)} />
+            <Field label="Expected revenue" value={formatMoney(campaign.expected_revenue)} />
+            <Field
+              label="Conversion rate"
+              value={campaign.conversion_rate ? `${Number(campaign.conversion_rate).toFixed(1)}%` : null}
+            />
+            <Field label="ROI" value={campaign.roi ? `${Number(campaign.roi).toFixed(1)}%` : null} />
+          </div>
+          <p className="txt-faint mt-4 text-[11.5px] leading-relaxed">
+            Conversion rate and ROI are computed by the backend. The scheduled recomputation job is
+            not built yet, so a new campaign reports no value rather than an estimated one.
+          </p>
+        </div>
+      </div>
+
+      {campaign.notes && (
+        <div className="surface bd rounded-2xl border p-5">
+          <SectionHeader title="Notes" />
+          <p className="txt whitespace-pre-wrap pt-1 text-[13.5px]">{campaign.notes}</p>
+        </div>
+      )}
+
+      {/* ---- Members ---- */}
+      <div className="surface bd rounded-2xl border p-5">
+        <div className="flex items-center justify-between gap-3">
+          <SectionHeader title="Campaign members" />
+          {mayEdit && (
+            <button
+              type="button"
+              onClick={() => {
+                clearError();
+                setAddOpen(true);
+              }}
+              className="ctl bd flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] font-semibold transition hover:opacity-80"
+            >
+              <UserPlus className="h-3.5 w-3.5" /> Add member
+            </button>
+          )}
+        </div>
+
+        <div className="pt-3">
+          {membersError !== null ? (
+            <p role="alert" className="text-[12.5px] font-medium text-red-500">
+              {membersError}
+            </p>
+          ) : members === null ? (
+            <p className="txt-faint flex items-center gap-2 py-6 text-[12.5px]">
+              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" /> Loading members…
+            </p>
+          ) : members.length === 0 ? (
+            <p className="txt-faint py-6 text-center text-[12.5px]">
+              No leads or contacts are enrolled in this campaign yet.
+            </p>
+          ) : (
+            <ul className="divide-y" style={{ borderColor: 'var(--border)' }}>
+              {members.map((member) => (
+                <li key={member.id} className="flex items-center gap-3 py-2.5">
+                  <StatusBadge label={humanize(member.entity_type)} variant="neutral" />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      router.push(
+                        member.entity_type === 'LEAD'
+                          ? `/leads/${member.entity_id}`
+                          : `/contacts/${member.entity_id}`,
+                      )
+                    }
+                    className="txt min-w-0 flex-1 truncate text-left text-[13px] font-medium hover:underline"
+                  >
+                    {memberLabel(member)}
+                  </button>
+                  {mayEdit && (
+                    <button
+                      type="button"
+                      aria-label="Remove from campaign"
+                      onClick={() => void handleRemove(member)}
+                      className="ctl rounded-lg p-1.5 text-red-500 transition hover:opacity-70"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <ActivityTimelinePanel entityType="CAMPAIGN" entityId={campaign.id} />
+        <NotesPanel entityType="CAMPAIGN" entityId={campaign.id} />
+        <AttachmentsPanel entityType="CAMPAIGN" entityId={campaign.id} />
+      </div>
+
+      <NotConfigured
+        compact
+        title="Campaign AI insights are not available"
+        description="Predicted performance, audience recommendations and channel analysis need the AI gateway, which has not been built. This panel previously showed a fixed sample forecast; it now shows nothing rather than a number you could mistake for a prediction about this campaign."
+        requires="AI gateway (ADR-016, Phase 5)"
+      />
+
+      <SlideDrawer
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        title="Add campaign member"
+        subtitle="Enrol an existing lead or contact."
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setAddOpen(false)}
+              className="ctl bd rounded-lg border px-4 py-2 text-[13px] font-semibold"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleAdd()}
+              disabled={pending || !entityId}
+              className="flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ background: 'var(--accent)' }}
+            >
+              {pending ? (
+                <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />
+              ) : (
+                <Plus className="h-3.5 w-3.5" />
+              )}
+              {pending ? 'Adding…' : 'Add'}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <FormField label="Record type">
+            <FormSelect
+              value={memberType}
+              onChange={(event) => {
+                setMemberType(event.target.value as CampaignMemberType);
+                setEntityId('');
+              }}
+              options={[
+                { value: 'LEAD', label: 'Lead' },
+                { value: 'CONTACT', label: 'Contact' },
+              ]}
+            />
+          </FormField>
+
+          <FormField
+            label={memberType === 'LEAD' ? 'Lead' : 'Contact'}
+            required
+            hint="Records already enrolled are not listed."
+          >
+            <FormSelect
+              value={entityId}
+              onChange={(event) => setEntityId(event.target.value)}
+              placeholder={`Choose a ${memberType === 'LEAD' ? 'lead' : 'contact'}…`}
+              options={candidates
+                .filter((candidate) => !enrolled.has(candidate.id))
+                .map((candidate) => ({
+                  value: candidate.id,
+                  label:
+                    'full_name' in candidate
+                      ? candidate.full_name
+                      : `${candidate.first_name} ${candidate.last_name}`,
+                }))}
+            />
+          </FormField>
+
+          <FormError message={mutationError} />
+        </div>
+      </SlideDrawer>
+    </div>
   );
 }

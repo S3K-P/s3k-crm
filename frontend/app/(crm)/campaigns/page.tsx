@@ -1,436 +1,611 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  Megaphone, Plus, Download, Upload, LayoutList, LayoutGrid,
-  MoreHorizontal, Pencil, Trash2, TrendingUp, Users, Target
-} from 'lucide-react';
-import DataTable, { type ColumnDef, type SortDirection } from '@/components/crm/tables/DataTable';
+import { Megaphone, Plus, Pencil, Trash2, Loader2, LayoutGrid, LayoutList } from 'lucide-react';
+
+import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
+import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
+import { notifyError, notifySuccess, notifyWarning } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
 import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
-import { cn } from '@/lib/utils';
+import { humanize, statusVariant } from '@/components/crm/shared/statusVariants';
+import { FormError, ListEmpty, ListError, ResultCount } from '@/components/crm/shared/ListStates';
+import { usePermissions } from '@/context/AuthContext';
+import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
+import { listLeadSources, type LeadSource } from '@/features/crm/lead-sources';
+import {
+  CAMPAIGN_STATUSES,
+  CAMPAIGN_TYPES,
+  archiveCampaign,
+  createCampaign,
+  listCampaigns,
+  updateCampaign,
+  type Campaign,
+  type CampaignInput,
+  type CampaignStatus,
+  type CampaignType,
+} from '@/features/crm/campaigns';
+import { useEffect } from 'react';
 
 /* ============================================================
-   TYPES
+   CAMPAIGNS
+
+   Every row comes from `GET /api/v1/crm/campaigns`, scoped by
+   the backend to the caller's organization.
+
+   `leads_generated`, `opportunities_generated`, `conversion_rate`
+   and `roi` are backend-owned and read-only here. They are shown
+   exactly as the API reports them — which for a new campaign is
+   zero, because the job that recomputes them (P2-W15-BE-05) has
+   not been built. Showing a real zero is the point: an invented
+   "185% ROI" is indistinguishable from a measured one.
    ============================================================ */
 
-export type CampaignStatus = 'Planning' | 'Active' | 'Paused' | 'Completed' | 'Cancelled';
-export type CampaignType = 'Email' | 'Webinar' | 'Social Media' | 'Event' | 'Advertisement';
-
-interface Campaign {
-  id: string;
-  name: string;
-  type: CampaignType;
-  owner: string;
-  startDate: string;
-  endDate: string;
-  budget: string;
-  expectedRevenue: string;
-  leadsGenerated: number;
-  opportunitiesGenerated: number;
-  conversionRate: number;
-  roi: string;
-  progress: number;
-  status: CampaignStatus;
-  targetAudience: string;
-  leadSource: string;
-  products: string;
-  notes: string;
-}
-
-type DrawerMode = 'add' | 'edit';
 type ViewMode = 'table' | 'cards';
 
-/* ============================================================
-   MOCK DATA
-   ============================================================ */
-
-const INITIAL_DATA: Campaign[] = [
-  { id: '1', name: 'Q3 Enterprise Outreach', type: 'Email', owner: 'Sarah Chen', startDate: '2026-07-01', endDate: '2026-09-30', budget: '$15,000', expectedRevenue: '$150,000', leadsGenerated: 450, opportunitiesGenerated: 45, conversionRate: 10.0, roi: '185%', progress: 35, status: 'Active', targetAudience: 'CTOs, IT Directors', leadSource: 'Marketing', products: 'Enterprise Suite', notes: 'High engagement in week 1.' },
-  { id: '2', name: 'AI in CRM Webinar', type: 'Webinar', owner: 'Mike Johnson', startDate: '2026-08-15', endDate: '2026-08-15', budget: '$5,000', expectedRevenue: '$50,000', leadsGenerated: 120, opportunitiesGenerated: 5, conversionRate: 4.1, roi: '45%', progress: 10, status: 'Planning', targetAudience: 'Sales Managers', leadSource: 'Webinar', products: 'AI Add-on', notes: 'Registration is open.' },
-  { id: '3', name: 'SaaS Expo London', type: 'Event', owner: 'Priya Patel', startDate: '2026-06-10', endDate: '2026-06-12', budget: '$35,000', expectedRevenue: '$250,000', leadsGenerated: 850, opportunitiesGenerated: 120, conversionRate: 14.1, roi: '310%', progress: 100, status: 'Completed', targetAudience: 'Enterprise Leaders', leadSource: 'Event', products: 'Full Platform', notes: 'Very successful event.' },
-  { id: '4', name: 'Summer Promo Ads', type: 'Advertisement', owner: 'Sarah Chen', startDate: '2026-06-01', endDate: '2026-08-31', budget: '$20,000', expectedRevenue: '$100,000', leadsGenerated: 210, opportunitiesGenerated: 12, conversionRate: 5.7, roi: '12%', progress: 50, status: 'Paused', targetAudience: 'Small Businesses', leadSource: 'Paid Ads', products: 'Standard Tier', notes: 'Paused due to low conversion on LinkedIn.' },
-  { id: '5', name: 'Q4 Product Launch', type: 'Social Media', owner: 'Mike Johnson', startDate: '2026-10-01', endDate: '2026-11-30', budget: '$25,000', expectedRevenue: '$200,000', leadsGenerated: 0, opportunitiesGenerated: 0, conversionRate: 0, roi: '0%', progress: 0, status: 'Planning', targetAudience: 'Existing Customers', leadSource: 'Social', products: 'New Analytics Module', notes: 'Content in review.' },
-];
-
 const STATUS_OPTIONS = [
-  { value: '', label: 'All Statuses' },
-  { value: 'Planning', label: 'Planning' },
-  { value: 'Active', label: 'Active' },
-  { value: 'Paused', label: 'Paused' },
-  { value: 'Completed', label: 'Completed' },
-  { value: 'Cancelled', label: 'Cancelled' },
+  { value: '', label: 'All statuses' },
+  ...CAMPAIGN_STATUSES.map((value) => ({ value, label: humanize(value) })),
 ];
 
 const TYPE_OPTIONS = [
-  { value: '', label: 'All Types' },
-  { value: 'Email', label: 'Email' },
-  { value: 'Webinar', label: 'Webinar' },
-  { value: 'Social Media', label: 'Social Media' },
-  { value: 'Event', label: 'Event' },
-  { value: 'Advertisement', label: 'Advertisement' },
+  { value: '', label: 'All types' },
+  ...CAMPAIGN_TYPES.map((value) => ({ value, label: humanize(value) })),
 ];
 
-const EMPTY_FORM: Partial<Campaign> = {
-  name: '', type: 'Email', owner: '', startDate: '', endDate: '', budget: '', expectedRevenue: '',
-  status: 'Planning', targetAudience: '', leadSource: '', products: '', notes: ''
+const EMPTY_FORM: CampaignInput = {
+  name: '',
+  type: 'EMAIL',
+  status: 'PLANNING',
+  start_date: '',
+  end_date: '',
+  budget: '',
+  expected_revenue: '',
+  target_audience: '',
+  lead_source_id: '',
+  products: '',
+  notes: '',
 };
 
-/* ============================================================
-   PAGE COMPONENT
-   ============================================================ */
+/** Money arrives as a decimal string so precision survives the wire. */
+function formatMoney(value: string | null): string {
+  if (value === null || value === '') return '—';
+  const amount = Number(value);
+  if (Number.isNaN(amount)) return value;
+  return amount.toLocaleString(undefined, {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  });
+}
+
+function formatPercent(value: string | null): string {
+  if (value === null || value === '') return '—';
+  const rate = Number(value);
+  if (Number.isNaN(rate)) return value;
+  return `${rate.toFixed(1)}%`;
+}
 
 export default function CampaignsPage() {
   const router = useRouter();
+  const confirm = useConfirm();
+  const { can } = usePermissions();
+  const mayCreate = can('campaigns', 'CREATE');
+  const mayEdit = can('campaigns', 'EDIT');
+  const mayDelete = can('campaigns', 'DELETE');
+  const mayViewSources = can('lead_sources', 'VIEW');
 
-  /* ---- State ---- */
-  const [data, setData] = useState<Campaign[]>(INITIAL_DATA);
+  const [view, setView] = useState<ViewMode>('cards');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
-  const [sortKey, setSortKey] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<SortDirection>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>('cards');
+  const [page, setPage] = useState(1);
 
-  // Drawer
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerMode, setDrawerMode] = useState<DrawerMode>('add');
-  const [editId, setEditId] = useState<string | null>(null);
-  const [form, setForm] = useState<Partial<Campaign>>(EMPTY_FORM);
-  const [openActionId, setOpenActionId] = useState<string | null>(null);
+  const fetcher = useCallback(
+    () =>
+      listCampaigns({
+        page,
+        page_size: 25,
+        search: search.trim() || null,
+        status: (statusFilter || null) as CampaignStatus | null,
+        type: (typeFilter || null) as CampaignType | null,
+        sort_by: 'created_at',
+        sort_dir: 'desc',
+      }),
+    [page, search, statusFilter, typeFilter],
+  );
 
-  /* ---- Filtering + sorting ---- */
-  const filtered = useMemo(() => {
-    let rows = data;
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      rows = rows.filter(r =>
-        r.name.toLowerCase().includes(q) ||
-        r.owner.toLowerCase().includes(q)
-      );
-    }
-    if (statusFilter) rows = rows.filter(r => r.status === statusFilter);
-    if (typeFilter) rows = rows.filter(r => r.type === typeFilter);
-    
-    if (sortKey && sortDir) {
-      rows = [...rows].sort((a, b) => {
-        const aVal = (a as unknown as Record<string, unknown>)[sortKey];
-        const bVal = (b as unknown as Record<string, unknown>)[sortKey];
-        if (typeof aVal === 'number' && typeof bVal === 'number') {
-          return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
-        }
-        const aStr = String(aVal ?? '').toLowerCase();
-        const bStr = String(bVal ?? '').toLowerCase();
-        return sortDir === 'asc' ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr);
-      });
-    }
-    return rows;
-  }, [data, search, statusFilter, typeFilter, sortKey, sortDir]);
+  const { status, items, pagination, error, reload, refreshing } = useCollection<Campaign>(
+    fetcher,
+    [page, search, statusFilter, typeFilter],
+    { errorMessage: 'Something went wrong loading campaigns.' },
+  );
 
-  /* ---- Sort handler ---- */
-  const handleSort = useCallback((key: string) => {
-    setSortKey(prev => {
-      if (prev === key) {
-        setSortDir(d => (d === 'asc' ? 'desc' : d === 'desc' ? null : 'asc'));
-        return key;
+  /* ---- Lead sources for the attribution picker ---- */
+  const [sources, setSources] = useState<LeadSource[]>([]);
+  useEffect(() => {
+    if (!mayViewSources) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await listLeadSources({ page_size: 200, status: 'ACTIVE' });
+        if (!cancelled) setSources(result.data);
+      } catch {
+        // A campaign can be saved without a source; the picker simply stays empty.
       }
-      setSortDir('asc');
-      return key;
-    });
-  }, []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mayViewSources]);
 
-  /* ---- Handlers ---- */
-  const handleRowClick = (row: Campaign) => router.push(`/campaigns/${row.id}`);
+  const sourceNames = useMemo(
+    () => new Map(sources.map((source) => [source.id, source.name])),
+    [sources],
+  );
+
+  /* ---- Drawer ---- */
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editing, setEditing] = useState<Campaign | null>(null);
+  const [form, setForm] = useState<CampaignInput>(EMPTY_FORM);
+  const { pending, error: saveError, clearError, run } = useMutation();
 
   const openAdd = () => {
-    setDrawerMode('add');
-    setEditId(null);
+    setEditing(null);
     setForm(EMPTY_FORM);
+    clearError();
     setDrawerOpen(true);
   };
 
   const openEdit = (row: Campaign) => {
-    setDrawerMode('edit');
-    setEditId(row.id);
-    setForm({ ...row });
+    setEditing(row);
+    setForm({
+      name: row.name,
+      type: row.type,
+      status: row.status,
+      start_date: row.start_date ?? '',
+      end_date: row.end_date ?? '',
+      budget: row.budget ?? '',
+      expected_revenue: row.expected_revenue ?? '',
+      target_audience: row.target_audience ?? '',
+      lead_source_id: row.lead_source_id ?? '',
+      products: row.products ?? '',
+      notes: row.notes ?? '',
+    });
+    clearError();
     setDrawerOpen(true);
-    setOpenActionId(null);
   };
 
-  const handleSave = () => {
-    if (!form.name?.trim() || !form.budget?.trim()) return;
-
-    if (drawerMode === 'add') {
-      const newItem: Campaign = {
-        ...(form as Campaign),
-        id: String(Date.now()),
-        leadsGenerated: 0,
-        opportunitiesGenerated: 0,
-        conversionRate: 0,
-        roi: '0%',
-        progress: 0,
-      };
-      setData(prev => [newItem, ...prev]);
-    } else if (editId) {
-      setData(prev => prev.map(r => r.id === editId ? { ...r, ...(form as Campaign) } : r));
-    }
-
+  const handleSave = async () => {
+    if (!form.name.trim()) return;
+    // Empty strings are dropped rather than sent: the backend types these as
+    // optional dates and decimals, and "" is neither.
+    const body: CampaignInput = {
+      name: form.name.trim(),
+      type: form.type,
+      status: form.status,
+      start_date: form.start_date || null,
+      end_date: form.end_date || null,
+      budget: form.budget || null,
+      expected_revenue: form.expected_revenue || null,
+      target_audience: form.target_audience?.trim() || null,
+      lead_source_id: form.lead_source_id || null,
+      products: form.products?.trim() || null,
+      notes: form.notes?.trim() || null,
+    };
+    const saved = await run(() =>
+      editing ? updateCampaign(editing.id, body) : createCampaign(body),
+    );
+    if (saved === undefined) return;
     setDrawerOpen(false);
+    notifySuccess(editing ? 'Campaign updated' : 'Campaign created', body.name);
+    reload();
   };
 
-  const handleDelete = (id: string) => {
-    setData(prev => prev.filter(r => r.id !== id));
-    setOpenActionId(null);
+  const handleDelete = async (row: Campaign) => {
+    const ok = await confirm({
+      title: `Archive ${row.name}?`,
+      description:
+        'The campaign leaves lists and reports. Leads already attributed to it keep the attribution, so its historical influence is not rewritten.',
+      confirmLabel: 'Archive campaign',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await archiveCampaign(row.id);
+      notifySuccess('Campaign archived', row.name);
+      reload();
+    } catch (caught) {
+      notifyError(caught, 'The campaign could not be archived.');
+    }
   };
 
-  /* ---- Table Columns ---- */
-  const columns: ColumnDef<Campaign>[] = [
-    {
-      key: 'name', label: 'Campaign Name', sortable: true, minWidth: '220px',
-      render: (row) => (
-        <div className="flex flex-col">
-          <span className="txt text-[13px] font-semibold">{row.name}</span>
-          <span className="txt-faint text-[11px] mt-0.5">{row.startDate} to {row.endDate}</span>
-        </div>
-      ),
-    },
-    { key: 'type', label: 'Type', sortable: true, hideBelow: 'sm', render: (row) => <span className="txt-muted text-[12.5px]">{row.type}</span> },
-    { key: 'budget', label: 'Budget', sortable: true, hideBelow: 'md', render: (row) => <span className="font-display txt text-[13.5px] font-bold">{row.budget}</span> },
-    { key: 'leadsGenerated', label: 'Leads', sortable: true, align: 'center', render: (row) => <span className="txt-muted text-[12.5px]">{row.leadsGenerated}</span> },
-    { key: 'opportunitiesGenerated', label: 'Opps', sortable: true, align: 'center', hideBelow: 'lg', render: (row) => <span className="txt-muted text-[12.5px]">{row.opportunitiesGenerated}</span> },
-    { key: 'roi', label: 'ROI', sortable: true, align: 'center', hideBelow: 'xl', render: (row) => <span className="font-display text-[13px] font-bold text-emerald-500">{row.roi}</span> },
-    { key: 'owner', label: 'Owner', hideBelow: 'xl', render: (row) => <span className="txt-muted text-[12.5px] font-medium">{row.owner}</span> },
-    { key: 'status', label: 'Status', sortable: true, render: (row) => <StatusBadge label={row.status} variant={row.status === 'Completed' ? 'neutral' : row.status === 'Active' ? 'success' : row.status === 'Paused' ? 'warning' : 'accent'} /> },
-    {
-      key: 'actions', label: '', align: 'right',
-      render: (row) => (
-        <div className="relative">
-          <button
-            className="ctl grid h-7 w-7 place-items-center rounded-lg transition hover:opacity-80"
-            onClick={(e) => { e.stopPropagation(); setOpenActionId(prev => prev === row.id ? null : row.id); }}
-          >
-            <MoreHorizontal className="h-4 w-4" />
-          </button>
-          {openActionId === row.id && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); setOpenActionId(null); }} />
-              <div className="surface bd absolute right-0 top-full z-20 mt-1 w-36 overflow-hidden rounded-xl border shadow-lg">
-                <button
-                  className="flex w-full items-center gap-2 px-3 py-2 text-[12.5px] font-medium transition-colors hover:surface-2"
-                  onClick={(e) => { e.stopPropagation(); openEdit(row); }}
-                >
-                  <Pencil className="h-3.5 w-3.5" style={{ color: 'var(--accent)' }} />
-                  <span className="txt">Edit</span>
-                </button>
-                <button
-                  className="flex w-full items-center gap-2 px-3 py-2 text-[12.5px] font-medium text-red-500 transition-colors hover:surface-2"
-                  onClick={(e) => { e.stopPropagation(); handleDelete(row.id); }}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Delete
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      ),
-    },
-  ];
+  const columns = useMemo<ColumnDef<Campaign>[]>(
+    () => [
+      { key: 'name', label: 'Campaign', minWidth: '200px' },
+      {
+        key: 'type',
+        label: 'Type',
+        hideBelow: 'md',
+        render: (row) => <span className="txt-muted text-[12.5px]">{humanize(row.type)}</span>,
+      },
+      {
+        key: 'status',
+        label: 'Status',
+        render: (row) => (
+          <StatusBadge label={humanize(row.status)} variant={statusVariant(row.status)} />
+        ),
+      },
+      {
+        key: 'budget',
+        label: 'Budget',
+        align: 'right',
+        hideBelow: 'lg',
+        render: (row) => <span className="tabular-nums">{formatMoney(row.budget)}</span>,
+      },
+      {
+        key: 'leads_generated',
+        label: 'Leads',
+        align: 'right',
+        render: (row) => <span className="tabular-nums">{row.leads_generated}</span>,
+      },
+      {
+        key: 'member_count',
+        label: 'Members',
+        align: 'right',
+        hideBelow: 'md',
+        render: (row) => <span className="tabular-nums">{row.member_count}</span>,
+      },
+      {
+        key: 'actions',
+        label: '',
+        align: 'right',
+        render: (row) => (
+          <div className="flex items-center justify-end gap-1">
+            {mayEdit && (
+              <button
+                type="button"
+                aria-label={`Edit ${row.name}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openEdit(row);
+                }}
+                className="ctl rounded-lg p-1.5 transition hover:opacity-70"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {mayDelete && (
+              <button
+                type="button"
+                aria-label={`Archive ${row.name}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void handleDelete(row);
+                }}
+                className="ctl rounded-lg p-1.5 text-red-500 transition hover:opacity-70"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        ),
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mayEdit, mayDelete],
+  );
 
-  /* ---- Render ---- */
+  const emptyState = (
+    <ListEmpty
+      title="No campaigns yet"
+      hint={
+        search || statusFilter || typeFilter
+          ? 'No campaign matches those filters.'
+          : 'Create a campaign to group the leads and contacts a piece of marketing produced.'
+      }
+    />
+  );
+
   return (
-    <>
-      <div className="flex h-full flex-col space-y-5 p-6 lg:p-8">
-        {/* ── Page Header ── */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3.5">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-rose-500 to-orange-600">
-              <Megaphone className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight txt">Campaigns</h1>
-              <p className="txt-muted mt-0.5 text-[13px] font-medium">Manage marketing efforts and track pipeline ROI</p>
-            </div>
+    <div className="flex h-full flex-col space-y-6 p-6 lg:p-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3.5">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-fuchsia-500 to-purple-600">
+            <Megaphone className="h-5 w-5 text-white" />
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button className="ctl flex items-center gap-2 px-3 py-2 text-[12.5px] font-semibold transition hover:opacity-80">
-              <Upload className="h-4 w-4" /> Import
-            </button>
-            <button className="ctl flex items-center gap-2 px-3 py-2 text-[12.5px] font-semibold transition hover:opacity-80">
-              <Download className="h-4 w-4" /> Export
-            </button>
-            <button
-              onClick={openAdd}
-              className="flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-semibold text-white shadow-sm transition hover:opacity-90"
-              style={{ background: 'var(--accent)' }}
-            >
-              <Plus className="h-4 w-4" /> Create Campaign
-            </button>
+          <div>
+            <h1 className="font-display txt text-[22px] font-extrabold">Campaigns</h1>
+            <p className="txt-muted mt-0.5 text-[13px]">
+              Marketing programmes and the pipeline they produce.
+            </p>
           </div>
         </div>
-
-        {/* ── Filters Bar ── */}
-        <div className="surface bd flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center">
-          <SearchInput placeholder="Search campaigns..." value={search} onChange={(e) => setSearch(e.target.value)} containerClassName="flex-1 sm:max-w-xs" />
-          <div className="flex flex-wrap gap-2">
-            <FilterSelect options={TYPE_OPTIONS} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} />
-            <FilterSelect options={STATUS_OPTIONS} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} />
-          </div>
-          <div className="ml-auto flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-1">
+        <div className="flex items-center gap-2">
+          <div className="bd flex rounded-lg border p-0.5">
             <button
-              onClick={() => setViewMode('table')}
-              className={cn("rounded-md p-1.5 transition-colors", viewMode === 'table' ? 'bg-[var(--surface)] shadow-sm' : 'text-[var(--muted)] hover:text-[var(--text)]')}
-            >
-              <LayoutList className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('cards')}
-              className={cn("rounded-md p-1.5 transition-colors", viewMode === 'cards' ? 'bg-[var(--surface)] shadow-sm' : 'text-[var(--muted)] hover:text-[var(--text)]')}
+              type="button"
+              onClick={() => setView('cards')}
+              aria-pressed={view === 'cards'}
+              aria-label="Card view"
+              className={`rounded-md p-1.5 transition ${view === 'cards' ? 'surface-2 txt' : 'txt-faint'}`}
             >
               <LayoutGrid className="h-4 w-4" />
             </button>
+            <button
+              type="button"
+              onClick={() => setView('table')}
+              aria-pressed={view === 'table'}
+              aria-label="Table view"
+              className={`rounded-md p-1.5 transition ${view === 'table' ? 'surface-2 txt' : 'txt-faint'}`}
+            >
+              <LayoutList className="h-4 w-4" />
+            </button>
           </div>
-        </div>
-
-        {/* ── Data View ── */}
-        <div className="min-h-[400px] flex-1">
-          {viewMode === 'table' ? (
-            <div className="surface bd overflow-hidden rounded-2xl border">
-              <DataTable<Campaign>
-                columns={columns}
-                data={filtered}
-                rowKey={(row) => row.id}
-                sortKey={sortKey}
-                sortDirection={sortDir}
-                onSort={handleSort}
-                onRowClick={handleRowClick}
-                emptyMessage="No campaigns found"
-              />
-            </div>
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-               {filtered.map(campaign => (
-                 <div 
-                   key={campaign.id} 
-                   onClick={() => handleRowClick(campaign)}
-                   className="surface bd flex flex-col gap-4 rounded-2xl border p-5 transition-shadow hover:shadow-md cursor-pointer"
-                 >
-                   <div className="flex items-start justify-between">
-                     <div>
-                       <h3 className="txt text-[14px] font-bold leading-tight">{campaign.name}</h3>
-                       <p className="txt-faint text-[11px] mt-1">{campaign.type} • {campaign.startDate}</p>
-                     </div>
-                     <StatusBadge label={campaign.status} variant={campaign.status === 'Completed' ? 'neutral' : campaign.status === 'Active' ? 'success' : campaign.status === 'Paused' ? 'warning' : 'accent'} />
-                   </div>
-                   
-                   <div className="grid grid-cols-2 gap-3 pt-2">
-                     <div>
-                       <p className="txt-muted text-[10px] font-semibold uppercase tracking-wider">Budget</p>
-                       <p className="font-display txt text-[14px] font-bold mt-0.5">{campaign.budget}</p>
-                     </div>
-                     <div>
-                       <p className="txt-muted text-[10px] font-semibold uppercase tracking-wider">ROI</p>
-                       <p className="font-display text-[14px] font-bold text-emerald-500 mt-0.5">{campaign.roi}</p>
-                     </div>
-                   </div>
-                   
-                   <div className="flex items-center gap-4 border-t border-[var(--border)] pt-3">
-                      <div className="flex items-center gap-1.5">
-                        <Users className="h-3.5 w-3.5 text-[var(--muted)]" />
-                        <span className="txt text-[12px] font-semibold">{campaign.leadsGenerated}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <Target className="h-3.5 w-3.5 text-[var(--muted)]" />
-                        <span className="txt text-[12px] font-semibold">{campaign.opportunitiesGenerated}</span>
-                      </div>
-                   </div>
-
-                   <div className="mt-auto pt-2">
-                     <div className="flex items-center justify-between text-[10px] font-semibold txt-muted mb-1.5">
-                       <span>Progress</span>
-                       <span>{campaign.progress}%</span>
-                     </div>
-                     <div className="h-1.5 w-full bg-[var(--surface-2)] rounded-full overflow-hidden">
-                       <div 
-                         className={cn("h-full", campaign.progress === 100 ? 'bg-emerald-500' : 'bg-[var(--accent)]')} 
-                         style={{ width: `${campaign.progress}%` }} 
-                       />
-                     </div>
-                   </div>
-                 </div>
-               ))}
-               {filtered.length === 0 && (
-                 <div className="col-span-full py-12 text-center text-[13px] font-medium txt-muted">No campaigns found.</div>
-               )}
-            </div>
+          {mayCreate && (
+            <button
+              type="button"
+              onClick={openAdd}
+              className="flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-semibold text-white transition hover:opacity-90"
+              style={{ background: 'var(--accent)' }}
+            >
+              <Plus className="h-4 w-4" /> New campaign
+            </button>
           )}
         </div>
       </div>
 
-      {/* ── Add / Edit Drawer ── */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <SearchInput
+          value={search}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setPage(1);
+          }}
+          placeholder="Search campaigns…"
+        />
+        <FilterSelect
+          value={statusFilter}
+          onChange={(event) => {
+            setStatusFilter(event.target.value);
+            setPage(1);
+          }}
+          options={STATUS_OPTIONS}
+        />
+        <FilterSelect
+          value={typeFilter}
+          onChange={(event) => {
+            setTypeFilter(event.target.value);
+            setPage(1);
+          }}
+          options={TYPE_OPTIONS}
+        />
+        {refreshing && (
+          <Loader2 className="txt-faint h-4 w-4 motion-safe:animate-spin" aria-label="Refreshing" />
+        )}
+        <div className="ml-auto">
+          <ResultCount shown={items.length} total={pagination?.total ?? 0} />
+        </div>
+      </div>
+
+      {status === 'error' && error !== null ? (
+        <ListError message={error} onRetry={reload} />
+      ) : view === 'table' ? (
+        <DataTable
+          columns={columns}
+          data={items}
+          rowKey={(row) => row.id}
+          loading={status === 'loading'}
+          skeletonRows={6}
+          onRowClick={(row) => router.push(`/campaigns/${row.id}`)}
+          emptyState={emptyState}
+        />
+      ) : status === 'loading' ? (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 6 }, (_, index) => (
+            <div
+              key={index}
+              className="motion-safe:animate-pulse h-[168px] rounded-2xl"
+              style={{ background: 'var(--surface-2)' }}
+            />
+          ))}
+        </div>
+      ) : items.length === 0 ? (
+        <div className="surface bd rounded-2xl border">{emptyState}</div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {items.map((campaign) => (
+            <button
+              key={campaign.id}
+              type="button"
+              onClick={() => router.push(`/campaigns/${campaign.id}`)}
+              className="surface bd flex flex-col gap-3 rounded-2xl border p-5 text-left transition hover:border-[var(--accent)]"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="txt truncate text-[14px] font-bold">{campaign.name}</p>
+                  <p className="txt-muted mt-0.5 text-[12px]">{humanize(campaign.type)}</p>
+                </div>
+                <StatusBadge
+                  label={humanize(campaign.status)}
+                  variant={statusVariant(campaign.status)}
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 pt-1">
+                <div>
+                  <p className="txt-faint text-[10.5px] font-bold uppercase tracking-wide">Leads</p>
+                  <p className="txt mt-0.5 text-[15px] font-bold tabular-nums">
+                    {campaign.leads_generated}
+                  </p>
+                </div>
+                <div>
+                  <p className="txt-faint text-[10.5px] font-bold uppercase tracking-wide">Deals</p>
+                  <p className="txt mt-0.5 text-[15px] font-bold tabular-nums">
+                    {campaign.opportunities_generated}
+                  </p>
+                </div>
+                <div>
+                  <p className="txt-faint text-[10.5px] font-bold uppercase tracking-wide">Conv.</p>
+                  <p className="txt mt-0.5 text-[15px] font-bold tabular-nums">
+                    {formatPercent(campaign.conversion_rate)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bd flex items-center justify-between border-t pt-2.5 text-[11.5px]">
+                <span className="txt-muted">
+                  {campaign.lead_source_id
+                    ? (sourceNames.get(campaign.lead_source_id) ?? 'Attributed source')
+                    : 'No source'}
+                </span>
+                <span className="txt-faint tabular-nums">{campaign.member_count} members</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
       <SlideDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        title={drawerMode === 'add' ? 'Create Campaign' : 'Edit Campaign'}
-        subtitle={drawerMode === 'add' ? 'Launch a new marketing initiative' : 'Update campaign details'}
-        width="max-w-2xl"
+        title={editing ? 'Edit campaign' : 'New campaign'}
+        subtitle={editing ? editing.name : 'Plan a marketing programme.'}
         footer={
-          <>
-            <button onClick={() => setDrawerOpen(false)} className="ctl px-5 py-2.5 text-[13px] font-semibold transition hover:opacity-80">Cancel</button>
-            <button onClick={handleSave} className="rounded-lg px-5 py-2.5 text-[13px] font-semibold text-white transition hover:opacity-90" style={{ background: 'var(--accent)' }}>
-              {drawerMode === 'add' ? 'Save' : 'Update'}
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(false)}
+              className="ctl bd rounded-lg border px-4 py-2 text-[13px] font-semibold"
+            >
+              Cancel
             </button>
-          </>
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={pending || !form.name.trim()}
+              className="flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ background: 'var(--accent)' }}
+            >
+              {pending && <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />}
+              {pending ? 'Saving…' : 'Save'}
+            </button>
+          </div>
         }
       >
-        <div className="space-y-6">
-          {/* Info */}
-          <div>
-            <h3 className="txt mb-3 text-[14px] font-bold uppercase tracking-wide">Campaign Information</h3>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FormField label="Campaign Name" required className="sm:col-span-2"><FormInput value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Q4 Outreach" /></FormField>
-              <FormField label="Campaign Type"><FormSelect options={TYPE_OPTIONS.filter(o => o.value !== '')} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as CampaignType })} /></FormField>
-              <FormField label="Campaign Owner"><FormInput value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })} /></FormField>
-            </div>
-            <div className="mt-4">
-              <FormField label="Description"><FormTextarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></FormField>
-            </div>
+        <div className="space-y-4">
+          <FormField label="Name" required>
+            <FormInput
+              value={form.name}
+              onChange={(event) => setForm({ ...form, name: event.target.value })}
+              placeholder="Q3 enterprise outreach"
+            />
+          </FormField>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FormField label="Type" required>
+              <FormSelect
+                value={form.type}
+                onChange={(event) =>
+                  setForm({ ...form, type: event.target.value as CampaignType })
+                }
+                options={CAMPAIGN_TYPES.map((value) => ({ value, label: humanize(value) }))}
+              />
+            </FormField>
+            <FormField label="Status">
+              <FormSelect
+                value={form.status ?? 'PLANNING'}
+                onChange={(event) =>
+                  setForm({ ...form, status: event.target.value as CampaignStatus })
+                }
+                options={CAMPAIGN_STATUSES.map((value) => ({ value, label: humanize(value) }))}
+              />
+            </FormField>
           </div>
-          
-          {/* Schedule */}
-          <div className="border-t border-[var(--border)] pt-6">
-            <h3 className="txt mb-3 text-[14px] font-bold uppercase tracking-wide">Schedule & Status</h3>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FormField label="Start Date"><FormInput type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></FormField>
-              <FormField label="End Date"><FormInput type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} /></FormField>
-              <FormField label="Status"><FormSelect options={STATUS_OPTIONS.filter(o => o.value !== '')} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as CampaignStatus })} /></FormField>
-            </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FormField label="Starts">
+              <FormInput
+                type="date"
+                value={form.start_date ?? ''}
+                onChange={(event) => setForm({ ...form, start_date: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Ends" hint="Must not fall before the start date.">
+              <FormInput
+                type="date"
+                value={form.end_date ?? ''}
+                onChange={(event) => setForm({ ...form, end_date: event.target.value })}
+              />
+            </FormField>
           </div>
-          
-          {/* Budget */}
-          <div className="border-t border-[var(--border)] pt-6">
-            <h3 className="txt mb-3 text-[14px] font-bold uppercase tracking-wide">Budget</h3>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FormField label="Allocated Budget" required><FormInput value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} placeholder="$0.00" /></FormField>
-              <FormField label="Expected Revenue"><FormInput value={form.expectedRevenue} onChange={(e) => setForm({ ...form, expectedRevenue: e.target.value })} placeholder="$0.00" /></FormField>
-            </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FormField label="Budget">
+              <FormInput
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.budget ?? ''}
+                onChange={(event) => setForm({ ...form, budget: event.target.value })}
+                placeholder="15000"
+              />
+            </FormField>
+            <FormField label="Expected revenue">
+              <FormInput
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.expected_revenue ?? ''}
+                onChange={(event) => setForm({ ...form, expected_revenue: event.target.value })}
+                placeholder="150000"
+              />
+            </FormField>
           </div>
-          
-          {/* Audience */}
-          <div className="border-t border-[var(--border)] pt-6">
-            <h3 className="txt mb-3 text-[14px] font-bold uppercase tracking-wide">Audience & Integration</h3>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FormField label="Target Audience"><FormInput value={form.targetAudience} onChange={(e) => setForm({ ...form, targetAudience: e.target.value })} placeholder="e.g. IT Managers" /></FormField>
-              <FormField label="Lead Source Indicator"><FormInput value={form.leadSource} onChange={(e) => setForm({ ...form, leadSource: e.target.value })} /></FormField>
-              <FormField label="Associated Products" className="sm:col-span-2"><FormInput value={form.products} onChange={(e) => setForm({ ...form, products: e.target.value })} /></FormField>
-            </div>
-          </div>
+
+          <FormField
+            label="Attributed lead source"
+            hint="Leads created from this campaign roll up to the source you pick."
+          >
+            <FormSelect
+              value={form.lead_source_id ?? ''}
+              onChange={(event) => setForm({ ...form, lead_source_id: event.target.value })}
+              placeholder="No source"
+              disabled={!mayViewSources}
+              options={sources.map((source) => ({ value: source.id, label: source.name }))}
+            />
+          </FormField>
+
+          <FormField label="Target audience">
+            <FormInput
+              value={form.target_audience ?? ''}
+              onChange={(event) => setForm({ ...form, target_audience: event.target.value })}
+              placeholder="CTOs, IT directors"
+            />
+          </FormField>
+
+          <FormField label="Products">
+            <FormInput
+              value={form.products ?? ''}
+              onChange={(event) => setForm({ ...form, products: event.target.value })}
+            />
+          </FormField>
+
+          <FormField label="Notes">
+            <FormTextarea
+              value={form.notes ?? ''}
+              onChange={(event) => setForm({ ...form, notes: event.target.value })}
+              rows={3}
+            />
+          </FormField>
+
+          <FormError message={saveError} />
         </div>
       </SlideDrawer>
-    </>
+    </div>
   );
 }

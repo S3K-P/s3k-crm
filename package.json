@@ -17,5 +17,11 @@
     "infra:down": "docker compose down",
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspace=frontend"
+  },
+  "dependencies": {
+    "cors": "^2.8.6"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19"
   }
 }

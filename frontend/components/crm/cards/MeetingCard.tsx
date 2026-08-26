@@ -14,8 +14,10 @@ export interface MeetingItem {
   title: string;
   /** e.g. "10:00 AM – 10:30 AM" */
   time: string;
-  company: string;
-  contact: string;
+  /** Omitted when the meeting is not linked to a company. */
+  company?: string;
+  /** Omitted when no contact is attached. */
+  contact?: string;
   status: MeetingStatus;
 }
 
@@ -54,14 +56,20 @@ export default function MeetingCard({ meeting, className }: MeetingCardProps) {
           <Clock className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--accent)' }} />
           {meeting.time}
         </span>
-        <span className="txt-muted flex items-center gap-1.5 text-[12px]">
-          <Building2 className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--accent)' }} />
-          {meeting.company}
-        </span>
-        <span className="txt-muted flex items-center gap-1.5 text-[12px]">
-          <User className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--accent)' }} />
-          {meeting.contact}
-        </span>
+        {/* Omitted rather than shown blank: a meeting with nothing linked to it
+            is a real state, and an empty icon row implies missing data. */}
+        {meeting.company && (
+          <span className="txt-muted flex items-center gap-1.5 text-[12px]">
+            <Building2 className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--accent)' }} />
+            {meeting.company}
+          </span>
+        )}
+        {meeting.contact && (
+          <span className="txt-muted flex items-center gap-1.5 text-[12px]">
+            <User className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--accent)' }} />
+            {meeting.contact}
+          </span>
+        )}
       </div>
     </div>
   );

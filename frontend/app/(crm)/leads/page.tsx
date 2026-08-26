@@ -1,424 +1,697 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Users, Plus, Download, Upload, LayoutList, LayoutGrid,
-  MoreHorizontal, Pencil, Trash2, Building2, Calendar, Phone, Mail, FileText
+  Users, Plus, Pencil, Trash2, Loader2, LayoutList, LayoutGrid,
 } from 'lucide-react';
-import DataTable, { type ColumnDef, type SortDirection } from '@/components/crm/tables/DataTable';
+
+import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
 import KanbanBoard, { type KanbanColumnDef } from '@/components/crm/kanban/KanbanBoard';
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
+import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
+import { notifyError, notifySuccess, notifyWarning } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
 import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
-import { cn } from '@/lib/utils';
+import { humanize, statusVariant } from '@/components/crm/shared/statusVariants';
+import { FormError, ListEmpty, ListError, ResultCount } from '@/components/crm/shared/ListStates';
+import { usePermissions } from '@/context/AuthContext';
+import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
+import { listLeadSources, type LeadSource } from '@/features/crm/lead-sources';
+import { listCampaigns, type Campaign } from '@/features/crm/campaigns';
+import { listMembers, type OrganizationMember } from '@/features/admin/users';
+import {
+  LEAD_STATUSES,
+  PRIORITIES,
+  archiveLead,
+  changeLeadStatus,
+  createLead,
+  listLeads,
+  updateLead,
+  type Lead,
+  type LeadInput,
+  type LeadStatus,
+  type Priority,
+} from '@/features/crm/leads';
 
 /* ============================================================
-   TYPES
+   LEADS
+
+   Rows come from `GET /api/v1/crm/leads`. The kanban moves a
+   lead with `POST /crm/leads/{id}/status`, which is the only
+   path that enforces the transition state machine — an illegal
+   move returns 422 and the board reverts rather than showing a
+   change the database refused.
+
+   CONVERTED is never settable here: conversion goes through
+   `POST /crm/leads/{id}/convert` on the detail page, because it
+   creates an account and a contact in the same transaction.
    ============================================================ */
 
-export type LeadStatus = 'New' | 'Contacted' | 'Qualified' | 'Proposal Sent' | 'Negotiation' | 'Converted' | 'Lost';
-
-interface Lead {
-  id: string;
-  firstName: string;
-  lastName: string;
-  company: string;
-  email: string;
-  phone: string;
-  source: string;
-  owner: string;
-  status: LeadStatus;
-  aiScore: number;
-  lastActivity: string;
-  createdDate: string;
-  industry: string;
-  website: string;
-  companySize: string;
-  priority: string;
-  expectedDealSize: string;
-  notes: string;
-}
-
-type DrawerMode = 'add' | 'edit';
-type ViewMode = 'table' | 'kanban';
-
-/* ============================================================
-   MOCK DATA
-   ============================================================ */
-
-const INITIAL_DATA: Lead[] = [
-  { id: '1', firstName: 'John', lastName: 'Doe', company: 'Acme Corp', email: 'john@acme.com', phone: '+1 555-0101', source: 'Website', owner: 'Sarah Chen', status: 'New', aiScore: 85, lastActivity: '2 hours ago', createdDate: '2026-07-08', industry: 'Technology', website: 'acme.com', companySize: '100-500', priority: 'High', expectedDealSize: '$50,000', notes: 'Interested in Enterprise plan.' },
-  { id: '2', firstName: 'Jane', lastName: 'Smith', company: 'TechVista', email: 'jane@techvista.com', phone: '+1 555-0102', source: 'LinkedIn', owner: 'James Rodriguez', status: 'Contacted', aiScore: 92, lastActivity: '1 day ago', createdDate: '2026-07-07', industry: 'Software', website: 'techvista.com', companySize: '50-100', priority: 'Medium', expectedDealSize: '$25,000', notes: 'Needs demo.' },
-  { id: '3', firstName: 'Alice', lastName: 'Johnson', company: 'Globex Ltd', email: 'alice@globex.com', phone: '+1 555-0103', source: 'Webinar', owner: 'Priya Patel', status: 'Qualified', aiScore: 78, lastActivity: '3 hours ago', createdDate: '2026-07-05', industry: 'Manufacturing', website: 'globex.com', companySize: '500+', priority: 'High', expectedDealSize: '$120,000', notes: 'Budget approved for Q3.' },
-  { id: '4', firstName: 'Bob', lastName: 'Williams', company: 'Initech', email: 'bob@initech.com', phone: '+1 555-0104', source: 'Cold Calling', owner: 'Mike Johnson', status: 'Proposal Sent', aiScore: 65, lastActivity: '5 days ago', createdDate: '2026-06-28', industry: 'Services', website: 'initech.com', companySize: '10-50', priority: 'Low', expectedDealSize: '$10,000', notes: 'Reviewing proposal.' },
-  { id: '5', firstName: 'Charlie', lastName: 'Brown', company: 'Stark Ind', email: 'charlie@stark.com', phone: '+1 555-0105', source: 'Exhibition', owner: 'Sarah Chen', status: 'Negotiation', aiScore: 88, lastActivity: '1 hour ago', createdDate: '2026-07-01', industry: 'Defense', website: 'stark.com', companySize: '1000+', priority: 'High', expectedDealSize: '$500,000', notes: 'Finalizing legal terms.' },
+const STATUS_FILTER_OPTIONS = [
+  { value: '', label: 'All statuses' },
+  ...LEAD_STATUSES.map((value) => ({ value, label: humanize(value) })),
 ];
 
-const STATUS_OPTIONS = [
-  { value: '', label: 'All Statuses' },
-  { value: 'New', label: 'New' },
-  { value: 'Contacted', label: 'Contacted' },
-  { value: 'Qualified', label: 'Qualified' },
-  { value: 'Proposal Sent', label: 'Proposal Sent' },
-  { value: 'Negotiation', label: 'Negotiation' },
-  { value: 'Converted', label: 'Converted' },
-  { value: 'Lost', label: 'Lost' },
-];
+const KANBAN_COLUMNS: KanbanColumnDef<Lead>[] = LEAD_STATUSES.map((status) => ({
+  id: status,
+  label: humanize(status),
+  color:
+    status === 'CONVERTED'
+      ? '#059669'
+      : status === 'LOST' || status === 'UNQUALIFIED'
+        ? '#dc2626'
+        : 'var(--accent)',
+}));
 
-const SOURCE_OPTIONS = [
-  { value: '', label: 'All Sources' },
-  { value: 'Website', label: 'Website' },
-  { value: 'LinkedIn', label: 'LinkedIn' },
-  { value: 'Webinar', label: 'Webinar' },
-  { value: 'Cold Calling', label: 'Cold Calling' },
-  { value: 'Exhibition', label: 'Exhibition' },
-];
-
-const EMPTY_FORM: Partial<Lead> = {
-  firstName: '', lastName: '', company: '', email: '', phone: '', source: '', owner: '', status: 'New',
-  industry: '', website: '', companySize: '', priority: 'Medium', expectedDealSize: '', notes: ''
+const EMPTY_FORM: LeadInput = {
+  first_name: '',
+  last_name: '',
+  company: '',
+  email: '',
+  phone: '',
+  priority: 'MEDIUM',
+  owner_id: '',
+  lead_source_id: '',
+  campaign_id: '',
+  industry: '',
+  website: '',
+  company_size: '',
+  product_interest: '',
+  expected_deal_size: '',
+  notes: '',
 };
 
-/* ============================================================
-   PAGE COMPONENT
-   ============================================================ */
+type ViewMode = 'table' | 'kanban';
 
 export default function LeadsPage() {
   const router = useRouter();
+  const confirm = useConfirm();
+  const { can } = usePermissions();
+  const mayCreate = can('leads', 'CREATE');
+  const mayEdit = can('leads', 'EDIT');
+  const mayDelete = can('leads', 'DELETE');
+  const mayViewSources = can('lead_sources', 'VIEW');
+  const mayViewCampaigns = can('campaigns', 'VIEW');
+  const mayViewMembers = can('users', 'VIEW');
 
-  /* ---- State ---- */
-  const [data, setData] = useState<Lead[]>(INITIAL_DATA);
+  const [view, setView] = useState<ViewMode>('table');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [sourceFilter, setSourceFilter] = useState('');
-  const [sortKey, setSortKey] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<SortDirection>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>('table');
+  const [page, setPage] = useState(1);
 
-  // Drawer
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerMode, setDrawerMode] = useState<DrawerMode>('add');
-  const [editId, setEditId] = useState<string | null>(null);
-  const [form, setForm] = useState<Partial<Lead>>(EMPTY_FORM);
-  const [openActionId, setOpenActionId] = useState<string | null>(null);
+  // The board needs every lead at once; the table is paginated.
+  const pageSize = view === 'kanban' ? 200 : 25;
 
-  /* ---- Filtering + sorting ---- */
-  const filtered = useMemo(() => {
-    let rows = data;
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      rows = rows.filter(r =>
-        r.firstName.toLowerCase().includes(q) ||
-        r.lastName.toLowerCase().includes(q) ||
-        r.company.toLowerCase().includes(q) ||
-        r.email.toLowerCase().includes(q)
-      );
-    }
-    if (statusFilter) rows = rows.filter(r => r.status === statusFilter);
-    if (sourceFilter) rows = rows.filter(r => r.source === sourceFilter);
-    
-    if (sortKey && sortDir) {
-      rows = [...rows].sort((a, b) => {
-        const aVal = (a as unknown as Record<string, unknown>)[sortKey];
-        const bVal = (b as unknown as Record<string, unknown>)[sortKey];
-        if (typeof aVal === 'number' && typeof bVal === 'number') {
-          return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
-        }
-        const aStr = String(aVal ?? '').toLowerCase();
-        const bStr = String(bVal ?? '').toLowerCase();
-        return sortDir === 'asc' ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr);
-      });
-    }
-    return rows;
-  }, [data, search, statusFilter, sourceFilter, sortKey, sortDir]);
+  const fetcher = useCallback(
+    () =>
+      listLeads({
+        page: view === 'kanban' ? 1 : page,
+        page_size: pageSize,
+        search: search.trim() || null,
+        status: (statusFilter || null) as LeadStatus | null,
+        sort_by: 'created_at',
+        sort_dir: 'desc',
+      }),
+    [page, pageSize, search, statusFilter, view],
+  );
 
-  /* ---- Sort handler ---- */
-  const handleSort = useCallback((key: string) => {
-    setSortKey(prev => {
-      if (prev === key) {
-        setSortDir(d => (d === 'asc' ? 'desc' : d === 'desc' ? null : 'asc'));
-        return key;
+  const { status, items, pagination, error, reload, refreshing } = useCollection<Lead>(
+    fetcher,
+    [page, pageSize, search, statusFilter, view],
+    { errorMessage: 'Something went wrong loading leads.' },
+  );
+
+  const [sources, setSources] = useState<LeadSource[]>([]);
+  useEffect(() => {
+    if (!mayViewSources) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await listLeadSources({ page_size: 200, status: 'ACTIVE' });
+        if (!cancelled) setSources(result.data);
+      } catch {
+        // Non-fatal — the picker is simply empty.
       }
-      setSortDir('asc');
-      return key;
-    });
-  }, []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mayViewSources]);
 
-  /* ---- Handlers ---- */
-  const handleRowClick = (row: Lead) => router.push(`/leads/${row.id}`);
+  const [members, setMembers] = useState<OrganizationMember[]>([]);
+  useEffect(() => {
+    if (!mayViewMembers) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await listMembers();
+        if (!cancelled) {
+          setMembers(result.data.filter((member) => member.status === 'ACTIVE'));
+        }
+      } catch {
+        // Non-fatal — owner picker stays empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mayViewMembers]);
+
+  /* Campaigns, for attribution on a new lead. Only the ones still running are
+     offered: attributing a fresh lead to a completed campaign is almost always
+     a mis-click rather than an intention. */
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  useEffect(() => {
+    if (!mayViewCampaigns) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await listCampaigns({ page_size: 200 });
+        if (!cancelled) {
+          setCampaigns(
+            result.data.filter(
+              (campaign) => campaign.status === 'ACTIVE' || campaign.status === 'PLANNING',
+            ),
+          );
+        }
+      } catch {
+        // Non-fatal — the picker is simply empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mayViewCampaigns]);
+
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editing, setEditing] = useState<Lead | null>(null);
+  const [form, setForm] = useState<LeadInput>(EMPTY_FORM);
+  const [duplicateWarning, setDuplicateWarning] = useState(false);
+  const { pending, error: saveError, clearError, run } = useMutation();
+  const [boardError, setBoardError] = useState<string | null>(null);
 
   const openAdd = () => {
-    setDrawerMode('add');
-    setEditId(null);
+    setEditing(null);
     setForm(EMPTY_FORM);
+    setDuplicateWarning(false);
+    clearError();
     setDrawerOpen(true);
   };
 
   const openEdit = (row: Lead) => {
-    setDrawerMode('edit');
-    setEditId(row.id);
-    setForm({ ...row });
+    setEditing(row);
+    setForm({
+      first_name: row.first_name,
+      last_name: row.last_name,
+      company: row.company ?? '',
+      email: row.email ?? '',
+      phone: row.phone ?? '',
+      priority: row.priority ?? 'MEDIUM',
+      owner_id: row.owner_id ?? '',
+      lead_source_id: row.lead_source_id ?? '',
+      industry: row.industry ?? '',
+      website: row.website ?? '',
+      company_size: row.company_size ?? '',
+      product_interest: row.product_interest ?? '',
+      expected_deal_size: row.expected_deal_size ?? '',
+      notes: row.notes ?? '',
+    });
+    setDuplicateWarning(false);
+    clearError();
     setDrawerOpen(true);
-    setOpenActionId(null);
   };
 
-  const handleSave = () => {
-    if (!form.firstName?.trim() || !form.lastName?.trim() || !form.company?.trim()) return;
-
-    if (drawerMode === 'add') {
-      const newItem: Lead = {
-        ...(form as Lead),
-        id: String(Date.now()),
-        aiScore: Math.floor(Math.random() * 100), // Mock score
-        lastActivity: 'Just now',
-        createdDate: new Date().toISOString().slice(0, 10),
-      };
-      setData(prev => [newItem, ...prev]);
-    } else if (editId) {
-      setData(prev => prev.map(r => r.id === editId ? { ...r, ...(form as Lead) } : r));
+  const handleSave = async (allowDuplicate = false) => {
+    if (!form.first_name.trim() || !form.last_name.trim()) return;
+    const body: LeadInput = {
+      first_name: form.first_name.trim(),
+      last_name: form.last_name.trim(),
+      company: form.company?.trim() || null,
+      email: form.email?.trim() || null,
+      phone: form.phone?.trim() || null,
+      priority: form.priority,
+      owner_id: form.owner_id || null,
+      lead_source_id: form.lead_source_id || null,
+      industry: form.industry?.trim() || null,
+      website: form.website?.trim() || null,
+      company_size: form.company_size?.trim() || null,
+      product_interest: form.product_interest?.trim() || null,
+      expected_deal_size: form.expected_deal_size || null,
+      notes: form.notes?.trim() || null,
+    };
+    // Campaign attribution is create-only: `LeadUpdate` does not accept it,
+    // so sending it on an edit would be silently discarded.
+    if (!editing && form.campaign_id) body.campaign_id = form.campaign_id;
+    const saved = await run(() =>
+      editing ? updateLead(editing.id, body) : createLead(body, allowDuplicate),
+    );
+    if (saved === undefined) {
+      // A duplicate email is a warning, not a hard rejection: offer the
+      // override rather than forcing the user to invent a second address.
+      if (!editing && !allowDuplicate) {
+        setDuplicateWarning(true);
+        notifyWarning(
+          'A lead with that email already exists',
+          'Press "Save anyway" to create a second record for the same address.',
+        );
+      }
+      return;
     }
-
     setDrawerOpen(false);
+    setDuplicateWarning(false);
+    notifySuccess(
+      editing ? 'Lead updated' : 'Lead created',
+      `${body.first_name} ${body.last_name}`,
+    );
+    reload();
   };
 
-  const handleDelete = (id: string) => {
-    setData(prev => prev.filter(r => r.id !== id));
-    setOpenActionId(null);
+  const handleDelete = async (row: Lead) => {
+    const name = `${row.first_name} ${row.last_name}`;
+    const ok = await confirm({
+      title: `Archive ${name}?`,
+      description:
+        'The lead is soft-deleted: it disappears from lists and reports but its activities and notes are kept. Ask an administrator to restore it if this was a mistake.',
+      confirmLabel: 'Archive lead',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    // Deliberately not routed through `run`: that hook feeds the drawer's
+    // inline FormError, which is not on screen for a row action. Here the
+    // toast is the only channel, so the backend's own message must reach it.
+    try {
+      await archiveLead(row.id);
+      notifySuccess('Lead archived', name);
+      reload();
+    } catch (caught) {
+      notifyError(caught, 'The lead could not be archived.');
+    }
   };
 
-  /* ---- Table Columns ---- */
-  const columns: ColumnDef<Lead>[] = [
-    {
-      key: 'name', label: 'Lead Name', sortable: true, minWidth: '180px',
-      render: (row) => (
-        <span className="txt text-[13px] font-semibold">{row.firstName} {row.lastName}</span>
-      ),
-    },
-    { key: 'company', label: 'Company', sortable: true, render: (row) => <span className="txt">{row.company}</span> },
-    { key: 'email', label: 'Email', hideBelow: 'md', render: (row) => <span className="txt-muted text-[12.5px]">{row.email}</span> },
-    { key: 'phone', label: 'Phone', hideBelow: 'lg', render: (row) => <span className="txt-muted text-[12.5px]">{row.phone}</span> },
-    { key: 'source', label: 'Lead Source', hideBelow: 'lg', render: (row) => <StatusBadge label={row.source} variant="neutral" /> },
-    { key: 'owner', label: 'Owner', hideBelow: 'md', render: (row) => <span className="txt-muted text-[12.5px] font-medium">{row.owner}</span> },
-    { key: 'status', label: 'Status', sortable: true, render: (row) => <StatusBadge label={row.status} variant={row.status === 'Converted' ? 'success' : row.status === 'Lost' ? 'danger' : 'accent'} /> },
-    {
-      key: 'aiScore', label: 'AI Score', sortable: true, align: 'center',
-      render: (row) => (
-        <span className={cn("font-display text-[14px] font-bold", row.aiScore >= 80 ? 'text-emerald-500' : row.aiScore >= 60 ? 'text-amber-500' : 'text-rose-500')}>
-          {row.aiScore}
-        </span>
-      ),
-    },
-    { key: 'lastActivity', label: 'Last Activity', hideBelow: 'xl', render: (row) => <span className="txt-faint text-[12px]">{row.lastActivity}</span> },
-    { key: 'createdDate', label: 'Created Date', hideBelow: 'xl', render: (row) => <span className="txt-faint text-[12px]">{row.createdDate}</span> },
-    {
-      key: 'actions', label: '', align: 'right',
-      render: (row) => (
-        <div className="relative">
-          <button
-            className="ctl grid h-7 w-7 place-items-center rounded-lg transition hover:opacity-80"
-            onClick={(e) => { e.stopPropagation(); setOpenActionId(prev => prev === row.id ? null : row.id); }}
-          >
-            <MoreHorizontal className="h-4 w-4" />
-          </button>
-          {openActionId === row.id && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); setOpenActionId(null); }} />
-              <div className="surface bd absolute right-0 top-full z-20 mt-1 w-36 overflow-hidden rounded-xl border shadow-lg">
-                <button
-                  className="flex w-full items-center gap-2 px-3 py-2 text-[12.5px] font-medium transition-colors hover:surface-2"
-                  onClick={(e) => { e.stopPropagation(); openEdit(row); }}
-                >
-                  <Pencil className="h-3.5 w-3.5" style={{ color: 'var(--accent)' }} />
-                  <span className="txt">Edit</span>
-                </button>
-                <button
-                  className="flex w-full items-center gap-2 px-3 py-2 text-[12.5px] font-medium text-red-500 transition-colors hover:surface-2"
-                  onClick={(e) => { e.stopPropagation(); handleDelete(row.id); }}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Delete
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      ),
-    },
-  ];
+  const handleStatusChange = async (row: Lead, next: LeadStatus) => {
+    setBoardError(null);
+    try {
+      await changeLeadStatus(row.id, next);
+      notifySuccess(
+        'Status updated',
+        `${row.first_name} ${row.last_name} → ${humanize(next)}`,
+      );
+      reload();
+    } catch (caught) {
+      // The backend rejected the transition. Say so and reload, so the board
+      // shows what the database actually holds rather than the attempted move.
+      setBoardError(
+        caught instanceof Error
+          ? caught.message
+          : 'That status change is not allowed from the current status.',
+      );
+      notifyError(caught, 'That status change is not allowed from the current status.');
+      reload();
+    }
+  };
 
-  /* ---- Kanban Columns ---- */
-  const kanbanColumns: KanbanColumnDef<Lead>[] = [
-    { id: 'New', label: 'New', color: '#60a5fa' },
-    { id: 'Contacted', label: 'Contacted', color: '#818cf8' },
-    { id: 'Qualified', label: 'Qualified', color: '#a78bfa' },
-    { id: 'Proposal Sent', label: 'Proposal Sent', color: '#c084fc' },
-    { id: 'Negotiation', label: 'Negotiation', color: '#f472b6' },
-    { id: 'Converted', label: 'Converted', color: '#34d399' },
-    { id: 'Lost', label: 'Lost', color: '#f87171' },
-  ];
+  const columns = useMemo<ColumnDef<Lead>[]>(
+    () => [
+      {
+        key: 'first_name',
+        label: 'Name',
+        minWidth: '170px',
+        render: (row) => `${row.first_name} ${row.last_name}`,
+      },
+      {
+        key: 'company',
+        label: 'Company',
+        hideBelow: 'md',
+        render: (row) => row.company ?? <span className="txt-faint">—</span>,
+      },
+      {
+        key: 'email',
+        label: 'Email',
+        hideBelow: 'lg',
+        render: (row) => row.email ?? <span className="txt-faint">—</span>,
+      },
+      {
+        key: 'priority',
+        label: 'Priority',
+        hideBelow: 'xl',
+        render: (row) =>
+          row.priority ? (
+            <StatusBadge label={humanize(row.priority)} variant={statusVariant(row.priority)} />
+          ) : (
+            <span className="txt-faint">—</span>
+          ),
+      },
+      {
+        key: 'status',
+        label: 'Status',
+        render: (row) => (
+          <StatusBadge label={humanize(row.status)} variant={statusVariant(row.status)} />
+        ),
+      },
+      {
+        key: 'actions',
+        label: '',
+        align: 'right',
+        render: (row) => (
+          <div className="flex items-center justify-end gap-1">
+            {mayEdit && (
+              <button
+                type="button"
+                aria-label={`Edit ${row.first_name} ${row.last_name}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openEdit(row);
+                }}
+                className="ctl rounded-lg p-1.5 transition hover:opacity-70"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {mayDelete && (
+              <button
+                type="button"
+                aria-label={`Archive ${row.first_name} ${row.last_name}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void handleDelete(row);
+                }}
+                className="ctl rounded-lg p-1.5 text-red-500 transition hover:opacity-70"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        ),
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mayEdit, mayDelete],
+  );
 
-  /* ---- Render ---- */
   return (
-    <>
-      <div className="flex h-full flex-col space-y-5 p-6 lg:p-8">
-        {/* ── Page Header ── */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3.5">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-violet-600 to-indigo-500">
-              <Users className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight txt">Leads</h1>
-              <p className="txt-muted mt-0.5 text-[13px] font-medium">Manage and qualify prospective customers</p>
-            </div>
+    <div className="flex h-full flex-col space-y-6 p-6 lg:p-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3.5">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-emerald-500 to-green-600">
+            <Users className="h-5 w-5 text-white" />
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button className="ctl flex items-center gap-2 px-3 py-2 text-[12.5px] font-semibold transition hover:opacity-80">
-              <Upload className="h-4 w-4" /> Import
-            </button>
-            <button className="ctl flex items-center gap-2 px-3 py-2 text-[12.5px] font-semibold transition hover:opacity-80">
-              <Download className="h-4 w-4" /> Export
-            </button>
-            <button
-              onClick={openAdd}
-              className="flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-semibold text-white shadow-sm transition hover:opacity-90"
-              style={{ background: 'var(--accent)' }}
-            >
-              <Plus className="h-4 w-4" /> Add Lead
-            </button>
+          <div>
+            <h1 className="font-display txt text-[22px] font-extrabold">Leads</h1>
+            <p className="txt-muted mt-0.5 text-[13px]">
+              Prospects moving toward becoming customers.
+            </p>
           </div>
         </div>
-
-        {/* ── Filters Bar ── */}
-        <div className="surface bd flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center">
-          <SearchInput placeholder="Search leads..." value={search} onChange={(e) => setSearch(e.target.value)} containerClassName="flex-1 sm:max-w-xs" />
-          <div className="flex flex-wrap gap-2">
-            <FilterSelect options={STATUS_OPTIONS} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} />
-            <FilterSelect options={SOURCE_OPTIONS} value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} />
-          </div>
-          <div className="ml-auto flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-1">
+        <div className="flex items-center gap-2">
+          <div className="ctl bd flex items-center rounded-lg border p-0.5">
             <button
-              onClick={() => setViewMode('table')}
-              className={cn("rounded-md p-1.5 transition-colors", viewMode === 'table' ? 'bg-[var(--surface)] shadow-sm' : 'text-[var(--muted)] hover:text-[var(--text)]')}
+              type="button"
+              aria-label="Table view"
+              aria-pressed={view === 'table'}
+              onClick={() => setView('table')}
+              className={`rounded-md p-1.5 transition ${view === 'table' ? 'bg-[var(--surface-2)]' : 'opacity-60'}`}
             >
               <LayoutList className="h-4 w-4" />
             </button>
             <button
-              onClick={() => setViewMode('kanban')}
-              className={cn("rounded-md p-1.5 transition-colors", viewMode === 'kanban' ? 'bg-[var(--surface)] shadow-sm' : 'text-[var(--muted)] hover:text-[var(--text)]')}
+              type="button"
+              aria-label="Board view"
+              aria-pressed={view === 'kanban'}
+              onClick={() => setView('kanban')}
+              className={`rounded-md p-1.5 transition ${view === 'kanban' ? 'bg-[var(--surface-2)]' : 'opacity-60'}`}
             >
               <LayoutGrid className="h-4 w-4" />
             </button>
           </div>
-        </div>
-
-        {/* ── Data View ── */}
-        <div className="min-h-[400px] flex-1">
-          {viewMode === 'table' ? (
-            <div className="surface bd overflow-hidden rounded-2xl border">
-              <DataTable<Lead>
-                columns={columns}
-                data={filtered}
-                rowKey={(row) => row.id}
-                sortKey={sortKey}
-                sortDirection={sortDir}
-                onSort={handleSort}
-                onRowClick={handleRowClick}
-                emptyMessage="No leads found"
-              />
-            </div>
-          ) : (
-            <KanbanBoard<Lead>
-              columns={kanbanColumns}
-              data={filtered}
-              groupBy={(lead) => lead.status}
-              renderCard={(lead) => (
-                <div 
-                  className="surface bd cursor-pointer rounded-xl border p-3 transition-shadow hover:shadow-sm"
-                  onClick={() => handleRowClick(lead)}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <h4 className="txt text-[13px] font-semibold">{lead.firstName} {lead.lastName}</h4>
-                    <span className={cn("font-display text-[12px] font-bold", lead.aiScore >= 80 ? 'text-emerald-500' : lead.aiScore >= 60 ? 'text-amber-500' : 'text-rose-500')}>
-                      {lead.aiScore}
-                    </span>
-                  </div>
-                  <div className="mt-1 flex items-center gap-1.5">
-                    <Building2 className="h-3 w-3 text-[var(--faint)]" />
-                    <span className="txt-muted text-[12px]">{lead.company}</span>
-                  </div>
-                  <div className="mt-3 flex items-center justify-between border-t border-[var(--border)] pt-2">
-                    <div className="flex items-center gap-1.5">
-                      <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--surface-2)] text-[10px] font-bold text-[var(--accent)]">
-                        {lead.owner.charAt(0)}
-                      </div>
-                      <span className="txt-faint text-[11px]">{lead.owner}</span>
-                    </div>
-                    <span className="txt-faint text-[10px]">{lead.lastActivity}</span>
-                  </div>
-                </div>
-              )}
-            />
+          {mayCreate && (
+            <button
+              type="button"
+              onClick={openAdd}
+              className="flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-semibold text-white transition hover:opacity-90"
+              style={{ background: 'var(--accent)' }}
+            >
+              <Plus className="h-4 w-4" /> New lead
+            </button>
           )}
         </div>
       </div>
 
-      {/* ── Add / Edit Drawer ── */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <SearchInput
+          value={search}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setPage(1);
+          }}
+          placeholder="Search name, company or email…"
+        />
+        <FilterSelect
+          value={statusFilter}
+          onChange={(event) => {
+            setStatusFilter(event.target.value);
+            setPage(1);
+          }}
+          options={STATUS_FILTER_OPTIONS}
+        />
+        {refreshing && (
+          <Loader2 className="txt-faint h-4 w-4 motion-safe:animate-spin" aria-label="Refreshing" />
+        )}
+        <div className="ml-auto">
+          <ResultCount shown={items.length} total={pagination?.total ?? 0} />
+        </div>
+      </div>
+
+      {boardError && (
+        <p role="alert" className="text-[12.5px] font-medium text-red-500">
+          {boardError}
+        </p>
+      )}
+
+      {status === 'error' && error !== null ? (
+        <ListError message={error} onRetry={reload} />
+      ) : view === 'table' ? (
+        <DataTable
+          columns={columns}
+          data={items}
+          rowKey={(row) => row.id}
+          onRowClick={(row) => router.push(`/leads/${row.id}`)}
+          loading={status === 'loading'}
+          skeletonRows={6}
+          emptyState={
+            <ListEmpty
+              title="No leads yet"
+              hint={
+                search || statusFilter
+                  ? 'No lead matches those filters.'
+                  : 'Create your first lead and it will appear here and on the dashboard.'
+              }
+            />
+          }
+        />
+      ) : status === 'loading' ? (
+        <div className="txt-muted flex items-center gap-2 py-12 text-[13px]">
+          <Loader2 className="h-4 w-4 motion-safe:animate-spin" /> Loading board…
+        </div>
+      ) : (
+        <KanbanBoard
+          columns={KANBAN_COLUMNS}
+          data={items}
+          groupBy={(lead) => lead.status}
+          renderCard={(lead) => (
+            <div className="surface bd rounded-xl border p-3">
+              <button
+                type="button"
+                onClick={() => router.push(`/leads/${lead.id}`)}
+                className="txt block text-left text-[13.5px] font-semibold hover:opacity-70"
+              >
+                {lead.first_name} {lead.last_name}
+              </button>
+              {lead.company && (
+                <p className="txt-muted mt-0.5 text-[12px]">{lead.company}</p>
+              )}
+              {mayEdit && (
+                <FilterSelect
+                  className="mt-2 w-full"
+                  value={lead.status}
+                  onChange={(event) =>
+                    void handleStatusChange(lead, event.target.value as LeadStatus)
+                  }
+                  aria-label={`Change status for ${lead.first_name} ${lead.last_name}`}
+                  options={LEAD_STATUSES.map((value) => ({
+                    value,
+                    label: humanize(value),
+                  }))}
+                />
+              )}
+            </div>
+          )}
+        />
+      )}
+
       <SlideDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        title={drawerMode === 'add' ? 'Add Lead' : 'Edit Lead'}
-        subtitle={drawerMode === 'add' ? 'Create a new lead profile' : 'Update lead details'}
-        width="max-w-2xl"
+        title={editing ? 'Edit lead' : 'New lead'}
+        subtitle={
+          editing
+            ? `${editing.first_name} ${editing.last_name}`
+            : 'Leads always start at New.'
+        }
         footer={
-          <>
-            <button onClick={() => setDrawerOpen(false)} className="ctl px-5 py-2.5 text-[13px] font-semibold transition hover:opacity-80">Cancel</button>
-            <button onClick={handleSave} className="rounded-lg px-5 py-2.5 text-[13px] font-semibold text-white transition hover:opacity-90" style={{ background: 'var(--accent)' }}>
-              {drawerMode === 'add' ? 'Save' : 'Update'}
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(false)}
+              className="ctl bd rounded-lg border px-4 py-2 text-[13px] font-semibold"
+            >
+              Cancel
             </button>
-          </>
+            <button
+              type="button"
+              onClick={() => void handleSave(duplicateWarning)}
+              disabled={pending || !form.first_name.trim() || !form.last_name.trim()}
+              className="flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ background: 'var(--accent)' }}
+            >
+              {pending && <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />}
+              {duplicateWarning ? 'Save anyway' : pending ? 'Saving…' : 'Save'}
+            </button>
+          </div>
         }
       >
-        <div className="space-y-6">
-          {/* Personal Info */}
-          <div>
-            <h3 className="txt mb-3 text-[14px] font-bold uppercase tracking-wide">Personal Information</h3>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FormField label="First Name" required><FormInput value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} /></FormField>
-              <FormField label="Last Name" required><FormInput value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} /></FormField>
-              <FormField label="Email"><FormInput type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></FormField>
-              <FormField label="Phone"><FormInput type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></FormField>
-            </div>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="First name" required>
+              <FormInput
+                value={form.first_name}
+                onChange={(event) => setForm({ ...form, first_name: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Last name" required>
+              <FormInput
+                value={form.last_name}
+                onChange={(event) => setForm({ ...form, last_name: event.target.value })}
+              />
+            </FormField>
           </div>
-          {/* Company Info */}
-          <div className="border-t border-[var(--border)] pt-6">
-            <h3 className="txt mb-3 text-[14px] font-bold uppercase tracking-wide">Company Information</h3>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FormField label="Company Name" required><FormInput value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} /></FormField>
-              <FormField label="Industry"><FormInput value={form.industry} onChange={(e) => setForm({ ...form, industry: e.target.value })} /></FormField>
-              <FormField label="Website"><FormInput value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} /></FormField>
-              <FormField label="Company Size"><FormInput value={form.companySize} onChange={(e) => setForm({ ...form, companySize: e.target.value })} /></FormField>
-            </div>
-          </div>
-          {/* Sales Info */}
-          <div className="border-t border-[var(--border)] pt-6">
-            <h3 className="txt mb-3 text-[14px] font-bold uppercase tracking-wide">Sales Information</h3>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FormField label="Lead Source"><FormSelect options={SOURCE_OPTIONS.filter(o => o.value !== '')} value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} /></FormField>
-              <FormField label="Status"><FormSelect options={STATUS_OPTIONS.filter(o => o.value !== '')} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as LeadStatus })} /></FormField>
-              <FormField label="Priority"><FormSelect options={[{ value: 'Low', label: 'Low' }, { value: 'Medium', label: 'Medium' }, { value: 'High', label: 'High' }]} value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })} /></FormField>
-              <FormField label="Expected Deal Size"><FormInput value={form.expectedDealSize} onChange={(e) => setForm({ ...form, expectedDealSize: e.target.value })} /></FormField>
-              <FormField label="Assigned Owner"><FormInput value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })} /></FormField>
-            </div>
-            <div className="mt-4">
-               <FormField label="Notes"><FormTextarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></FormField>
-            </div>
-          </div>
+          <FormField label="Company">
+            <FormInput
+              value={form.company ?? ''}
+              onChange={(event) => setForm({ ...form, company: event.target.value })}
+            />
+          </FormField>
+          <FormField label="Email">
+            <FormInput
+              type="email"
+              value={form.email ?? ''}
+              onChange={(event) => setForm({ ...form, email: event.target.value })}
+            />
+          </FormField>
+          <FormField label="Phone">
+            <FormInput
+              value={form.phone ?? ''}
+              onChange={(event) => setForm({ ...form, phone: event.target.value })}
+            />
+          </FormField>
+          <FormField label="Industry">
+            <FormInput
+              value={form.industry ?? ''}
+              onChange={(event) => setForm({ ...form, industry: event.target.value })}
+            />
+          </FormField>
+          <FormField label="Website">
+            <FormInput
+              value={form.website ?? ''}
+              onChange={(event) => setForm({ ...form, website: event.target.value })}
+              placeholder="https://"
+            />
+          </FormField>
+          <FormField label="Company size">
+            <FormInput
+              value={form.company_size ?? ''}
+              onChange={(event) => setForm({ ...form, company_size: event.target.value })}
+              placeholder="e.g. 51–200"
+            />
+          </FormField>
+          <FormField label="Product / service interest">
+            <FormInput
+              value={form.product_interest ?? ''}
+              onChange={(event) =>
+                setForm({ ...form, product_interest: event.target.value })
+              }
+              placeholder="What are they evaluating?"
+            />
+          </FormField>
+          <FormField label="Expected deal size">
+            <FormInput
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.expected_deal_size ?? ''}
+              onChange={(event) =>
+                setForm({ ...form, expected_deal_size: event.target.value })
+              }
+            />
+          </FormField>
+          <FormField label="Priority">
+            <FormSelect
+              value={form.priority ?? 'MEDIUM'}
+              onChange={(event) =>
+                setForm({ ...form, priority: event.target.value as Priority })
+              }
+              options={PRIORITIES.map((value) => ({ value, label: humanize(value) }))}
+            />
+          </FormField>
+          <FormField label="Lead owner">
+            <FormSelect
+              value={form.owner_id ?? ''}
+              onChange={(event) => setForm({ ...form, owner_id: event.target.value })}
+              placeholder="Unassigned"
+              disabled={!mayViewMembers}
+              options={members.map((member) => ({
+                value: member.user_id,
+                label: member.full_name?.trim() || member.email,
+              }))}
+            />
+          </FormField>
+          <FormField label="Lead source">
+            <FormSelect
+              value={form.lead_source_id ?? ''}
+              onChange={(event) => setForm({ ...form, lead_source_id: event.target.value })}
+              placeholder="No source"
+              disabled={!mayViewSources}
+              options={sources.map((source) => ({ value: source.id, label: source.name }))}
+            />
+          </FormField>
+          {!editing && mayViewCampaigns && (
+            <FormField
+              label="Campaign"
+              hint="Attribution can only be set when the lead is created."
+            >
+              <FormSelect
+                value={form.campaign_id ?? ''}
+                onChange={(event) => setForm({ ...form, campaign_id: event.target.value })}
+                placeholder="No campaign"
+                options={campaigns.map((campaign) => ({
+                  value: campaign.id,
+                  label: campaign.name,
+                }))}
+              />
+            </FormField>
+          )}
+          <FormField label="Notes">
+            <FormTextarea
+              value={form.notes ?? ''}
+              onChange={(event) => setForm({ ...form, notes: event.target.value })}
+              rows={3}
+            />
+          </FormField>
+          <FormError message={saveError} />
         </div>
       </SlideDrawer>
-    </>
+    </div>
   );
 }

@@ -26,6 +26,7 @@ from app.core.tenant import (
 )
 
 ORG_A = uuid.UUID("11111111-1111-7111-8111-111111111111")
+USER_A = uuid.UUID("22222222-2222-7222-8222-222222222222")
 
 
 class AllowAllMembershipVerifier:
@@ -33,6 +34,23 @@ class AllowAllMembershipVerifier:
 
     async def verify(self, *, organization_id: uuid.UUID, user_id: uuid.UUID | None) -> bool:
         return True
+
+
+class StubPrincipalResolver:
+    """Stands in for JWT verification.
+
+    The middleware now requires an authenticated principal before it will even
+    consider the organization header, so a membership verifier alone is no
+    longer enough to establish context.
+    """
+
+    def __init__(self, user_id: uuid.UUID | None) -> None:
+        self.user_id = user_id
+
+    async def resolve(
+        self, *, authorization: str | None, organization_header: uuid.UUID | None
+    ) -> tuple[uuid.UUID | None, uuid.UUID | None]:
+        return self.user_id, organization_header
 
 
 class AllowOnlyMembershipVerifier:
@@ -45,7 +63,11 @@ class AllowOnlyMembershipVerifier:
         return organization_id == self.allowed
 
 
-def _probe_app(settings: Settings, verifier: object | None) -> FastAPI:
+def _probe_app(
+    settings: Settings,
+    verifier: object | None,
+    resolver: object | None = None,
+) -> FastAPI:
     """Build an app with one endpoint that reports the resolved tenant."""
     router = APIRouter()
 
@@ -56,7 +78,11 @@ def _probe_app(settings: Settings, verifier: object | None) -> FastAPI:
             "organization_id": str(context.organization_id) if context else None,
         }
 
-    app = create_app(settings, membership_verifier=verifier)  # type: ignore[arg-type]
+    app = create_app(
+        settings,
+        membership_verifier=verifier,  # type: ignore[arg-type]
+        principal_resolver=resolver or StubPrincipalResolver(USER_A),  # type: ignore[arg-type]
+    )
     app.include_router(router, prefix=settings.api_prefix)
     return app
 
@@ -103,9 +129,14 @@ async def test_deny_all_verifier_rejects_every_organization() -> None:
     assert await verifier.verify(organization_id=uuid.uuid4(), user_id=None) is False
 
 
-def test_supplied_header_is_not_trusted_by_default(settings: Settings) -> None:
-    """Without membership validation the header must be ignored entirely."""
-    with TestClient(_probe_app(settings, None)) as client:
+def test_supplied_header_is_not_trusted_without_membership(settings: Settings) -> None:
+    """Without a membership that verifies, the header is ignored entirely.
+
+    The deny-all verifier is passed explicitly: since Phase 1 the *default*
+    verifier is the database-backed one, so omitting it would open a
+    connection rather than exercise the fail-closed path.
+    """
+    with TestClient(_probe_app(settings, DenyAllMembershipVerifier())) as client:
         response = client.get("/api/v1/tenant-probe", headers={ORGANIZATION_HEADER: str(ORG_A)})
 
     assert response.status_code == 200
@@ -167,3 +198,44 @@ def test_health_endpoints_stay_exempt_from_tenant_resolution(
     """Probes must answer before any tenant exists."""
     with TestClient(create_app(settings)) as client:
         assert client.get("/health").status_code == 200
+
+
+def test_an_unauthenticated_request_gets_no_tenant_context(settings: Settings) -> None:
+    """Phase 1 strengthening: the header alone is no longer sufficient.
+
+    Before authentication existed, membership verification was the only gate.
+    Now a request must also carry a verified principal — a header presented by
+    an anonymous caller establishes nothing, whatever the verifier says.
+    """
+    app = _probe_app(
+        settings,
+        AllowAllMembershipVerifier(),
+        StubPrincipalResolver(None),
+    )
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/v1/tenant-probe", headers={ORGANIZATION_HEADER: str(ORG_A)}
+        )
+
+    assert response.status_code == 200
+    assert response.json()["organization_id"] is None
+
+
+def test_the_organization_falls_back_to_the_one_in_the_token(
+    settings: Settings,
+) -> None:
+    """A client that names no organization gets the session's own."""
+
+    class TokenOnlyResolver:
+        async def resolve(
+            self, *, authorization: str | None, organization_header: uuid.UUID | None
+        ) -> tuple[uuid.UUID | None, uuid.UUID | None]:
+            return USER_A, ORG_A
+
+    app = _probe_app(settings, AllowAllMembershipVerifier(), TokenOnlyResolver())
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/tenant-probe")
+
+    assert response.json()["organization_id"] == str(ORG_A)

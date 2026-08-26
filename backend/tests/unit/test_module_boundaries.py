@@ -24,6 +24,7 @@ PLATFORM_MODULES = (
     "documents",
     "audit",
     "notifications",
+    "teams",
 )
 CRM_MODULES = (
     "accounts",

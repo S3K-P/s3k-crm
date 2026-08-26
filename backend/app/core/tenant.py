@@ -85,9 +85,9 @@ def reset_tenant_context(token: Token[TenantContext | None]) -> None:
 class MembershipVerifier(Protocol):
     """Confirms that a principal may act within an organization.
 
-    Phase 1 replaces the default implementation with one backed by the
-    Platform ``organizations`` module. The protocol lives here so the tenant
-    middleware never imports a Platform module directly.
+    Implemented in Phase 1 by the Platform ``organizations`` module. The
+    protocol lives here so the tenant middleware never imports a Platform
+    module directly.
     """
 
     async def verify(self, *, organization_id: uuid.UUID, user_id: uuid.UUID | None) -> bool:
@@ -95,16 +95,48 @@ class MembershipVerifier(Protocol):
         ...
 
 
-class DenyAllMembershipVerifier:
-    """Default verifier: rejects everything.
+@runtime_checkable
+class PrincipalResolver(Protocol):
+    """Extracts the authenticated user id from a request's credentials.
 
-    Authentication and memberships do not exist yet. Accepting the header on
-    trust would let any caller read any tenant's data the moment the first
-    table lands, so the safe default is to deny and make Phase 1 opt in.
+    Kept behind a protocol for the same reason as :class:`MembershipVerifier`:
+    ``app.core`` may not import ``app.platform``, and token verification is a
+    Platform concern. The application factory injects the real implementation.
+    """
+
+    async def resolve(
+        self, *, authorization: str | None, organization_header: uuid.UUID | None
+    ) -> tuple[uuid.UUID | None, uuid.UUID | None]:
+        """Return ``(user_id, organization_id_from_token)``.
+
+        Both are ``None`` when the request carries no usable credentials.
+        Returning ``None`` must never raise — an unauthenticated request is a
+        normal condition here, and the 401 is raised later by the endpoint's
+        authentication dependency.
+        """
+        ...
+
+
+class DenyAllMembershipVerifier:
+    """Fallback verifier: rejects everything.
+
+    Used when no real verifier is injected — for example in a unit test that
+    builds an application without a database. Accepting the organization header
+    on trust would let any caller read any tenant's data, so the safe default
+    is to deny.
     """
 
     async def verify(self, *, organization_id: uuid.UUID, user_id: uuid.UUID | None) -> bool:
         return False
+
+
+class AnonymousPrincipalResolver:
+    """Fallback resolver: every request is unauthenticated."""
+
+    async def resolve(
+        self, *, authorization: str | None, organization_header: uuid.UUID | None
+    ) -> tuple[uuid.UUID | None, uuid.UUID | None]:
+        return None, None
 
 
 class TenantContextMiddleware:
@@ -123,11 +155,15 @@ class TenantContextMiddleware:
         app: ASGIApp,
         *,
         membership_verifier: MembershipVerifier | None = None,
+        principal_resolver: PrincipalResolver | None = None,
         exempt_paths: frozenset[str] = frozenset({"/health", "/health/ready"}),
     ) -> None:
         self.app = app
         self.membership_verifier: MembershipVerifier = (
             membership_verifier or DenyAllMembershipVerifier()
+        )
+        self.principal_resolver: PrincipalResolver = (
+            principal_resolver or AnonymousPrincipalResolver()
         )
         self.exempt_paths = exempt_paths
 
@@ -155,19 +191,33 @@ class TenantContextMiddleware:
         Endpoints that need one call :func:`require_tenant_context`, which
         raises 403 — resolution failure is never silently treated as "all
         tenants".
+
+        The header is only ever an *assertion* of which organization the caller
+        wants. It is honoured solely after the membership verifier confirms the
+        authenticated user actually belongs to it, so forging the header gains
+        an attacker nothing.
         """
+        requested: uuid.UUID | None = None
         raw = _header_value(scope, ORGANIZATION_HEADER)
-        if raw is None:
+        if raw is not None:
+            try:
+                requested = uuid.UUID(raw)
+            except ValueError:
+                logger.warning("tenant_header_malformed", header=ORGANIZATION_HEADER)
+                return None
+
+        user_id, token_organization_id = await self.principal_resolver.resolve(
+            authorization=_header_value(scope, "Authorization"),
+            organization_header=requested,
+        )
+        if user_id is None:
             return None
 
-        try:
-            organization_id = uuid.UUID(raw)
-        except ValueError:
-            logger.warning("tenant_header_malformed", header=ORGANIZATION_HEADER)
+        # Fall back to the organization the session was issued for when the
+        # client does not assert one.
+        organization_id = requested or token_organization_id
+        if organization_id is None:
             return None
-
-        # Phase 1 will populate this from the verified JWT subject.
-        user_id: uuid.UUID | None = None
 
         permitted = await self.membership_verifier.verify(
             organization_id=organization_id, user_id=user_id
@@ -176,7 +226,8 @@ class TenantContextMiddleware:
             logger.warning(
                 "tenant_membership_denied",
                 organization_id=str(organization_id),
-                reason="no verified membership for the supplied organization",
+                user_id=str(user_id),
+                reason="no active membership for the requested organization",
             )
             return None
 

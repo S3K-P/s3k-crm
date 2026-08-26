@@ -1,57 +1,42 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import {
   UserPlus, CalendarDays, Target, Building2,
   Users, CheckCircle2, DollarSign, ClipboardList,
-  Phone, Mail, FileText, Handshake, NotebookPen,
-  ArrowRight,
+  ArrowRight, AlertTriangle, RefreshCw,
 } from 'lucide-react';
 import SectionHeader from '@/components/crm/shared/SectionHeader';
 import KpiCard from '@/components/crm/cards/KpiCard';
-import TaskCard, { type TaskItem } from '@/components/crm/cards/TaskCard';
-import MeetingCard, { type MeetingItem } from '@/components/crm/cards/MeetingCard';
-import PipelineStageCard, { type PipelineStage } from '@/components/crm/cards/PipelineStageCard';
-import ActivityItem, { type ActivityEntry } from '@/components/crm/cards/ActivityItem';
+import TaskCard from '@/components/crm/cards/TaskCard';
+import MeetingCard from '@/components/crm/cards/MeetingCard';
+import PipelineStageCard from '@/components/crm/cards/PipelineStageCard';
+import ActivityItem from '@/components/crm/cards/ActivityItem';
 import QuickActionButton from '@/components/crm/cards/QuickActionButton';
+import {
+  formatMoney,
+  toActivityEntry,
+  toMeetingItem,
+  toPipelineStages,
+  toTaskItem,
+  useDashboardSummary,
+} from '@/features/crm/dashboard';
 
 /* ============================================================
-   MOCK DATA — replace with API calls when backend is ready
+   DASHBOARD PAGE
+
+   Every figure on this page comes from
+   `GET /api/v1/crm/dashboard/summary`, scoped by the backend to
+   the organization the signed-in user is currently acting in.
+
+   There is no local sample data and no fallback: when the API
+   cannot be reached the page says so. A dashboard that quietly
+   substitutes invented numbers is worse than one that is
+   visibly broken.
    ============================================================ */
 
-const MOCK_TASKS: TaskItem[] = [
-  { id: '1', title: 'Follow up with Acme Corp',      description: 'Send updated proposal after call',        priority: 'high',   dueTime: '10:00 AM', relatedTo: 'Acme Corp',      completed: false },
-  { id: '2', title: 'Prepare demo for TechVista',     description: 'Product walkthrough for their CTO',       priority: 'high',   dueTime: '11:30 AM', relatedTo: 'TechVista Inc',   completed: false },
-  { id: '3', title: 'Update contact info for Globex', description: 'New phone number from last meeting',       priority: 'medium', dueTime: '1:00 PM',  relatedTo: 'Globex Ltd',     completed: false },
-  { id: '4', title: 'Review Q3 pipeline forecast',    description: 'Validate numbers with sales team',         priority: 'medium', dueTime: '3:00 PM',  completed: false },
-  { id: '5', title: 'Send NDA to BlueStar',           description: 'Legal approved — ready for signature',     priority: 'low',    dueTime: '4:30 PM',  relatedTo: 'BlueStar Inc',   completed: false },
-];
-
-const MOCK_MEETINGS: MeetingItem[] = [
-  { id: '1', title: 'Discovery Call — Acme Corp',        time: '10:00 AM – 10:30 AM', company: 'Acme Corp',     contact: 'Sarah Chen',     status: 'upcoming' },
-  { id: '2', title: 'Product Demo — TechVista',          time: '11:30 AM – 12:15 PM', company: 'TechVista Inc', contact: 'James Rodriguez', status: 'upcoming' },
-  { id: '3', title: 'Contract Review — Globex',          time: '2:00 PM – 2:45 PM',   company: 'Globex Ltd',    contact: 'Priya Patel',    status: 'upcoming' },
-  { id: '4', title: 'Quarterly Review — Initech',        time: '4:00 PM – 4:30 PM',   company: 'Initech',       contact: 'Mike Johnson',   status: 'upcoming' },
-];
-
-const MOCK_PIPELINE: PipelineStage[] = [
-  { id: '1', label: 'Prospecting',    count: 24, value: '$180K', percentage: 85, gradient: 'from-sky-500 to-blue-600' },
-  { id: '2', label: 'Qualification',  count: 18, value: '$320K', percentage: 70, gradient: 'from-violet-600 to-indigo-600' },
-  { id: '3', label: 'Proposal',       count: 12, value: '$540K', percentage: 55, gradient: 'from-amber-500 to-orange-500' },
-  { id: '4', label: 'Negotiation',    count: 8,  value: '$410K', percentage: 40, gradient: 'from-pink-500 to-rose-500' },
-  { id: '5', label: 'Closed Won',     count: 6,  value: '$290K', percentage: 100, gradient: 'from-emerald-500 to-green-600' },
-];
-
-const MOCK_ACTIVITIES: ActivityEntry[] = [
-  { id: '1', icon: Phone,        iconGradient: 'from-emerald-500 to-green-600', title: 'Call completed with Sarah Chen',         detail: 'Discussed pricing for Q3 renewal — Acme Corp', timestamp: '25 min ago' },
-  { id: '2', icon: Mail,         iconGradient: 'from-sky-500 to-blue-600',      title: 'Email sent to James Rodriguez',          detail: 'Product demo follow-up deck — TechVista Inc',   timestamp: '1 hour ago' },
-  { id: '3', icon: Handshake,    iconGradient: 'from-violet-600 to-indigo-600', title: 'New opportunity created',                detail: '$120K deal — Globex Ltd Enterprise plan',       timestamp: '2 hours ago' },
-  { id: '4', icon: NotebookPen,  iconGradient: 'from-amber-500 to-orange-500',  title: 'Meeting notes added',                    detail: 'Weekly pipeline review with sales team',        timestamp: '3 hours ago' },
-  { id: '5', icon: UserPlus,     iconGradient: 'from-pink-500 to-rose-500',     title: 'New lead captured',                      detail: 'Mike Johnson from Initech — Website form',      timestamp: '4 hours ago' },
-  { id: '6', icon: FileText,     iconGradient: 'from-emerald-500 to-green-600', title: 'Proposal sent to Priya Patel',           detail: 'Enterprise tier annual contract — Globex Ltd',  timestamp: '5 hours ago' },
-];
-
+/** Static navigation, not data — these are links, not metrics. */
 const QUICK_ACTIONS = [
   { label: 'Add New Lead',        icon: UserPlus,     href: '/leads',         gradient: 'from-emerald-500 to-green-600' },
   { label: 'Schedule Meeting',    icon: CalendarDays, href: '/meetings',      gradient: 'from-sky-500 to-blue-600' },
@@ -60,37 +45,117 @@ const QUICK_ACTIONS = [
 ];
 
 /* ============================================================
-   HELPERS
+   THE VIEWER'S CLOCK
+
+   The greeting and the date line depend on the reader's local
+   time, which the server does not share — rendering them during
+   SSR guarantees a hydration mismatch across a time-zone
+   boundary. `useSyncExternalStore` is the sanctioned way to say
+   "this value does not exist on the server": it yields `null`
+   there and a stable client time after hydration.
    ============================================================ */
 
-function getGreeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 17) return 'Good afternoon';
-  return 'Good evening';
-}
+const subscribeToNothing = () => () => {};
 
-function getFormattedDate(): string {
-  return new Date().toLocaleDateString('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
+let clientClock: Date | null = null;
+const readClientClock = (): Date => (clientClock ??= new Date());
+const readServerClock = (): null => null;
+
+function useClientClock(): Date | null {
+  return useSyncExternalStore(subscribeToNothing, readClientClock, readServerClock);
 }
 
 /* ============================================================
-   DASHBOARD PAGE
+   SHARED BITS
+   ============================================================ */
+
+function Panel({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <div className={`surface bd rounded-2xl border p-[18px] ${className ?? ''}`}>{children}</div>;
+}
+
+function EmptyNote({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="txt-faint px-1 py-6 text-center text-[12.5px] font-medium">{children}</p>
+  );
+}
+
+function Skeleton({ className }: { className: string }) {
+  return (
+    <div
+      className={`motion-safe:animate-pulse rounded-xl ${className}`}
+      style={{ background: 'var(--surface-2)' }}
+    />
+  );
+}
+
+/* ============================================================
+   NON-DATA STATES
+   ============================================================ */
+
+function LoadingDashboard() {
+  return (
+    <div className="space-y-6" aria-busy="true" aria-live="polite">
+      <span className="sr-only">Loading your dashboard…</span>
+      <div className="grid grid-cols-2 gap-3.5 md:grid-cols-3 xl:grid-cols-6">
+        {Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-[106px]" />)}
+      </div>
+      <div className="grid gap-[18px] lg:grid-cols-2">
+        <Skeleton className="h-[320px]" />
+        <Skeleton className="h-[320px]" />
+      </div>
+      <div className="grid gap-[18px] lg:grid-cols-[1.5fr_1fr]">
+        <Skeleton className="h-[300px]" />
+        <Skeleton className="h-[300px]" />
+      </div>
+    </div>
+  );
+}
+
+function ErrorDashboard({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <Panel className="flex flex-col items-center gap-3 py-12 text-center">
+      <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-pink-500 to-rose-500">
+        <AlertTriangle className="h-5 w-5 text-white" aria-hidden="true" />
+      </div>
+      <div>
+        <p className="txt text-[14px] font-semibold">Couldn&apos;t load your dashboard</p>
+        <p className="txt-muted mx-auto mt-1 max-w-md text-[12.5px]">{message}</p>
+      </div>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="ctl bd mt-1 inline-flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-[12.5px] font-semibold transition hover:opacity-80"
+      >
+        <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+        Try again
+      </button>
+    </Panel>
+  );
+}
+
+/* ============================================================
+   PAGE
    ============================================================ */
 
 export default function DashboardPage() {
-  const [tasks, setTasks] = useState(MOCK_TASKS);
+  const { status, data, error, reload } = useDashboardSummary();
 
-  const handleToggleTask = (id: string) => {
-    setTasks(prev =>
-      prev.map(t => (t.id === id ? { ...t, completed: !t.completed } : t)),
-    );
-  };
+  const now = useClientClock();
+
+  const view = useMemo(() => {
+    // `data` only ever arrives client-side, so this — and the clock it reads —
+    // never runs during SSR.
+    if (!data) return null;
+    const now = new Date();
+    return {
+      tasks: data.tasks.map((task) => toTaskItem(task, now)),
+      meetings: data.meetings.map((meeting) => toMeetingItem(meeting, now)),
+      pipeline: toPipelineStages(data.pipeline, data.pipeline_currency),
+      activities: data.activities.map((activity) => toActivityEntry(activity, now)),
+    };
+  }, [data]);
+
+  const kpis = data?.kpis;
 
   return (
     <div className="space-y-6 p-6 lg:p-8">
@@ -102,128 +167,176 @@ export default function DashboardPage() {
             className="font-display text-[22px] font-extrabold leading-tight tracking-tight"
             style={{ color: 'var(--text)' }}
           >
-            {getGreeting()} 👋
+            {greeting(now)} 👋
           </h1>
           <p className="txt-muted mt-0.5 text-[13px] font-medium">
             Here&apos;s what&apos;s happening with your sales pipeline today
           </p>
         </div>
-        <p className="txt-faint text-[12.5px] font-medium">{getFormattedDate()}</p>
+        <p className="txt-faint text-[12.5px] font-medium">
+          {now?.toLocaleDateString('en-US', {
+            weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+          }) ?? ''}
+        </p>
       </div>
 
-      {/* ── KPI Cards ── */}
-      <div className="grid grid-cols-2 gap-3.5 md:grid-cols-3 xl:grid-cols-6">
-        <KpiCard href="/leads" label="New Leads"          value="42"      delta="+12% this week" trend="up"   icon={Users}          iconGradient="from-emerald-500 to-green-600" />
-        <KpiCard href="/qualification" label="Qualified"          value="18"      delta="+8% this week"  trend="up"   icon={CheckCircle2}   iconGradient="from-violet-600 to-indigo-600" />
-        <KpiCard href="/opportunities" label="Open Opps"          value="27"      delta="3 closing soon" trend="flat" icon={Target}         iconGradient="from-sky-500 to-blue-600" />
-        <KpiCard href="/opportunities" label="Pipeline Value"     value="$1.74M"  delta="+$230K vs last" trend="up"   icon={DollarSign}     iconGradient="from-amber-500 to-orange-500" />
-        <KpiCard href="/meetings" label="Meetings Today"     value="4"       delta="Next at 10:00"  trend="flat" icon={CalendarDays}   iconGradient="from-pink-500 to-rose-500" />
-        <KpiCard label="Tasks Due"          value="5"       delta="2 high priority" trend="flat" icon={ClipboardList} iconGradient="from-violet-500 to-purple-600" />
-      </div>
+      {status === 'error' && error !== null && (
+        <ErrorDashboard message={error} onRetry={reload} />
+      )}
+      {(status === 'loading' || (status === 'ready' && view === null)) && <LoadingDashboard />}
 
-      {/* ── Middle Row: Tasks + Meetings ── */}
-      <div className="grid gap-[18px] lg:grid-cols-2">
-        {/* Today's Tasks */}
-        <div className="surface bd rounded-2xl border p-[18px]">
-          <SectionHeader
-            title="Today's Tasks"
-            action={
-              <Link href="/leads" className="text-[12.5px] font-semibold hover:opacity-80" style={{ color: 'var(--accent)' }}>
-                View all →
-              </Link>
-            }
-          />
-          <div className="space-y-2">
-            {tasks.map(task => (
-              <TaskCard key={task.id} task={task} onToggle={handleToggleTask} />
-            ))}
-          </div>
-        </div>
-
-        {/* Upcoming Meetings */}
-        <div className="surface bd rounded-2xl border p-[18px]">
-          <SectionHeader
-            title="Upcoming Meetings"
-            action={
-              <Link href="/meetings" className="text-[12.5px] font-semibold hover:opacity-80" style={{ color: 'var(--accent)' }}>
-                View all →
-              </Link>
-            }
-          />
-          <div className="space-y-2">
-            {MOCK_MEETINGS.map(meeting => (
-              <MeetingCard key={meeting.id} meeting={meeting} />
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Pipeline + Activities + Quick Actions ── */}
-      <div className="grid gap-[18px] lg:grid-cols-[1.5fr_1fr]">
-        {/* Left column: Pipeline + Quick Actions stacked */}
-        <div className="space-y-[18px]">
-          {/* Sales Pipeline Summary */}
-          <div className="surface bd rounded-2xl border p-[18px]">
-            <SectionHeader
-              title="Sales Pipeline"
-              action={
-                <Link href="/opportunities" className="text-[12.5px] font-semibold hover:opacity-80" style={{ color: 'var(--accent)' }}>
-                  View pipeline →
-                </Link>
-              }
+      {status === 'ready' && view !== null && kpis && data && (
+        <>
+          {/* ── KPI Cards ── */}
+          <div className="grid grid-cols-2 gap-3.5 md:grid-cols-3 xl:grid-cols-6">
+            <KpiCard
+              href="/leads" label="New Leads" value={String(kpis.new_leads)}
+              delta="Last 30 days" icon={Users} iconGradient="from-emerald-500 to-green-600"
             />
-            <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
-              {MOCK_PIPELINE.map(stage => (
-                <PipelineStageCard key={stage.id} stage={stage} />
-              ))}
-            </div>
-
-            {/* Pipeline total */}
-            <div className="bd mt-4 flex items-center justify-between border-t pt-3.5">
-              <span className="txt-muted text-[13px] font-semibold">Total Pipeline Value</span>
-              <span className="txt font-display text-[20px] font-extrabold tracking-tight">$1.74M</span>
-            </div>
+            <KpiCard
+              href="/qualification" label="Qualified" value={String(kpis.qualified_leads)}
+              icon={CheckCircle2} iconGradient="from-violet-600 to-indigo-600"
+            />
+            <KpiCard
+              href="/opportunities" label="Open Opps" value={String(kpis.open_opportunities)}
+              delta={`${kpis.opportunities_closing_soon} closing soon`}
+              icon={Target} iconGradient="from-sky-500 to-blue-600"
+            />
+            <KpiCard
+              href="/opportunities" label="Pipeline Value"
+              value={formatMoney(kpis.pipeline_value, data.pipeline_currency)}
+              delta={data.pipeline_currency ? 'Open deals only' : 'Mixed currencies'}
+              icon={DollarSign} iconGradient="from-amber-500 to-orange-500"
+            />
+            <KpiCard
+              href="/meetings" label="Meetings Today" value={String(kpis.meetings_today)}
+              icon={CalendarDays} iconGradient="from-pink-500 to-rose-500"
+            />
+            <KpiCard
+              label="Tasks Due" value={String(kpis.tasks_due)}
+              delta={`${kpis.tasks_due_high_priority} high priority`}
+              icon={ClipboardList} iconGradient="from-violet-500 to-purple-600"
+            />
           </div>
 
-          {/* Quick Actions */}
-          <div className="surface bd rounded-2xl border p-[18px]">
-            <SectionHeader title="Quick Actions" />
-            <div className="grid grid-cols-2 gap-2.5">
-              {QUICK_ACTIONS.map(action => (
-                <QuickActionButton
-                  key={action.label}
-                  label={action.label}
-                  icon={action.icon}
-                  href={action.href}
-                  gradient={action.gradient}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Right column: Recent Activities */}
-        <div className="surface bd rounded-2xl border p-[18px]">
-          <SectionHeader
-            title="Recent Activities"
-            action={
-              <button className="flex items-center gap-1 text-[12.5px] font-semibold hover:opacity-80" style={{ color: 'var(--accent)' }}>
-                All activities <ArrowRight className="h-3 w-3" />
-              </button>
-            }
-          />
-          <div>
-            {MOCK_ACTIVITIES.map((activity, i) => (
-              <ActivityItem
-                key={activity.id}
-                activity={activity}
-                showConnector={i < MOCK_ACTIVITIES.length - 1}
+          {/* ── Middle Row: Tasks + Meetings ── */}
+          <div className="grid gap-[18px] lg:grid-cols-2">
+            <Panel>
+              <SectionHeader
+                title="Open Tasks"
+                action={
+                  <Link href="/leads" className="text-[12.5px] font-semibold hover:opacity-80" style={{ color: 'var(--accent)' }}>
+                    View all →
+                  </Link>
+                }
               />
-            ))}
+              <div className="space-y-2">
+                {view.tasks.length === 0
+                  ? <EmptyNote>Nothing open. Tasks you create will appear here.</EmptyNote>
+                  : view.tasks.map((task) => <TaskCard key={task.id} task={task} />)}
+              </div>
+            </Panel>
+
+            <Panel>
+              <SectionHeader
+                title="Upcoming Meetings"
+                action={
+                  <Link href="/meetings" className="text-[12.5px] font-semibold hover:opacity-80" style={{ color: 'var(--accent)' }}>
+                    View all →
+                  </Link>
+                }
+              />
+              <div className="space-y-2">
+                {view.meetings.length === 0
+                  ? <EmptyNote>No meetings scheduled.</EmptyNote>
+                  : view.meetings.map((meeting) => <MeetingCard key={meeting.id} meeting={meeting} />)}
+              </div>
+            </Panel>
           </div>
-        </div>
-      </div>
+
+          {/* ── Pipeline + Activities + Quick Actions ── */}
+          <div className="grid gap-[18px] lg:grid-cols-[1.5fr_1fr]">
+            <div className="space-y-[18px]">
+              <Panel>
+                <SectionHeader
+                  title="Sales Pipeline"
+                  action={
+                    <Link href="/opportunities" className="text-[12.5px] font-semibold hover:opacity-80" style={{ color: 'var(--accent)' }}>
+                      View pipeline →
+                    </Link>
+                  }
+                />
+                {view.pipeline.length === 0 ? (
+                  <EmptyNote>No open pipeline stages are configured.</EmptyNote>
+                ) : (
+                  <>
+                    <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+                      {view.pipeline.map((stage) => (
+                        <PipelineStageCard key={stage.id} stage={stage} />
+                      ))}
+                    </div>
+
+                    <div className="bd mt-4 flex items-center justify-between border-t pt-3.5">
+                      <span className="txt-muted text-[13px] font-semibold">
+                        Total Pipeline Value
+                      </span>
+                      <span className="txt font-display text-[20px] font-extrabold tracking-tight">
+                        {formatMoney(data.pipeline_total, data.pipeline_currency)}
+                      </span>
+                    </div>
+                  </>
+                )}
+              </Panel>
+
+              <Panel>
+                <SectionHeader title="Quick Actions" />
+                <div className="grid grid-cols-2 gap-2.5">
+                  {QUICK_ACTIONS.map((action) => (
+                    <QuickActionButton
+                      key={action.label}
+                      label={action.label}
+                      icon={action.icon}
+                      href={action.href}
+                      gradient={action.gradient}
+                    />
+                  ))}
+                </div>
+              </Panel>
+            </div>
+
+            <Panel>
+              <SectionHeader
+                title="Recent Activities"
+                action={
+                  <Link href="/meetings" className="flex items-center gap-1 text-[12.5px] font-semibold hover:opacity-80" style={{ color: 'var(--accent)' }}>
+                    All activities <ArrowRight className="h-3 w-3" />
+                  </Link>
+                }
+              />
+              <div>
+                {view.activities.length === 0
+                  ? <EmptyNote>No activity recorded yet.</EmptyNote>
+                  : view.activities.map((activity, i) => (
+                    <ActivityItem
+                      key={activity.id}
+                      activity={activity}
+                      showConnector={i < view.activities.length - 1}
+                    />
+                  ))}
+              </div>
+            </Panel>
+          </div>
+        </>
+      )}
 
     </div>
   );
+}
+
+function greeting(now: Date | null): string {
+  if (!now) return 'Welcome back';
+  const hour = now.getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
 }

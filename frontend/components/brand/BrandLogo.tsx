@@ -27,32 +27,6 @@ export default function BrandLogo({
   const isIcon = variant === 'icon';
   const src = isIcon ? logoIcon : logoWordmark;
 
-  // #region agent log
-  if (typeof window !== 'undefined') {
-    fetch('http://127.0.0.1:7603/ingest/b1854439-59c0-42fc-8352-19484d0334d7', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Debug-Session-Id': '6b9d12',
-      },
-      body: JSON.stringify({
-        sessionId: '6b9d12',
-        runId: 'logo-fit-2',
-        hypothesisId: 'A',
-        location: 'BrandLogo.tsx:render',
-        message: 'BrandLogo using cropped assets',
-        data: {
-          variant,
-          srcW: src.width,
-          srcH: src.height,
-          ratio: Number((src.width / src.height).toFixed(3)),
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-  }
-  // #endregion
-
   return (
     <span
       className={cn(

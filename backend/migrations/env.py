@@ -1,8 +1,9 @@
 """Alembic environment — async SQLAlchemy 2.0 (ADR-006).
 
 The database URL comes from application settings, and the target metadata is
-the same ``Base.metadata`` the runtime maps against (see
-``app.core.metadata``). Nothing is duplicated between migrations and runtime.
+the same ``Base.metadata`` the runtime maps against (see ``app.core.metadata``
+for the object and ``app.schema`` for the model registrations that populate
+it). Nothing is duplicated between migrations and runtime.
 """
 
 from __future__ import annotations
@@ -16,7 +17,10 @@ from sqlalchemy import Connection, pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.config import get_settings
-from app.core.metadata import target_metadata
+
+# Importing app.schema (rather than app.core.metadata directly) is what loads
+# every models module and registers its tables on the shared metadata.
+from app.schema import target_metadata
 
 config = context.config
 

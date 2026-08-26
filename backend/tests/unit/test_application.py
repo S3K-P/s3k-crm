@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.application import create_app
 from app.core.config import Settings
+from tests.conftest import TEST_JWT_PRIVATE_KEY, TEST_JWT_PUBLIC_KEY
 
 
 def test_create_app_returns_configured_application(settings: Settings) -> None:
@@ -65,11 +66,29 @@ def test_openapi_schema_generates(client: TestClient) -> None:
     assert "/health/ready" in schema["paths"]
 
 
-def test_no_business_routes_are_registered_yet(app: FastAPI) -> None:
-    """Guard against accidental scope creep: no auth or CRM endpoints exist yet."""
+def test_the_phase_one_business_routes_are_registered(app: FastAPI) -> None:
+    """Auth, organizations, RBAC and the first CRM modules are mounted.
+
+    Replaces the Phase 0 guard that asserted no ``/api/`` route existed; that
+    scope-creep check expired the moment Phase 1 delivered these endpoints.
+    """
     business_paths = {path for path in app.openapi()["paths"] if path.startswith("/api/")}
 
-    assert business_paths == set()
+    assert "/api/v1/auth/login" in business_paths
+    assert "/api/v1/organizations" in business_paths
+    assert "/api/v1/roles" in business_paths
+    assert "/api/v1/crm/accounts" in business_paths
+
+
+def test_every_business_route_is_versioned(app: FastAPI) -> None:
+    """Nothing may bypass the ``/api/v1`` prefix (doc 11 versioning)."""
+    unversioned = {
+        path
+        for path in app.openapi()["paths"]
+        if path.startswith("/api/") and not path.startswith("/api/v1/")
+    }
+
+    assert unversioned == set()
 
 
 def test_production_settings_disable_docs() -> None:
@@ -78,6 +97,8 @@ def test_production_settings_disable_docs() -> None:
         debug=False,
         database_url="postgresql+asyncpg://u:p@db:5432/s3k",
         redis_url="redis://cache:6379/0",
+        jwt_private_key=TEST_JWT_PRIVATE_KEY,
+        jwt_public_key=TEST_JWT_PUBLIC_KEY,
     )
 
     app = create_app(production)

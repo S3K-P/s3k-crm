@@ -8,13 +8,17 @@ requires-python = ">=3.13,<3.14"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
-    "pydantic>=2.9.0",
+    "pydantic[email]>=2.9.0",
     "pydantic-settings>=2.6.0",
     "sqlalchemy[asyncio]>=2.0.36",
     "asyncpg>=0.30.0",
     "alembic>=1.14.0",
     "redis>=5.2.0",
     "structlog>=24.4.0",
+    "argon2-cffi>=23.1.0",
+    "pyjwt[crypto]>=2.10.0",
+    # ADR-014: object storage on Cloudflare R2, which speaks the S3 API.
+    "boto3>=1.35.0",
 ]
 
 [dependency-groups]
@@ -25,6 +29,9 @@ dev = [
     "pytest-asyncio>=0.24.0",
     "httpx>=0.28.0",
     "asyncpg-stubs>=0.30.0",
+    # boto3 ships no inline types; mypy runs strict here.
+    "boto3-stubs[s3]>=1.35.0",
+    "tzdata>=2024.1",
 ]
 
 [build-system]
@@ -69,12 +76,17 @@ ignore = [
     "TID251", # tests may import product modules
     "S608",   # test SQL is built from module constants, never user input
     "RUF012", # SQLAlchemy's __table_args__ dict is the documented idiom
+    "S105",   # literal test passwords are fixtures, not credentials
+    "S106",
+    "S107",
 ]
 "migrations/**" = ["ANN", "E501"]
 # The product tree may of course import itself; the ban exists to stop the
 # Shared Platform (and app.core) from reaching into products.
 "app/products/**" = ["TID251"]
 "app/api/router.py" = ["TID251"]  # composition root: mounts product routers
+"app/schema.py" = ["TID251"]  # composition root: registers every models module
+"app/bootstrap.py" = ["TID251"]  # operator entrypoint: provisions Platform + CRM
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"

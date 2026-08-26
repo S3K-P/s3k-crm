@@ -24,13 +24,23 @@ by [uv](https://docs.astral.sh/uv/) and is intentionally **not** an npm workspac
 
 ## Quick start
 
-### 1. Local infrastructure (PostgreSQL 18 + Redis 7)
+### 1. Local infrastructure (PostgreSQL 18 + Redis 7 + MinIO)
 
 ```bash
-cp .env.example .env      # then set POSTGRES_PASSWORD
+cp .env.example .env      # then set POSTGRES_PASSWORD and STORAGE_SECRET_ACCESS_KEY
 docker compose up -d
 docker compose ps
 ```
+
+MinIO provides S3-compatible object storage for attachments (ADR-014).
+Production uses Cloudflare R2; MinIO speaks the same API, so the application
+runs the identical `boto3` code path against either and only the endpoint and
+credentials differ. The `minio-init` container creates the bucket and exits —
+seeing it in `Exited (0)` is the expected state. Its console is on
+<http://localhost:9001>.
+
+The attachment integration tests skip themselves when storage is unreachable,
+so a backend suite that reports skips there means MinIO is not running.
 
 ### 2. Backend
 
