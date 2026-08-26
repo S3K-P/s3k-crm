@@ -22,7 +22,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
-from app.products.crm.common import CRM_SCHEMA, CrmEntityMixin
+from app.products.crm.common import CRM_SCHEMA, CrmEntityMixin, searchable
 
 
 class AccountStatus(enum.StrEnum):
@@ -79,6 +79,19 @@ class Account(Base, CrmEntityMixin):
     # --- Integration -------------------------------------------------------
     external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     integration_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+
+    # --- Search ------------------------------------------------------------
+    #: Name first: it is what somebody types when they know which company they
+    #: want. ``description`` is included at ``D`` so a distinctive phrase in it
+    #: still finds the account, without ever outranking a name match.
+    search_vector: Mapped[str | None] = searchable(
+        "setweight(to_tsvector('english'::regconfig, coalesce(name, '')), 'A') || "
+        "setweight(to_tsvector('english'::regconfig, coalesce(industry, '')), 'B') || "
+        "setweight(to_tsvector('english'::regconfig, coalesce(website, '')), 'B') || "
+        "setweight(to_tsvector('english'::regconfig, coalesce(city, '')), 'C') || "
+        "setweight(to_tsvector('english'::regconfig, coalesce(country, '')), 'C') || "
+        "setweight(to_tsvector('english'::regconfig, coalesce(description, '')), 'D')"
+    )
 
 
 __all__ = ["Account", "AccountStatus"]

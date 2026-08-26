@@ -18,8 +18,19 @@ import {
 
 /* ============================================================
    CRM NAVIGATION CONFIG
-   Single source of truth for sidebar items, grouping,
-   and breadcrumb label resolution.
+
+   **Authoritative for the `(crm)` route group** — sidebar items,
+   their grouping, and breadcrumb label resolution.
+
+   Since `P3-W20-FE-02` this is the only file describing CRM
+   navigation. `config/site.ts` holds the shared brand and nothing
+   else; the UI-starter kit's tabs live in `starter-navigation.ts`
+   and reach only the `(app)` group.
+
+   `CRM_NAV_ITEMS` also backs the "Go to" section of the ⌘K
+   palette. The palette's *record* results come from
+   `/crm/search`, not from this file — pages are navigation, and
+   records are data.
    ============================================================ */
 
 export interface CrmNavItem {

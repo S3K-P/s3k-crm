@@ -11,6 +11,10 @@ from __future__ import annotations
 
 import enum
 
+from sqlalchemy import Computed
+from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.orm import Mapped, mapped_column
+
 from app.core.models import (
     AuthorshipMixin,
     SoftDeleteMixin,
@@ -43,6 +47,58 @@ RLS_EXEMPT_TABLES: dict[str, str] = {
         "could drift from the parent's."
     ),
 }
+
+
+#: The searchable text of an ``email`` column: the whole address, plus its
+#: local part and first domain label as separate words.
+#:
+#: PostgreSQL's text-search parser treats an address as a **single** token, so
+#: a vector built from ``email`` alone matches "ravi@zephyr.example" and not
+#: "zephyr" — which makes "find everyone at Zephyr", the thing people actually
+#: search email for, impossible. Splitting adds the two words worth having.
+#:
+#: The first domain *label* rather than the whole domain, deliberately: it
+#: yields "zephyr" instead of "zephyr.example", and stops short of indexing
+#: the TLD, which would make "com" a lexeme matching most of the database.
+#: ``split_part`` is IMMUTABLE, so this is legal inside a generated column.
+EMAIL_TERMS = (
+    "coalesce(email, '') || ' ' || "
+    "split_part(coalesce(email, ''), '@', 1) || ' ' || "
+    "split_part(split_part(coalesce(email, ''), '@', 2), '.', 1)"
+)
+
+
+def searchable(expression: str) -> Mapped[str | None]:
+    """A read-only ``search_vector`` maintained by PostgreSQL (`P3-W20-BE-01`).
+
+    ``Computed(..., persisted=True)`` is what tells SQLAlchemy the column is
+    generated, so it is left out of every INSERT and UPDATE the ORM builds.
+    Without it, the first write to a searchable table would fail with
+    "cannot insert into generated column" — the ORM would try to persist a
+    value the database reserves for itself.
+
+    ``expression`` must be IMMUTABLE, which in practice means every
+    ``to_tsvector`` call inside it passes ``'english'::regconfig`` explicitly.
+    It is stated here *and* in revision ``20260826_0100``: the migration is a
+    snapshot of what was built, this is the live definition, and the two are
+    allowed to diverge only through a migration that changes both. Changing
+    this string alone changes nothing in the database — the column is already
+    built — which is exactly why the migration owns its own copy.
+
+    ``deferred`` matters more than it looks. Every list endpoint selects the
+    whole entity, and a tsvector over a description field is far larger than
+    the row it summarises; without this, adding search would have quietly put
+    a few kilobytes of lexemes on the wire for every row of every list page,
+    to be discarded unread. Search itself never loads the value into Python —
+    it uses the column in ``WHERE`` and ``ORDER BY``, where deferral has no
+    effect at all.
+    """
+    return mapped_column(
+        TSVECTOR,
+        Computed(expression, persisted=True),
+        nullable=True,
+        deferred=True,
+    )
 
 
 class CrmEntityMixin(
@@ -90,4 +146,5 @@ __all__ = [
     "CrmEntityMixin",
     "CrmEntityType",
     "Priority",
+    "searchable",
 ]

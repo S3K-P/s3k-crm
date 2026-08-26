@@ -26,7 +26,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
-from app.products.crm.common import CRM_SCHEMA, CrmEntityMixin, Priority
+from app.products.crm.common import CRM_SCHEMA, EMAIL_TERMS, CrmEntityMixin, Priority, searchable
 
 
 class LeadStatus(enum.StrEnum):
@@ -157,6 +157,19 @@ class Lead(Base, CrmEntityMixin):
         nullable=True,
     )
     lost_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # --- Search ------------------------------------------------------------
+    #: ``company`` sits at ``B`` alongside email rather than at ``A`` with the
+    #: person's name: a lead is a person, and searching "Acme" should surface
+    #: the *account* called Acme above the four leads who work there.
+    search_vector: Mapped[str | None] = searchable(
+        "setweight(to_tsvector('english'::regconfig, coalesce(first_name, '')), 'A') || "
+        "setweight(to_tsvector('english'::regconfig, coalesce(last_name, '')), 'A') || "
+        "setweight(to_tsvector('english'::regconfig, coalesce(company, '')), 'B') || "
+        f"setweight(to_tsvector('english'::regconfig, {EMAIL_TERMS}), 'B') || "
+        "setweight(to_tsvector('english'::regconfig, coalesce(industry, '')), 'C') || "
+        "setweight(to_tsvector('english'::regconfig, coalesce(product_interest, '')), 'C')"
+    )
 
     @property
     def full_name(self) -> str:

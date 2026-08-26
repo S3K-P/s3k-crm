@@ -35,6 +35,7 @@ CRM_MODULES = (
     "tasks",
     "notes",
     "dashboard",
+    "search",
 )
 MODULE_FILES = (
     "router.py",

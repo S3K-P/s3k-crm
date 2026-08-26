@@ -833,7 +833,7 @@ gantt
 | P2-W19-FE-01 | Replace hardcoded dashboard KPIs (42 / 18 / 27 / $1.74M) with API data                                            | FE     | Frontend Eng A | 3.0      | P2-W19-BE-05 | ☑   |
 | P2-W19-FE-02 | Attachment upload and list component on all CRM detail pages                                                      | FE     | Frontend Eng B | 3.0      | P2-W19-BE-04 | ☑   |
 | P2-W19-QA-01 | Document security tests: cross-org download denied, MIME rejection, size rejection, expired URL                   | QA     | QA             | 2.5      | P2-W19-BE-04 | ☑   |
-| P2-W19-AR-01 | **GATE 2 review**                                                                                                 | AR     | Architect      | 1.0      | all above    | ☐   |
+| P2-W19-AR-01 | **GATE 2 review**                                                                                                 | AR     | Architect      | 1.0      | all above    | ⧗   |
 
 
 **Week total:** 24.5 pd.
@@ -851,6 +851,95 @@ gantt
 - [x] No `INITIAL_DATA` remains in any `(crm)` list page
 
 **Risks addressed:** R03, R12, R15, R23, R24.
+
+**GATE 2 review record — `P2-W19-AR-01`, 2026-08-24.**
+
+Every criterion above was re-checked against the code and a live database
+rather than against this document's own tick marks, because §12.1 already
+records that the `St` columns cannot be trusted. All nine hold. `P2-W19-AR-01`
+is therefore the **only** W19 row with work genuinely outstanding: of the other
+nine, eight are ticked and the ninth — `P2-W19-BE-01` — shipped in the
+single-table shape CR13 describes and was never re-ticked.
+
+*Evidence.* 10 CRM routers registered in `app/api/router.py`, every one gating
+its handlers on `require_permission`. 29 `visible_to(principal)` call sites
+across five owner-scoped modules, all resolving through
+`RecordVisibility.for_module`, applied inside `TenantScopedRepository` so a new
+endpoint cannot bypass it. RLS enabled *and* FORCEd on 13 of the 14 `crm`
+tables — the fourteenth is `meetings`, exempt with a written reason and
+isolated through its 1:1 activity — discovered from `pg_class`/`pg_policy`
+rather than from a hand-kept list. (§12.3's evidence line reads "13 CRM
+routers"; the count of routers is 10 and 13 is the count of RLS-protected
+tables. Corrected below.) `grep -rE "INITIAL_DATA|MOCK_[A-Z_]+"` over
+`frontend/app/(crm)/` returns one hit, and it is a comment describing a mock
+that was removed. Dashboard KPIs come from `/crm/dashboard/summary`, which
+resolves each owner-scoped module's visibility separately. The suite was run
+twice at this review against real PostgreSQL 18.4, Redis and MinIO: **788
+passed, 0 failed, 0 skipped**, exit 0. The first run reported one failure,
+which reproduced neither in isolation nor on the clean re-run — see F11.
+
+*B02 against doc 04.* `04-SHARED-PRISMA-SCHEMA.md` §"Team & Department" is
+implemented as written: `Department`, `Team` with its nullable `departmentId`,
+and `TeamMembership` with `@@unique([teamId, userId])`. Deviations are additive
+and follow existing platform convention rather than inventing anything —
+`created_by_id`/`updated_by_id`/`deleted_at` from the shared mixins, the
+`@@unique` rendered as a partial index over live rows (matching revision
+`20260819_0100`), snake-case plural table names, and an index on
+`team_memberships.user_id` that doc 04 omits but `peer_user_ids` needs. The
+absent foreign key from `organization_id` to `organizations` matches every
+other tenant-scoped table in the schema, including `crm.accounts`; it is the
+convention, not a gap in this work. Two additions doc 04 does not specify and
+this review endorses: `ON DELETE RESTRICT` from `teams` to `departments`, and
+the `EXISTS`-over-`teams` RLS policy that isolates the join without a second
+copy of the tenant discriminator.
+
+*Findings.* None blocks GATE 2's own criteria. F01 and F02 are the two the
+Architect must rule on.
+
+| ID | Finding |
+| --- | ------- |
+| **F01** | **GATE 2 is the third gate in a chain whose first two were never closed.** `P0-W03-AR-01` and `P1-W09-AR-01` are both `☐` and all sixteen GATE 0 / GATE 1 exit criteria are unticked. Most are in fact met and simply unrecorded, but three trace to work that does not exist. **(a)** No CI pipeline exists anywhere in the repository — no `.github/`, no equivalent — so `P0-W03-DO-01` and `P0-W03-DO-02` are unstarted and "CI green on `main`", "testcontainers spins real Postgres in CI" and "Boundary linter blocks Platform→CRM imports" cannot be met. The boundary rule *is* enforced, by `tests/unit/test_module_boundaries.py`, but by the suite rather than by a gate; the same is true of the RLS audit, which is why `P4-W29-SEC-04` stays open. **(b)** No `Product` or `ProductEntitlement` model exists; searching `app/` for "entitlement" returns a single docstring. GATE 1's "Product access blocks CRM routes without the `s3k-crm` entitlement" is unmet and R10 is open. Exposure is low today because CRM is the only product, but the control the whole product-boundary story assumes is absent, and it gets expensive to retrofit once a second product exists. **(c)** `P0-W03-BE-03/04` — the `Idempotency-Key` middleware and the rate limiter — are named in `app/core/redis.py`'s docstring and implemented nowhere. |
+| **F02** | **`VIEW_TEAM` is granted, tested, and unreachable.** On a default deployment no role can ever take the team branch. Admin holds `VIEW_ALL` *and* `VIEW_TEAM` on all five owner-scoped modules, and `RecordVisibility.for_module` checks `VIEW_ALL` first, so the team branch is never evaluated; Manager holds `VIEW_ALL` only; User holds neither and reads owner-only. The tables, the predicate, the audit trail and 29 integration tests are all in place behind a door nothing opens. This is CR15 working exactly as written, and it is the right default — but it means B02 closed the *blocker* without yet delivering the *capability*, and that distinction should be explicit at the gate rather than discovered later. See the decision below. |
+| **F03** | The §12.4 B02 row stated `VIEW_TEAM` was "granted to **no** system role", contradicting both CR15 and the migration. Corrected in place at this review; the live grant is Admin-only, 16 rows. |
+| **F04** | `_team_peer_ids` (`app/platform/auth/dependencies.py`) skips its query unless some module grants `VIEW_TEAM`, and its docstring claims "the common case — an Admin with `VIEW_ALL` — costs nothing". Since the B02 migration grants Admin `VIEW_TEAM` on all 16 modules, the opposite is true: every authorized Admin request pays for the peer query and then discards the result, because `VIEW_ALL` short-circuits ahead of it. The guard wants to be "holds `VIEW_TEAM` on some module where it does not also hold `VIEW_ALL`". Wasted work, not a correctness bug. |
+| **F05** | `TeamService.add_member` does not check that `user_id` belongs to the caller's organization. There is no foreign key on the column by design, and the route accepts any UUID. The parallel case *is* guarded — `test_a_team_cannot_be_attached_to_another_tenants_department` — so the omission looks like an oversight rather than a decision. It leaks nothing today, because `owner_id` is only ever set to an org member, but it lets an outsider's id sit on the org chart and silently confer team visibility the day that person is invited. Worth an explicit membership check and a paired negative test. |
+| **F06** | The discovery-based RLS audit's fail-closed property covers `crm` only. `audit_tenant_isolation` is run over `CRM_SCHEMA`; `platform` tables are each covered by a hand-written test. B02 added three platform tables and did remember to write all three, but "remember to add a test" is precisely the failure mode `schema_audit.py`'s own docstring exists to reject. Extending discovery to `platform` needs an exemption map for the tables whose `organization_id` is legitimately nullable (`roles`, `permissions`), which is a real design question rather than a rename. |
+| **F07** | The tracker reconciliation §12.1 deferred behind B03 is now unblocked — B03 resolved 2026-08-21. §12.1 still reads 0% across every phase, and Appendix B still reads `☐` for 24 of 26 pages that demonstrably render real data. This is now the largest gap between what the project is and what this document says it is. |
+| **F08** | Fourteen of the fifteen change requests in §15 sit at `Approved By: *pending*`. Three of them — CR13, CR14, CR15 — describe the shape of what GATE 2 is being asked to accept. A gate that passes over unapproved CRs approves them by silence. |
+| **F09** | Open question **P03** ("Reports in MVP scope") was due W19 — this week — and is unresolved. It blocks W21 planning, two weeks out. §14.2's own rule makes an unresolved question blocking a current-week task a `⛔` entry in §12.4. |
+| **F10** | Revision `20260824_0100` issues an explicit `COMMIT` mid-migration so the new enum label can be used, after it has already created three tables. A failure in the permission inserts that follow would leave the tables committed with `alembic_version` unstamped, and the re-run would fail on `CREATE TABLE`. The pattern is inherited from `20260819_0200`, which creates no tables and so carries no such risk. PostgreSQL 18 is the deployment target and no longer needs the separate transaction; the next migration to add an enum label should drop it. |
+| **F11** | `tests/integration/test_attachments.py::test_a_download_url_stops_working_once_it_expires` is timing-flaky. It signs a download URL with a **one-second** TTL and then asserts the URL works *before* asserting it stops working; under the load of a full-suite run the first leg fell to 403 on this review's first run, while the same test passed in isolation and on a clean full re-run — 788/788. The intent is right — expiry is proven against real storage rather than trusted from `ExpiresIn` — but the positive leg has no margin. Widening the TTL to a few seconds and sleeping past it keeps both legs and removes the race. This matters more than a normal flake would: with no CI (F01), this suite is the project's only gate, and a gate that fails at random gets ignored. |
+
+*Disposition.* Recommended: **conditional pass**, on GATE 2's own criteria,
+which are met and verified. The conditions are F01 and F08 — both are
+predecessor debt rather than W19 debt, and §11 requires a conditional pass to
+be written down with a named remediation owner. Sign-off is the Architect's to
+give; this row stays `⧗ In Review` until it is recorded in §15.
+
+*Decision needed — `VIEW_TEAM` (F02).* Team visibility is inert until somebody
+grants it. Three options, and CR15 chose the first by default rather than by
+decision: **(a)** leave it opt-in, so an administrator grants
+`<module>.VIEW_TEAM` per module on the Roles screen; **(b)** grant it to the
+`User` system role, which turns every rep's reads from owner-only to
+team-scoped the moment a migration runs — a real widening, and the thing CR15
+deliberately refused; **(c)** seed a fourth system role (a "Team Lead" sitting
+between User and Manager) that holds `VIEW_TEAM` where Manager holds
+`VIEW_ALL`, which makes the middle rung reachable without changing what any
+existing role can see. (c) is what the three-rung model implies and what CR02
+left room for — three roles were seeded because five were never justified, not
+because three is the answer. Product owns this.
+
+*Next work item.* On the plan's own sequence, the first task after GATE 2 is
+**`P3-W20-BE-01`** — add `search_vector tsvector` to accounts, contacts, leads
+and opportunities, maintained by triggers (BE, Backend Lead, 2.5 pd, depends on
+GATE 2), opening W20 Global CRM Search. One W20 row is not gated on GATE 2 and
+could start immediately alongside it: `P3-W20-FE-02`, retiring the dual
+navigation config so `crm-navigation.ts` is authoritative for the `(crm)`
+group. Note for whoever picks up `P3-W20-BE-04` — permission filtering inside
+the search query — that the predicate it must reuse is now three rungs, not
+two: `RecordVisibility` carries `peer_ids`, and a search that filters on
+`owner_id = me` alone would quietly be narrower than the list pages it
+searches over.
 
 ---
 
@@ -871,20 +960,68 @@ gantt
 
 | ID           | Task                                                                                                      | Stream | Owner          | Est (pd) | Depends On   | St  |
 | ------------ | --------------------------------------------------------------------------------------------------------- | ------ | -------------- | -------- | ------------ | --- |
-| P3-W20-BE-01 | Add `search_vector tsvector` to accounts, contacts, leads, opportunities; maintain via triggers           | BE     | Backend Lead   | 2.5      | GATE 2       | ☐   |
-| P3-W20-BE-02 | GIN indexes on search vectors + `pg_trgm` indexes for fuzzy name matching                                 | BE     | Backend Lead   | 1.5      | P3-W20-BE-01 | ☐   |
-| P3-W20-BE-03 | `GET /crm/search` with entity-type selection, ranking, and result grouping                                | BE     | Backend Eng A  | 2.5      | P3-W20-BE-02 | ☐   |
-| P3-W20-BE-04 | Permission filtering inside the search query — never post-filter after ranking (addresses R14)            | BE     | Backend Lead   | 2.5      | P3-W20-BE-03 | ☐   |
-| P3-W20-BE-05 | Backfill migration populating search vectors for existing rows                                            | BE     | Backend Eng A  | 1.0      | P3-W20-BE-01 | ☐   |
-| P3-W20-FE-01 | CRM-wide command palette (⌘K) wired to `/crm/search`, replacing the UI-starter search in `config/site.ts` | FE     | Frontend Eng A | 3.5      | P3-W20-BE-03 | ☐   |
-| P3-W20-FE-02 | Retire the dual navigation config: make `crm-navigation.ts` authoritative for the `(crm)` group           | FE     | Frontend Eng B | 2.0      | —            | ☐   |
-| P3-W20-QA-01 | Search permission-leakage tests: unauthorized records never appear, including partial-term matches        | QA     | QA             | 3.0      | P3-W20-BE-04 | ☐   |
-| P3-W20-QA-02 | Search latency benchmark; record p95 against the 200 ms revisit trigger                                   | QA     | QA             | 1.0      | P3-W20-BE-03 | ☐   |
+| P3-W20-BE-01 | Add `search_vector tsvector` to accounts, contacts, leads, opportunities; maintain via triggers           | BE     | Backend Lead   | 2.5      | GATE 2       | ☑   |
+| P3-W20-BE-02 | GIN indexes on search vectors + `pg_trgm` indexes for fuzzy name matching                                 | BE     | Backend Lead   | 1.5      | P3-W20-BE-01 | ☑   |
+| P3-W20-BE-03 | `GET /crm/search` with entity-type selection, ranking, and result grouping                                | BE     | Backend Eng A  | 2.5      | P3-W20-BE-02 | ☑   |
+| P3-W20-BE-04 | Permission filtering inside the search query — never post-filter after ranking (addresses R14)            | BE     | Backend Lead   | 2.5      | P3-W20-BE-03 | ☑   |
+| P3-W20-BE-05 | Backfill migration populating search vectors for existing rows                                            | BE     | Backend Eng A  | 1.0      | P3-W20-BE-01 | ☑   |
+| P3-W20-FE-01 | CRM-wide command palette (⌘K) wired to `/crm/search`, replacing the UI-starter search in `config/site.ts` | FE     | Frontend Eng A | 3.5      | P3-W20-BE-03 | ☑   |
+| P3-W20-FE-02 | Retire the dual navigation config: make `crm-navigation.ts` authoritative for the `(crm)` group           | FE     | Frontend Eng B | 2.0      | —            | ☑   |
+| P3-W20-QA-01 | Search permission-leakage tests: unauthorized records never appear, including partial-term matches        | QA     | QA             | 3.0      | P3-W20-BE-04 | ☑   |
+| P3-W20-QA-02 | Search latency benchmark; record p95 against the 200 ms revisit trigger                                   | QA     | QA             | 1.0      | P3-W20-BE-03 | ☑   |
 
 
 **Week total:** 19.5 pd.
 
 **Exit criteria:** Search returns only records the caller is authorized to see, proven by tests that attempt leakage. Baseline p95 recorded.
+
+**Completed 2026-08-26.** Both criteria met.
+
+*Permission filtering (R14).* `GET /crm/search` is a single `UNION ALL` over
+one branch per entity type the caller holds `VIEW` on. A type they cannot view
+contributes no branch — the table is not in the query at all, so it cannot
+affect ranking, the limit, or the truncation flag. Within each branch,
+`RecordVisibility.for_module` is resolved **per type** (a custom role may hold
+`VIEW_ALL` on leads and owner-only on accounts) and applied in the same
+`WHERE` as the match. Nothing is filtered after ranking, and
+`search/service.py` has no post-filter to remove later.
+
+Three of the 27 integration tests exist specifically to catch a post-filtering
+implementation, which hides the record either way and is otherwise
+indistinguishable: a hidden record must not consume a result slot, must not
+displace a visible record in the ranking, and must not make `truncated` true.
+A fourth pins the fuzzy branch, the easy place to bolt on an `OR` outside the
+visibility predicate and walk straight past record-level authorization.
+
+*Latency (`P3-W20-QA-02`).* Measured end-to-end through HTTP over 4 000
+seeded accounts, p95 across 20 samples: full-text **117 ms**, fuzzy prefix
+**111 ms**, no-match **57 ms** — all inside doc 10's 200 ms revisit trigger,
+and including authentication, membership verification and tenant context. The
+committed assertion is a far looser structural ceiling, because the number is
+machine-dependent but the *shape* is not: a query that stops using its index
+moves by an order of magnitude.
+
+*Two things found while building it, both worth knowing.*
+
+**The trigram index was dead on arrival and no test would have caught it.**
+`name` is `varchar`, `gin_trgm_ops` is a `text` operator class, so the operator
+reaching the planner is `%>(text, text)` over `(name)::text` — which does not
+match an index built on the bare column. `EXPLAIN` over 20 000 rows showed a
+full scan at 109 ms even with `enable_seqscan = off`; with the index expression
+cast to match, the same query is an index scan at 4 ms. Separately, the first
+implementation used `word_similarity(...) >= 0.6` rather than the `%>`
+operator, which is not indexable at all — a function call cannot be. Both are
+now pinned by `tests/unit/test_search_index_agreement.py`, which compares the
+generated SQL against the migration's index expressions, because a search
+index that silently stops being used produces slower correct answers rather
+than wrong ones.
+
+**PostgreSQL indexes an email address as one token.** A vector built from
+`email` alone matches `ravi@zephyr.example` and never `zephyr`, so "find
+everyone at Zephyr" — the main reason to search by email — returned nothing.
+The address is now indexed alongside its local part and first domain label.
+The first label rather than the whole domain, so `com` does not become a
+lexeme matching most of the table.
 
 ---
 
@@ -1362,12 +1499,15 @@ piece of work, and it should follow B03 rather than precede it.
 | Teams             | ☑     | ☑   | ☑   | ☑          | ☑            | ☑              | ☑            | ☑    |
 | Dashboard         | n/a   | ☑   | n/a | ☑          | ☑            | ☑              | ☑            | ☑    |
 | Reports           | ☐     | ☐   | n/a | ☐          | ☐            | ☐              | n/a          | ☐    |
-| Search            | ☐     | ☐   | n/a | ☐          | ☐            | ☐              | n/a          | ☐    |
+| Search            | n/a   | ☑   | n/a | ☑          | ☑            | ☑              | n/a          | ☑    |
 
-**Evidence for this table (2026-08-20):** 466 backend tests pass against real
-PostgreSQL; 13 CRM routers registered in `app/api/router.py`; RLS enabled and
-FORCEd on all 13 tenant-scoped `crm` tables; `grep -rE 'INITIAL_DATA|MOCK_'` over
-`frontend/app/(crm)/` returns zero mock arrays.
+**Evidence for this table (2026-08-20, re-verified at the GATE 2 review
+2026-08-24):** 466 backend tests pass against real PostgreSQL; **10** CRM
+routers registered in `app/api/router.py` (this line previously said 13, which
+is the table count, not the router count); RLS enabled and FORCEd on 13 of the
+14 `crm` tables, `meetings` being the one documented exemption;
+`grep -rE 'INITIAL_DATA|MOCK_'` over `frontend/app/(crm)/` returns zero mock
+arrays.
 
 Rows that are **not** ticked, and why:
 
@@ -1375,7 +1515,12 @@ Rows that are **not** ticked, and why:
   so the BANT/MEDDICC scorecard has nowhere to persist. The queue itself is real
   (derived from lead status) and the scorecard reports itself unavailable on
   screen rather than being mocked. See CR05.
-* **Reports / Search** — Phase 3 (W20–W21), not started.
+* **Reports** — Phase 3 (W21), not started.
+* **Search** — shipped 2026-08-26 (W20). `Model` reads `n/a` because search
+  owns no tables: the `search_vector` columns belong to the four entities that
+  are searched, and a `search_index` table of its own would be a copy that has
+  to be kept in step with them. `RLS` is `n/a` for the same reason — the
+  branches read tables whose own policies apply.
 
 
 
@@ -1388,7 +1533,7 @@ Rows that are **not** ticked, and why:
 | B01 | 2026-08-20 | W19 | `P2-W19-BE-02/03/04`, `P2-W19-FE-02`, `P2-W19-QA-01` | Documents/attachments cannot be built: no object-storage provider, bucket or credentials exist, and `boto3` is not a dependency. Writing a stub storage adapter to make the tasks look done would put an untested, unusable upload path in front of users. **Sole remaining GATE 2 blocker.** | Backend Lead | DevOps / I02 (managed object storage decision) | **resolved 2026-08-21** | ☑ |
 | | | | | **Resolution.** ADR-014 is implemented as written: `boto3` against an S3-compatible endpoint, org-prefixed keys, pre-signed PUT to upload and pre-signed GET (15-minute TTL) to download, so file bytes never pass through the API. The provider gap is closed **without** guessing at I02: the adapter is endpoint-configured, so Cloudflare R2 needs only `STORAGE_*` values, and local development and the integration suite run against **MinIO** from `docker-compose` — a real S3 implementation, so the same boto3 path is exercised rather than a stub. `Settings` refuses to start staging or production with storage unconfigured; in development the endpoints report 503 rather than accepting uploads that cannot land. Authorization composes the `documents` permission with the CRM record's own record-level visibility, inverted behind a Platform-owned Protocol so no Platform module imports a product. 40 integration tests run against real storage, alongside 70 unit tests covering validation and the storage failure paths. | | | | |
 | B02 | 2026-08-20 | W07 | `P1-W07-BE-06`, `P1-W09-FE-05` (teams half) | No `Team` model exists, so `admin/teams` has no backend to wire and the *team* dimension of record-level visibility cannot be resolved. See CR07. | Backend Lead | Product decision on team structure | **resolved 2026-08-24** | ☑ |
-| | | | | **Resolution.** The "product decision on team structure" turned out to be **already made and documented**: `04-SHARED-PRISMA-SCHEMA.md` §"Team & Department" specifies `Department`, `Team` and `TeamMembership`, so nothing had to be invented. Revision `20260824_0100` ships all three in `platform`, tenant-scoped with RLS enabled *and* FORCEd — `team_memberships` carries no `organization_id` and is isolated through its team by an `EXISTS` policy, rather than duplicating the discriminator on the join. `VIEW_TEAM` is added as the middle rung between `VIEW` and `VIEW_ALL` and is granted to **no** system role: auto-granting it would have widened every rep's reach as a migration side effect rather than an administrator's decision. Peers are resolved once per request beside the permission snapshot, so all 29 existing `RecordVisibility.for_module` call sites gained the team dimension without change — and `VIEW_ALL` still wins outright over `VIEW_TEAM`. A `VIEW_TEAM` holder on no team degrades to owner-only, never to organization-wide. 29 integration tests, each visibility positive paired with its negative. | | | | |
+| | | | | **Resolution.** The "product decision on team structure" turned out to be **already made and documented**: `04-SHARED-PRISMA-SCHEMA.md` §"Team & Department" specifies `Department`, `Team` and `TeamMembership`, so nothing had to be invented. Revision `20260824_0100` ships all three in `platform`, tenant-scoped with RLS enabled *and* FORCEd — `team_memberships` carries no `organization_id` and is isolated through its team by an `EXISTS` policy, rather than duplicating the discriminator on the join. `VIEW_TEAM` is added as the middle rung between `VIEW` and `VIEW_ALL` and is granted to **Admin only** — not to Manager, not to User — per CR15. *(Corrected 2026-08-24 at the GATE 2 review: this row previously read "granted to **no** system role", which the migration and CR15 both contradict. `SELECT` over `platform.role_permissions` returns 16 `VIEW_TEAM` grants, all on the Admin system template.)* Auto-granting it to *User* would have widened every rep's reach as a migration side effect rather than an administrator's decision; Admin receives it only because `SYSTEM_ROLES` defines Admin as the whole catalogue, and it widens nothing there because Admin already holds the strictly wider `VIEW_ALL`. Peers are resolved once per request beside the permission snapshot, so all 29 existing `RecordVisibility.for_module` call sites gained the team dimension without change — and `VIEW_ALL` still wins outright over `VIEW_TEAM`. A `VIEW_TEAM` holder on no team degrades to owner-only, never to organization-wide. 29 integration tests, each visibility positive paired with its negative. | | | | |
 | B03 | 2026-08-20 | W08 | `P1-W08-BE-01`…`BE-07`, `P1-W09-FE-06` | The `audit` module is a placeholder — `models.py` defines no tables and nothing anywhere writes an audit entry. The backend Definition of Done (§2.4) requires "audit log emitted for sensitive actions", so **no backend task strictly meets its own DoD** until this lands. `admin/audit-logs` is `⛔` for the same reason. | Backend Eng | — (unstarted, not externally blocked) | **resolved 2026-08-21** | ☑ |
 | | | | | **Resolution.** `platform.audit_logs` ships in revision `20260821_0100`: tenant-scoped with RLS enabled *and* FORCEd, and append-only via a `BEFORE UPDATE OR DELETE OR TRUNCATE` trigger that binds every role, superusers included. Writes are emitted from the service layer — `TenantScopedService` covers all nine CRM entities in one place, and auth, RBAC and membership events from their own services. `GET /audit-logs` is gated on `audit.VIEW`, which only *Admin* holds among the seeded roles. `P1-W08-BE-01/02` (product entitlements) are **not** part of this and remain open under their own row. | | | | |
 
@@ -1502,7 +1647,7 @@ Sourced from `17-RISKS-OPEN-QUESTIONS-AND-DECISIONS.md`, mapped to the week wher
 | R11 | Schema migration failures                 | P0-W02-BE-01 reversible migrations, staging rehearsal      | W02         | ☐      |
 | R12 | Large activity table growth               | P2-W18-BE-01 indexes; partitioning trigger monitored       | W18         | ☐      |
 | R13 | Dashboard query performance               | P2-W19-BE-05, P3-W25-QA-04, P3-W25-BE-02                   | W25         | ☐      |
-| R14 | Search permission leakage                 | P3-W20-BE-04, P3-W20-QA-01                                 | W20         | ☐      |
+| R14 | Search permission leakage                 | P3-W20-BE-04, P3-W20-QA-01                                 | W20         | ☑ (every filter inside the ranking query; 27 tests, three of which target the leaks post-filtering *keeps* — slot consumption, ranking displacement, truncation) |
 | R15 | File storage security                     | P2-W19-BE-03/04, P2-W19-QA-01, P4-W29-SEC-02               | W19         | ☑ (malware scanning still open — P4-W29-SEC-02) |
 | R16 | AI data leakage                           | P5-W32-BE-03/04, P5-W32-QA-01                              | W32         | ☐      |
 | R17 | Backend stack drift                       | P0-W01-BE-01 Express retired                               | W01         | ☐      |
@@ -1607,6 +1752,7 @@ Any change to scope, sequence, or gate criteria is recorded here. No exceptions.
 | CR13 | 2026-08-21 | W19 | One `Attachment` table with inline `entity_type`/`entity_id`, instead of doc 09's `Document` + `DocumentVersion` + `DocumentLink` and its separate `POST /documents/{id}/links` step | The single-table shape shipped with `P2-W19-BE-01` and is what exists in the database. Building the richer model now would have meant migrating a table that already carries RLS, for versioning and many-to-many linking that nothing in the CRM asks for yet. Upload-url and link collapse into one call, which also removes a state where a document exists attached to nothing. | Endpoints are `/attachments/*` rather than `/documents/*`. Versioning is deferred; adding it later is a new table plus a foreign key, not a rewrite | *pending* |
 | CR14 | 2026-08-24 | W19 | The dashboard ships as **one** `/crm/dashboard/summary` endpoint rather than the separate summary, pipeline and recent-activity endpoints of `P2-W19-BE-05/06` | Every widget on the screen is rendered from one page load, so three endpoints would have meant three round trips and three chances for the KPI above a list to disagree with the list itself. One response resolves each owner-scoped module's visibility separately (`DashboardScope`), which is what keeps each count equal to the rows behind it. | The *team* filter named in `BE-06` is served by `VIEW_TEAM` (B02) rather than by a query parameter: scope follows the caller's permissions, not a client-supplied argument, so a rep cannot request a wider view than they hold | *pending* |
 | CR15 | 2026-08-24 | W07 | `VIEW_TEAM` is granted to **Admin only** by the B02 migration — not to Manager, not to User | Granting it to *User* would widen every rep's reach the moment the migration ran; a change of that consequence must be an administrator's decision, not a side effect of deploying. Manager already holds `VIEW_ALL`, which is strictly wider, so it would be redundant there. Admin is the exception for a **structural** reason rather than a permissions one: `SYSTEM_ROLES` expresses Admin as a wildcard precisely so a newly added permission cannot silently leave administrators without it, and `test_the_admin_role_grants_the_whole_catalogue` pins that invariant. Granting it to Admin widens nothing, since Admin already holds `VIEW_ALL` everywhere. | Team visibility is inert for ordinary users until an administrator grants `<module>.VIEW_TEAM` on the Roles screen. The tables, the predicate and the audit trail are all in place waiting for it | *pending* |
+| CR16 | 2026-08-26 | W20 | Search vectors are **stored generated columns**, not the triggers named in `P3-W20-BE-01`; `P3-W20-BE-05`'s separate backfill migration is subsumed rather than written | A trigger is a thing you can forget. It must be created per table, re-created if the table is rebuilt, and it silently stops reflecting a column somebody adds to the entity later — leaving a vector that is subtly stale rather than obviously broken, which is the worst failure mode a search index has. A generated column is part of the table definition: PostgreSQL maintains it or the write fails. Adding one also computes it for every existing row during the `ALTER TABLE`, so the backfill has no rows left to find and a separate migration would have been a no-op dressed as work. | None on scope or sequence. Two constraints follow: the expression must be IMMUTABLE, so every `to_tsvector` call names `'english'::regconfig` explicitly rather than relying on `default_text_search_config` — which is the stronger behaviour anyway, since the one-argument form stems according to whoever's session wrote the row; and changing what is indexed is an `ALTER TABLE` rather than a trigger edit plus a backfill, which is the same amount of work stated honestly. The expression is declared in both the model and the migration, and `tests/unit/test_search_index_agreement.py` fails if they drift | *pending* |
 
 
 **Change classes:**
@@ -1621,6 +1767,20 @@ Any change to scope, sequence, or gate criteria is recorded here. No exceptions.
 
 
 **Descoping rule:** Work may be descoped to `⊘` only via a Class C change. Security, tenant-isolation, and authorization tasks are **not descopable** — they may be resequenced but never removed.
+
+
+### 15.1 Gate Outcomes
+
+§11 requires every gate outcome to land here: a pass, or a written,
+time-boxed conditional pass with a named remediation owner. A gate with no row
+here has not been held, whatever the phase after it has been doing.
+
+
+| Gate | Week | Held | Outcome | Conditions / remediation owner |
+| ---- | ---- | ---- | ------- | ------------------------------ |
+| GATE 0 | W03 | ☐ never held | — | `P0-W03-AR-01` unstarted. Three exit criteria genuinely unmet: no CI pipeline exists (`P0-W03-DO-01/DO-02`), no `orval` client (CR04), no idempotency or rate-limit middleware (`P0-W03-BE-03/04`) |
+| GATE 1 | W09 | ☐ never held | — | `P1-W09-AR-01` unstarted. Seven of eight criteria are met but unrecorded; the eighth — product access gated on the `s3k-crm` entitlement — is unimplemented (`P1-W08-BE-01/02`, R10) |
+| GATE 2 | W19 | ⧗ reviewed 2026-08-24 | **Conditional pass recommended, not yet granted** | All nine GATE 2 exit criteria verified against code and a live database. Conditions carried in from the review record under §7 W19: **F01** — hold GATE 0 and GATE 1, or record in writing why the chain skips them, and name an owner for CI and for product entitlements; **F08** — rule on CR13, CR14 and CR15, which describe the shape GATE 2 is being asked to accept. Architect to record the decision in this row |
 
 ---
 

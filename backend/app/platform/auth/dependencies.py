@@ -1,11 +1,12 @@
 """FastAPI dependencies for authentication and tenant-scoped principals.
 
-Three layers, deliberately separate so failures map to the right status code:
+Four layers, deliberately separate so failures map to the right status code:
 
 ``CurrentUser``       authenticated identity only. Missing or bad token → 401.
 ``CurrentPrincipal``  identity **plus** a verified organization membership.
                       Authenticated but no usable tenant context → 403.
 ``require_permission``  a specific capability within that organization → 403.
+``resolve_permissions``  the whole permission set, asserting none of it.
 
 Products import from this module (never from ``auth.repository`` or
 ``auth.models``) — see ARCHITECTURE-BOUNDARIES.md.
@@ -132,13 +133,15 @@ class Principal:
     organization_id: uuid.UUID
     membership_id: uuid.UUID
     #: Effective ``module.ACTION`` codes in this organization, resolved once
-    #: per request by :func:`require_permission`. Empty when the principal was
-    #: built without an authorization check (``CurrentPrincipal``), so callers
-    #: must use :meth:`has_permission` rather than reading it as truth.
+    #: per request by :func:`require_permission` or :func:`resolve_permissions`.
+    #: Empty when the principal was built without an authorization check
+    #: (``CurrentPrincipal``), so callers must use :meth:`has_permission`
+    #: rather than reading it as truth.
     permissions: frozenset[str] = frozenset()
     #: Users sharing a team with this one, resolved once by
-    #: :func:`require_permission` and only when the caller actually holds a
-    #: ``VIEW_TEAM`` grant — a principal without one never pays for the query.
+    #: :func:`require_permission` or :func:`resolve_permissions`, and only when
+    #: the caller actually holds a ``VIEW_TEAM`` grant — a principal without
+    #: one never pays for the query.
     #: Empty is the safe value: it degrades ``VIEW_TEAM`` to owner-only rather
     #: than to organization-wide (B02).
     team_peer_ids: frozenset[uuid.UUID] = frozenset()
@@ -246,6 +249,41 @@ def require_permission(
     return dependency
 
 
+async def resolve_permissions(
+    principal: CurrentPrincipal,
+    authorization: AuthorizationServiceDep,
+    session: DbSession,
+) -> Principal:
+    """A principal carrying its permission snapshot, with nothing asserted.
+
+    :func:`require_permission` answers *may this caller do X* and refuses when
+    the answer is no. This answers *what may this caller do*, and refuses
+    nothing beyond the membership :data:`CurrentPrincipal` already proved.
+
+    It exists for endpoints whose scope **is** the permission set rather than
+    being gated by one entry in it — global search being the case it was
+    written for (doc 11: "authenticated + entity permissions"). Search spans
+    four modules and a caller may hold `VIEW` on some and not others; gating
+    the route on any single module's permission would either lock out callers
+    who can legitimately search the rest, or, worse, admit a caller to modules
+    they cannot read because one unrelated grant opened the door.
+
+    Using this instead of ``require_permission`` moves the authorization
+    decision from the route into the query, so it must be paired with a
+    handler that actually makes one. A handler that takes this and then reads
+    without consulting ``has_permission`` is unauthorized by construction.
+    """
+    granted = await authorization.effective_permissions(principal.membership_id)
+    peers = await _team_peer_ids(principal, granted, session)
+    return replace(principal, permissions=frozenset(granted), team_peer_ids=peers)
+
+
+#: A principal whose permission set is loaded but unasserted. See
+#: :func:`resolve_permissions` for when this is the right dependency and when
+#: it is a security hole.
+PermissionedPrincipal = Annotated[Principal, Depends(resolve_permissions)]
+
+
 async def _team_peer_ids(
     principal: Principal, granted: Collection[str], session: AsyncSession
 ) -> frozenset[uuid.UUID]:
@@ -344,8 +382,10 @@ __all__ = [
     "JwtPrincipalResolver",
     "NotAuthenticatedError",
     "PermissionDeniedForOrganizationError",
+    "PermissionedPrincipal",
     "Principal",
     "get_current_principal",
     "get_current_user",
     "require_permission",
+    "resolve_permissions",
 ]

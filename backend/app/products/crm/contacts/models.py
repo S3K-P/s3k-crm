@@ -17,7 +17,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
-from app.products.crm.common import CRM_SCHEMA, CrmEntityMixin
+from app.products.crm.common import CRM_SCHEMA, EMAIL_TERMS, CrmEntityMixin, searchable
 
 
 class ContactStatus(enum.StrEnum):
@@ -79,6 +79,20 @@ class Contact(Base, CrmEntityMixin):
     state: Mapped[str | None] = mapped_column(String(120), nullable=True)
     postal_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
     country: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+    # --- Search ------------------------------------------------------------
+    #: Both name parts at ``A`` rather than a concatenation, so "Priya" and
+    #: "Sharma" each match on their own. ``email`` sits at ``B`` because a
+    #: colleague searching for a person often has their address and nothing
+    #: else.
+    search_vector: Mapped[str | None] = searchable(
+        "setweight(to_tsvector('english'::regconfig, coalesce(first_name, '')), 'A') || "
+        "setweight(to_tsvector('english'::regconfig, coalesce(last_name, '')), 'A') || "
+        f"setweight(to_tsvector('english'::regconfig, {EMAIL_TERMS}), 'B') || "
+        "setweight(to_tsvector('english'::regconfig, coalesce(job_title, '')), 'B') || "
+        "setweight(to_tsvector('english'::regconfig, coalesce(department, '')), 'C') || "
+        "setweight(to_tsvector('english'::regconfig, coalesce(city, '')), 'C')"
+    )
 
     @property
     def full_name(self) -> str:

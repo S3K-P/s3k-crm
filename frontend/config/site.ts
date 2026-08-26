@@ -1,11 +1,23 @@
-import {
-  Sparkles, Wand2, Settings, LayoutDashboard, ClipboardList,
-  Boxes, Cpu, LucideIcon,
-} from 'lucide-react';
-
 /* ============================================================
-   SITE CONFIG — the ONE file to edit for a new project.
-   Brand, navigation tabs, sub-nav and ⌘K search all live here.
+   SITE CONFIG — brand identity, shared by every route group.
+
+   Navigation deliberately does **not** live here any more.
+
+   It used to, and that was the "dual navigation config" that
+   `P3-W20-FE-02` retired: this file described tabs, sub-nav and a
+   ⌘K list for the UI-starter pages, while `crm-navigation.ts`
+   described the CRM's own sidebar. Both read like *the* site
+   navigation, so an edit intended for the CRM could land here and
+   change nothing anyone uses.
+
+   Where navigation lives now:
+
+     `crm-navigation.ts`        authoritative for the `(crm)` group
+     `starter-navigation.ts`    the `(app)` starter pages only
+
+   What stays here is the brand, which is genuinely shared — the
+   login screen, the landing pages, the CRM sidebar and the footer
+   all read it.
    ============================================================ */
 
 export const BRAND = {
@@ -20,45 +32,3 @@ export const BRAND = {
   /** Footer line */
   footer: 'S3K Technologies · All Rights Reserved',
 };
-
-export type TabId = 'home' | 'tools' | 'settings';
-
-export interface Tab {
-  id: TabId;
-  label: string;
-  icon: LucideIcon;
-  /** Route prefixes that make this tab active */
-  match: string[];
-}
-
-export const TABS: Tab[] = [
-  { id: 'home',     label: 'Home',     icon: Sparkles, match: ['/dashboard'] },
-  { id: 'tools',    label: 'Tools',    icon: Wand2,    match: ['/tools'] },
-  { id: 'settings', label: 'Settings', icon: Settings, match: ['/settings'] },
-];
-
-export interface SubItem { label: string; href: string }
-
-/** Second-row navigation per tab. A tab with one item shows no sub-nav bar. */
-export const SUBNAV: Record<TabId, SubItem[]> = {
-  home: [
-    { label: 'Dashboard', href: '/dashboard' },
-  ],
-  tools: [
-    { label: 'Sample Tool', href: '/tools/sample-form' },
-    { label: 'Components',  href: '/tools/components' },
-  ],
-  settings: [
-    { label: 'Settings', href: '/settings' },
-  ],
-};
-
-export interface SearchItem { label: string; href: string; icon: LucideIcon; group: string }
-
-/** Entries for the ⌘K quick-search modal. Keep in sync with SUBNAV. */
-export const SEARCH_ITEMS: SearchItem[] = [
-  { label: 'Dashboard',   href: '/dashboard',         icon: LayoutDashboard, group: 'Home' },
-  { label: 'Sample Tool', href: '/tools/sample-form', icon: ClipboardList,   group: 'Tools' },
-  { label: 'Components',  href: '/tools/components',  icon: Boxes,           group: 'Tools' },
-  { label: 'Settings',    href: '/settings',          icon: Cpu,             group: 'Settings' },
-];

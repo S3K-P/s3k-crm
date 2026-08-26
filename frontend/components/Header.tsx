@@ -7,7 +7,10 @@ import { Search, Bell, X, ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ThemeToggle from '@/components/ThemeToggle';
 import BrandLogo from '@/components/brand/BrandLogo';
-import { BRAND, TABS, SUBNAV, SEARCH_ITEMS, type TabId } from '@/config/site';
+import { BRAND } from '@/config/site';
+// Starter-kit navigation only. The CRM's own chrome is `CrmTopbar` +
+// `CrmSidebar`, driven by `crm-navigation.ts` — see `starter-navigation.ts`.
+import { TABS, SUBNAV, SEARCH_ITEMS, type TabId } from '@/config/starter-navigation';
 
 /* ============================================================
    TOP-TAB NAVIGATION SHELL

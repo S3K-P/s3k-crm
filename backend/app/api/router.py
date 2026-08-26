@@ -18,6 +18,7 @@ Path layout follows doc 11:
     /api/v1/audit-logs/*      the audit trail (read-only, admin permission)
     /api/v1/attachments/*     file metadata + pre-signed object-storage URLs
     /api/v1/crm/*             S3K CRM business resources
+    /api/v1/crm/search        cross-entity search, permission-filtered in-query
 """
 
 from __future__ import annotations
@@ -40,6 +41,7 @@ from app.products.crm.leads import router as leads_router
 from app.products.crm.leads import source_router as lead_sources_router
 from app.products.crm.notes import router as notes_router
 from app.products.crm.opportunities import router as opportunities_router
+from app.products.crm.search import router as search_router
 from app.products.crm.shared.attachments import crm_entity_access
 from app.products.crm.tasks import router as tasks_router
 
@@ -96,5 +98,8 @@ api_router.include_router(
 )
 api_router.include_router(tasks_router.router, prefix="/crm/tasks", tags=["crm:tasks"])
 api_router.include_router(notes_router.router, prefix="/crm/notes", tags=["crm:notes"])
+# Search spans four modules, so it is gated by the permission snapshot inside
+# the query rather than by a module permission on the route — see its router.
+api_router.include_router(search_router.router, prefix="/crm/search", tags=["crm:search"])
 
 __all__ = ["api_router", "root_router"]

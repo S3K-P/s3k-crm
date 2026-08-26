@@ -47,6 +47,14 @@ ModelT = TypeVar("ModelT", bound=TenantOwnedModel)
 #: bookkeeping the framework maintains — so they are left out of audit diffs.
 #: ``updated_at``/``updated_by_id`` change on every single update and would
 #: otherwise appear in every record, drowning the field that actually moved.
+#:
+#: ``search_vector`` (`P3-W20-BE-01`) is here for the same reason and one more.
+#: It is *derived* — PostgreSQL recomputes it from columns already in the diff,
+#: so recording it says nothing the trail does not already say, at the cost of
+#: a page of lexemes per entry. It is also deferred, and the snapshot below
+#: reads every column by name: touching a deferred attribute on a detached or
+#: mid-flush instance triggers a lazy load, which under asyncio is a
+#: ``MissingGreenlet`` rather than a query.
 _AUDIT_IGNORED_COLUMNS = frozenset(
     {
         "id",
@@ -55,6 +63,7 @@ _AUDIT_IGNORED_COLUMNS = frozenset(
         "updated_at",
         "created_by_id",
         "updated_by_id",
+        "search_vector",
     }
 )
 

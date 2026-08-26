@@ -30,7 +30,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.core.models import TenantMixin, TimestampMixin, UUIDPrimaryKeyMixin
-from app.products.crm.common import CRM_SCHEMA, CrmEntityMixin
+from app.products.crm.common import CRM_SCHEMA, CrmEntityMixin, searchable
 
 
 class Pipeline(Base, CrmEntityMixin):
@@ -166,6 +166,19 @@ class Opportunity(Base, CrmEntityMixin):
     lost_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     loss_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     win_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # --- Search ------------------------------------------------------------
+    #: The account and contact a deal hangs off are *not* folded in here.
+    #: Copying them would mean every rename of an account silently rewriting
+    #: the vectors of its deals, and a stale copy is worse than a join. A
+    #: search for the company name finds the account, which is where somebody
+    #: looking for its deals should land anyway.
+    search_vector: Mapped[str | None] = searchable(
+        "setweight(to_tsvector('english'::regconfig, coalesce(name, '')), 'A') || "
+        "setweight(to_tsvector('english'::regconfig, coalesce(forecast_category, '')), 'C') || "
+        "setweight(to_tsvector('english'::regconfig, coalesce(competitor, '')), 'C') || "
+        "setweight(to_tsvector('english'::regconfig, coalesce(notes, '')), 'D')"
+    )
 
     @property
     def is_closed(self) -> bool:
