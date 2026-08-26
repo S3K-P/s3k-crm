@@ -20,12 +20,13 @@ export function useCountUp(duration = 1400): number {
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    if (
-      typeof window !== 'undefined' &&
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    ) {
-      setProgress(1);
-      return;
+    // Settle on the final values instead of animating. This still goes through
+    // a frame rather than setting state in the effect body: a synchronous
+    // setState here would cascade a second render, and starting from 0 on both
+    // server and client keeps hydration matched either way.
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const settle = requestAnimationFrame(() => setProgress(1));
+      return () => cancelAnimationFrame(settle);
     }
 
     let frame = 0;
