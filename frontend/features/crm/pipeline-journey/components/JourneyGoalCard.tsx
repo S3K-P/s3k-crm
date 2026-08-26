@@ -20,7 +20,14 @@ const RADIUS = 84;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 export default function JourneyGoalCard({ goal, totals, progress }: JourneyGoalCardProps) {
-  const dashOffset = CIRCUMFERENCE * (1 - totals.goalPct / 100);
+  // The dial needs a target to be a proportion *of*. Without one there is no
+  // honest arc to draw, so the card declines to render and the page shows
+  // `JourneyUnavailable` in its place. This is a guard rather than a default
+  // of 0: a dial sitting at 0% is a statement about the quarter.
+  if (totals.goalPct === null) return null;
+  const goalPct = totals.goalPct;
+
+  const dashOffset = CIRCUMFERENCE * (1 - goalPct / 100);
 
   const stats = [
     { id: 'wonThisMonth', label: 'Won this month', value: goal.wonThisMonth },
@@ -71,7 +78,7 @@ export default function JourneyGoalCard({ goal, totals, progress }: JourneyGoalC
 
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <div className="txt font-display text-[40px] font-black leading-none tracking-[-0.04em] tabular-nums">
-            {Math.round(totals.goalPct * progress)}%
+            {Math.round(goalPct * progress)}%
           </div>
           <div className="txt-muted mt-1.5 text-[12px] font-bold">complete</div>
           <div className="mt-2 text-[12.5px] font-bold" style={{ color: 'var(--accent)' }}>

@@ -4,13 +4,34 @@
    quarterly goal, week-over-week momentum and the AI-prioritised
    "what needs attention" queue.
 
-   Currency is pre-formatted in Indian notation (₹L / ₹Cr) because
-   the funnel renders values verbatim; swap the mock data for API
-   values in the same shape when the backend lands.
+   Money arrives here already formatted, by `formatMoney` in the
+   dashboard feature, which renders each amount in the currency
+   the organization's own deals are denominated in. It is not
+   ₹-specific: an earlier revision hardcoded the symbol and the
+   crore unit at every render site, which asserted a currency on
+   behalf of every tenant.
+
+   Several fields are `number | null`. Null is not "zero" — it
+   means the CRM cannot currently compute that figure, and the UI
+   renders it as absent rather than as a measurement. Each one
+   documents what it is waiting on; `use-journey-data.ts` has the
+   full list in one place.
    ============================================================ */
 
-/** The five funnel rows, widest to narrowest. */
-export type JourneyStageId = 'leads' | 'qualified' | 'proposal' | 'negotiation' | 'won';
+/**
+ * A funnel row's identity.
+ *
+ * A plain string, not a fixed union. Pipeline stages are **tenant-defined**:
+ * an organization renames them, reorders them and adds its own, so the five
+ * names this feature was prototyped against ("qualified", "proposal", …) are
+ * one organization's configuration rather than a vocabulary the code can
+ * close over. Real rows carry the stage's UUID; `leads` is the one synthetic
+ * id, because the top of the funnel is a different table.
+ */
+export type JourneyStageId = string;
+
+/** The synthetic id of the funnel's top row, which counts leads not deals. */
+export const LEADS_ROW_ID = 'leads';
 
 /** Curated cross-stage cuts surfaced by the attention cards. */
 export type AttentionPresetId = 'stuck' | 'closing' | 'growth' | 'ontrack';
@@ -31,7 +52,7 @@ export interface JourneyDeal {
   account: string;
   /** Opportunity name */
   name: string;
-  /** Pre-formatted deal value, e.g. `₹8.4L` */
+  /** Deal value, formatted in the record's own currency */
   value: string;
   /** Owning rep, or a weighting note in forecast cuts */
   owner: string;
@@ -52,10 +73,23 @@ export interface JourneyStage {
   count: number;
   /** Pre-formatted stage value */
   value: string;
-  /** Share of the stage that reaches the next one */
-  conversion: number;
-  /** Net opportunities gained (or lost) this week */
-  movement: number;
+  /**
+   * Share of the stage that reaches the next one, or `null` when unknown.
+   *
+   * Null is the normal case today. Conversion is a *historical* rate — how
+   * many deals that ever entered this stage went on to the next — and that
+   * needs an aggregate over `opportunity_stage_history` which no endpoint
+   * exposes. It cannot be inferred from the current snapshot: the ratio of
+   * two stages' present occupancy says nothing about how deals moved.
+   */
+  conversion: number | null;
+  /**
+   * Net opportunities gained (or lost) this week, or `null` when unknown.
+   *
+   * Null today: this is a week-over-week delta, and the summary endpoint
+   * returns a point-in-time snapshot with nothing to compare against.
+   */
+  movement: number | null;
   /** Funnel row width as a percentage of the widest row */
   widthPct: number;
   /** Horizontal inset of the trapezoid's bottom edge, in percent */
@@ -113,14 +147,36 @@ export interface AttentionItem {
 
 /** Headline counters the hero and KPI row animate up to on mount. */
 export interface JourneyTotals {
-  /** Total open pipeline in ₹ crore */
-  pipelineCr: number;
+  /**
+   * Total open pipeline, as a raw amount in {@link JourneyTotals.currency}.
+   *
+   * Raw rather than pre-formatted because the hero and KPI row animate it
+   * upward on mount and need a number to interpolate. It was previously
+   * "crore", with the ₹ symbol and the unit hardcoded at every render site —
+   * which quietly asserted that every tenant bills in rupees.
+   */
+  pipelineValue: number;
+  /** ISO code the pipeline total is denominated in, or `null` when mixed. */
+  currency: string | null;
   /** Open opportunities across every stage */
   openDeals: number;
-  /** Win rate percentage */
-  winRatePct: number;
-  /** Progress toward the quarterly revenue goal, as a percentage */
-  goalPct: number;
+  /**
+   * Win rate percentage, or `null` when unknown.
+   *
+   * Null today. Deriving it needs won-versus-lost counts over closed deals;
+   * the list endpoint can filter to closed but not split the two without
+   * paging every row, which is not a page-load query.
+   */
+  winRatePct: number | null;
+  /**
+   * Progress toward the quarterly revenue goal, or `null` when unknown.
+   *
+   * Null, and unlike the others not merely un-exposed: the CRM has no revenue
+   * target anywhere in its schema. A percentage here would need a number to
+   * divide by that nobody has entered, so any figure would be invented rather
+   * than uncomputed.
+   */
+  goalPct: number | null;
 }
 
 export interface JourneyGoal {

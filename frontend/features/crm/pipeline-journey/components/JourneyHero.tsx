@@ -1,5 +1,6 @@
 'use client';
 
+import { formatMoney } from '@/features/crm/dashboard/presenters';
 import type { JourneyGoal, JourneyHeroContent, JourneyTotals } from '../types';
 
 /* ============================================================
@@ -12,7 +13,7 @@ import type { JourneyGoal, JourneyHeroContent, JourneyTotals } from '../types';
 interface JourneyHeroProps {
   content: JourneyHeroContent;
   totals: JourneyTotals;
-  goal: JourneyGoal;
+  goal: JourneyGoal | null;
   /** 0 → 1 counter progress shared with the KPI row */
   progress: number;
   onOpenClosing: () => void;
@@ -32,8 +33,9 @@ export default function JourneyHero({
   progress,
   onOpenClosing,
 }: JourneyHeroProps) {
-  const pipelineText = `₹${(totals.pipelineCr * progress).toFixed(2)}Cr`;
-  const goalText = `${Math.round(totals.goalPct * progress)}%`;
+  const pipelineText = formatMoney(String(totals.pipelineValue * progress), totals.currency);
+  // No goal model in the CRM, so no percentage — see `use-journey-data.ts`.
+  const goalText = totals.goalPct === null ? null : `${Math.round(totals.goalPct * progress)}%`;
 
   return (
     <section
@@ -82,43 +84,58 @@ export default function JourneyHero({
             </div>
           </div>
 
-          <div className="mt-[18px] max-w-[460px]">
-            <div className="mb-[7px] flex justify-between text-[12px] font-bold text-white/80">
-              <span>Quarterly goal · {goal.target}</span>
-              <span className="tabular-nums">{goalText}</span>
+          {/* The goal bar renders only when there is a target to measure
+              against. With no revenue-goal model in the CRM there is nothing
+              to divide by, so the whole block is omitted rather than drawn
+              empty at 0% — an empty progress bar under "Quarterly goal" is a
+              claim that the quarter is going badly. */}
+          {goal !== null && goalText !== null && (
+            <div className="mt-[18px] max-w-[460px]">
+              <div className="mb-[7px] flex justify-between text-[12px] font-bold text-white/80">
+                <span>Quarterly goal · {goal.target}</span>
+                <span className="tabular-nums">{goalText}</span>
+              </div>
+              <div className="h-3 overflow-hidden rounded-full bg-white/[0.18] p-0.5">
+                <div
+                  className="anim-bar-grow h-2 rounded-full"
+                  style={{
+                    width: `${totals.goalPct}%`,
+                    background: 'linear-gradient(90deg, #a78bfa, #f0abfc 60%, #7dd3fc)',
+                    boxShadow: '0 0 18px rgba(240, 171, 252, 0.8)',
+                    animationDelay: '0.25s',
+                  }}
+                />
+              </div>
+              <p className="mt-2.5 text-[12.5px] font-semibold text-white/[0.72]">
+                {content.goalCaption}
+              </p>
             </div>
-            <div className="h-3 overflow-hidden rounded-full bg-white/[0.18] p-0.5">
-              <div
-                className="anim-bar-grow h-2 rounded-full"
-                style={{
-                  width: `${totals.goalPct}%`,
-                  background: 'linear-gradient(90deg, #a78bfa, #f0abfc 60%, #7dd3fc)',
-                  boxShadow: '0 0 18px rgba(240, 171, 252, 0.8)',
-                  animationDelay: '0.25s',
-                }}
-              />
-            </div>
-            <p className="mt-2.5 text-[12.5px] font-semibold text-white/[0.72]">
-              {content.goalCaption}
-            </p>
-          </div>
+          )}
         </div>
 
         {/* ── Right: next best move + mini stats ── */}
         <div className="flex min-w-0 flex-[1_1_260px] flex-col gap-2.5">
-          <div className="rounded-[20px] border border-white/[0.18] bg-white/[0.12] px-[18px] py-4 backdrop-blur-[14px]">
-            <div className="text-[11.5px] font-bold uppercase tracking-[0.08em] text-white/70">
-              Best next move
+          {/* "Best next move" was a recommendation, and nothing in the CRM
+              makes recommendations. Rendering the card with empty copy would
+              leave a blank panel and a nameless button, so it is omitted
+              until something can fill it. */}
+          {content.nextMove !== '' && (
+            <div className="rounded-[20px] border border-white/[0.18] bg-white/[0.12] px-[18px] py-4 backdrop-blur-[14px]">
+              <div className="text-[11.5px] font-bold uppercase tracking-[0.08em] text-white/70">
+                Best next move
+              </div>
+              <p className="mt-[7px] text-[14px] font-semibold leading-[1.45]">
+                {content.nextMove}
+              </p>
+              <button
+                type="button"
+                onClick={onOpenClosing}
+                className="mt-3 rounded-[10px] bg-white px-3.5 py-2 text-[12.5px] font-bold text-violet-900 transition hover:opacity-90"
+              >
+                {content.nextMoveCta}
+              </button>
             </div>
-            <p className="mt-[7px] text-[14px] font-semibold leading-[1.45]">{content.nextMove}</p>
-            <button
-              type="button"
-              onClick={onOpenClosing}
-              className="mt-3 rounded-[10px] bg-white px-3.5 py-2 text-[12.5px] font-bold text-violet-900 transition hover:opacity-90"
-            >
-              {content.nextMoveCta}
-            </button>
-          </div>
+          )}
 
           <div className="flex gap-2.5">
             {content.tiles.map(tile => (

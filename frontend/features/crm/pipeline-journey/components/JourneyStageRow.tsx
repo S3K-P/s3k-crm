@@ -2,6 +2,7 @@
 
 import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { LEADS_ROW_ID } from '../types';
 import type { JourneyStage, StageDetailLevel } from '../types';
 
 /* ============================================================
@@ -32,15 +33,40 @@ const PADDING_X: Record<StageDetailLevel, string> = {
   minimal: 'clamp(12px, 8%, 46px)',
 };
 
-function movementLabel(movement: number): string {
+/** `null` movement has no arrow and no sign — it is simply not shown. */
+function movementLabel(movement: number | null): string | null {
+  if (movement === null) return null;
   return `${movement > 0 ? '+' : '−'}${Math.abs(movement)}`;
 }
 
+/**
+ * The line under a stage's name.
+ *
+ * Drops the "+18 this week" clause entirely when there is no movement figure,
+ * rather than printing "+0". A zero delta claims the stage was measured and
+ * did not move; the truth is that nothing measured it.
+ */
 function subLabel(stage: JourneyStage): string {
   const move = movementLabel(stage.movement);
-  if (stage.isTerminal) return `${stage.count} deals · ${move}`;
-  if (stage.detail === 'full') return `${stage.count} opportunities · ${move} this week`;
-  return `${stage.count} opps · ${move}`;
+  // The top row counts leads, which are a different table and not deals —
+  // calling them "opportunities" would misname the one row on the page that
+  // is not one.
+  const noun =
+    stage.id === LEADS_ROW_ID
+      ? stage.count === 1
+        ? 'lead'
+        : 'leads'
+      : stage.isTerminal
+        ? 'deals'
+        : stage.detail === 'full'
+          ? stage.count === 1
+            ? 'opportunity'
+            : 'opportunities'
+          : 'opps';
+  const head = `${stage.count} ${noun}`;
+
+  if (move === null) return head;
+  return stage.detail === 'full' ? `${head} · ${move} this week` : `${head} · ${move}`;
 }
 
 export default function JourneyStageRow({
@@ -53,7 +79,18 @@ export default function JourneyStageRow({
   const { detail, isTerminal } = stage;
 
   return (
-    <div className="relative z-[1]" style={{ width: `${stage.widthPct}%` }}>
+    // The hovered row is lifted above its siblings, and this is the fix for
+    // the tooltip being overlapped by the rows beneath it.
+    //
+    // `z-[1]` on a positioned element opens a **stacking context**, so the
+    // tooltip's own `z-30` only ranks it *within this row*. Against the next
+    // row — same `z-[1]`, later in the DOM — the whole context loses, and the
+    // tooltip is painted over by every row below. Raising the z-index on the
+    // row itself moves the context, tooltip included, above them.
+    <div
+      className={cn('relative', hovered ? 'z-40' : 'z-[1]')}
+      style={{ width: `${stage.widthPct}%` }}
+    >
       <button
         type="button"
         onMouseEnter={() => onHoverChange(true)}
@@ -117,19 +154,25 @@ export default function JourneyStageRow({
                     </div>
                   )}
                 </div>
-                <div className={cn('text-right', detail === 'full' ? 'w-[74px]' : 'w-11')}>
-                  <div
-                    className="text-[15px] font-extrabold"
-                    style={{ color: stage.conversionColor }}
-                  >
-                    {stage.conversion}%
-                  </div>
-                  {detail === 'full' && (
-                    <div className="text-[10.5px] font-bold uppercase tracking-[0.07em] text-white/[0.62]">
-                      Converts
+                {/* The conversion column disappears entirely when there is no
+                    rate to show. Rendering the caption over a bare "%" — which
+                    is what a null left behind — looked like a figure that had
+                    failed to load rather than one nothing computes yet. */}
+                {stage.conversion !== null && (
+                  <div className={cn('text-right', detail === 'full' ? 'w-[74px]' : 'w-11')}>
+                    <div
+                      className="text-[15px] font-extrabold"
+                      style={{ color: stage.conversionColor }}
+                    >
+                      {stage.conversion}%
                     </div>
-                  )}
-                </div>
+                    {detail === 'full' && (
+                      <div className="text-[10.5px] font-bold uppercase tracking-[0.07em] text-white/[0.62]">
+                        Converts
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -140,7 +183,11 @@ export default function JourneyStageRow({
       {hovered && (
         <div
           role="tooltip"
-          className="anim-tip-in bd pointer-events-none absolute left-1/2 top-[calc(100%+8px)] z-30 w-[250px] rounded-2xl border px-4 py-3.5 backdrop-blur-[18px]"
+          // `-translate-x-1/2` is what makes `left-1/2` mean "centred".
+          // Without it the tooltip's *left edge* sat on the row's midpoint, so
+          // a 250px panel hung entirely to the right and ran into — and, on
+          // the narrow lower rows, past — the card's clipped edge.
+          className="anim-tip-in bd pointer-events-none absolute left-1/2 top-[calc(100%+8px)] z-30 w-[250px] -translate-x-1/2 rounded-2xl border px-4 py-3.5 backdrop-blur-[18px]"
           style={{
             background: 'var(--glass)',
             borderColor: 'var(--glass-bd)',
@@ -151,12 +198,19 @@ export default function JourneyStageRow({
           <div className="mt-2.5 grid grid-cols-2 gap-2.5">
             <TooltipMetric label={stage.tooltipLabels.count} value={String(stage.count)} />
             <TooltipMetric label={stage.tooltipLabels.value} value={stage.value} />
-            <TooltipMetric label={stage.tooltipLabels.conversion} value={`${stage.conversion}%`} />
-            <TooltipMetric
-              label="Movement"
-              value={movementLabel(stage.movement)}
-              tone={stage.movement >= 0 ? 'positive' : 'negative'}
-            />
+            {stage.conversion !== null && (
+              <TooltipMetric
+                label={stage.tooltipLabels.conversion}
+                value={`${stage.conversion}%`}
+              />
+            )}
+            {stage.movement !== null && (
+              <TooltipMetric
+                label="Movement"
+                value={movementLabel(stage.movement) ?? '—'}
+                tone={stage.movement >= 0 ? 'positive' : 'negative'}
+              />
+            )}
           </div>
           <div className="bd txt-muted mt-[11px] border-t pt-[9px] text-[11.5px] font-semibold">
             {stage.tooltipFootnote}

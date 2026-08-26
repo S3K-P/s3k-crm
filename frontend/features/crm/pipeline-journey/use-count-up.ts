@@ -20,13 +20,18 @@ export function useCountUp(duration = 1400): number {
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    // Settle on the final values instead of animating. This still goes through
-    // a frame rather than setting state in the effect body: a synchronous
-    // setState here would cascade a second render, and starting from 0 on both
-    // server and client keeps hydration matched either way.
+    // Settle on the final values instead of animating.
+    //
+    // Deferred through a **timer**, not `requestAnimationFrame`. rAF does not
+    // run in a hidden tab, so the rAF version left every counter on the page
+    // pinned at zero — permanently, and specifically for users who have asked
+    // for reduced motion. A page reading "₹0 open pipeline" against a real
+    // pipeline is a wrong number, not a missing animation, and it survived
+    // until the tab was focused. Timers are throttled when hidden but they
+    // still fire.
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      const settle = requestAnimationFrame(() => setProgress(1));
-      return () => cancelAnimationFrame(settle);
+      const settle = window.setTimeout(() => setProgress(1), 0);
+      return () => window.clearTimeout(settle);
     }
 
     let frame = 0;
@@ -39,7 +44,23 @@ export function useCountUp(duration = 1400): number {
     };
 
     frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
+
+    // Browsers do not run rAF in a hidden tab, so without this the animation
+    // never starts and every counter on the page renders — and *stays* — at
+    // zero. That is far worse than an unanimated number: a backgrounded tab
+    // would show "₹0 open pipeline" against a real pipeline, and it would
+    // still say zero when the user came back to a tab that had, as far as the
+    // browser was concerned, finished loading.
+    //
+    // The fallback fires shortly after the animation should have ended and
+    // settles on the true values. When the tab is visible the loop has already
+    // reached 1 by then and this is a no-op.
+    const settle = window.setTimeout(() => setProgress(1), duration + 200);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(settle);
+    };
   }, [duration]);
 
   return progress;

@@ -2,15 +2,13 @@
 
 import { useState } from 'react';
 import {
-  JourneyAttention,
   JourneyDealsDrawer,
   JourneyEmptyState,
   JourneyFunnel,
-  JourneyGoalCard,
   JourneyHero,
   JourneyKpiRow,
-  JourneyMomentumCard,
   JourneySkeleton,
+  JourneyUnavailable,
   useCountUp,
   useJourneyData,
   type JourneyFocusId,
@@ -18,12 +16,18 @@ import {
 
 /* ============================================================
    PIPELINE JOURNEY PAGE
-   The story of the funnel on one screen: where the money is,
-   which way it is moving, and what to do about it next.
+   The story of the funnel on one screen: where the money is and
+   how it is distributed across the stages this organization
+   actually uses.
 
-   Every stage row and attention card opens the same drawer,
-   focused on that cut of the pipeline — so the page never
-   navigates away from the narrative to answer "which deals?".
+   Every stage row opens the same drawer, focused on that cut of
+   the pipeline — so the page never navigates away from the
+   narrative to answer "which deals?".
+
+   Panels whose figures the CRM cannot yet compute (momentum,
+   the attention queue, the revenue goal) render as explicitly
+   unavailable rather than being filled with plausible numbers.
+   See `use-journey-data.ts` for what each one is waiting on.
    ============================================================ */
 
 export default function PipelineJourneyPage() {
@@ -34,6 +38,19 @@ export default function PipelineJourneyPage() {
   const [focus, setFocus] = useState<JourneyFocusId | null>(null);
 
   if (journey.status === 'loading') return <JourneySkeleton />;
+
+  if (journey.status === 'error') {
+    return (
+      <div className="flex max-w-[1520px] flex-col gap-5 p-6 lg:p-8">
+        <JourneyUnavailable
+          title="Pipeline could not be loaded"
+          detail={journey.error ?? 'Something went wrong.'}
+          onRetry={journey.reload}
+        />
+      </div>
+    );
+  }
+
   if (journey.status === 'empty') return <JourneyEmptyState />;
 
   return (
@@ -47,7 +64,12 @@ export default function PipelineJourneyPage() {
           onOpenClosing={() => setFocus('closing')}
         />
 
-        <JourneyKpiRow kpis={journey.kpis} totals={journey.totals} progress={progress} />
+        <JourneyKpiRow
+          kpis={journey.kpis}
+          totals={journey.totals}
+          split={journey.stages}
+          progress={progress}
+        />
 
         <section className="grid items-start gap-5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,470px),1fr))]">
           <JourneyFunnel
@@ -59,15 +81,28 @@ export default function PipelineJourneyPage() {
           />
 
           <div className="flex flex-col gap-5">
-            <JourneyGoalCard goal={journey.goal} totals={journey.totals} progress={progress} />
-            <JourneyMomentumCard metrics={journey.momentum} />
+            <JourneyUnavailable
+              title="Revenue goal"
+              detail="The CRM has no revenue target to measure against. This panel turns on once a quarterly goal can be set."
+            />
+            <JourneyUnavailable
+              title="Pipeline momentum"
+              detail="Week-over-week creation, movement and stall rates need a historical aggregate the API does not expose yet."
+            />
           </div>
         </section>
 
-        <JourneyAttention items={journey.attention} onOpenPreset={setFocus} />
+        <JourneyUnavailable
+          title="What needs attention"
+          detail="Stalled and closing-soon deals need per-deal stage-entry timestamps, which are recorded but not yet aggregated."
+        />
       </div>
 
-      <JourneyDealsDrawer focus={focus} onClose={() => setFocus(null)} />
+      <JourneyDealsDrawer
+        focus={focus}
+        stages={journey.stages}
+        onClose={() => setFocus(null)}
+      />
     </>
   );
 }
