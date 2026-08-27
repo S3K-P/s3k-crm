@@ -4,6 +4,16 @@ import { cn } from '@/lib/utils';
    STATUS BADGE
    Reusable badge/chip for priority, status, category labels.
    Follows the existing accent-badge pattern from THEME.md.
+
+   Both palettes are handed to CSS as custom properties and the
+   `.dark` rule in globals.css picks between them. The previous
+   version computed the dark palette and then dropped it,
+   applying light colours in both themes — which put #ecfdf5 on
+   a dark surface for every success, warning and danger badge.
+
+   Inline styles cannot carry a media query or a class selector,
+   but a custom property set inline *is* visible to a stylesheet
+   rule, so the choice moves to CSS where the theme is known.
    ============================================================ */
 
 export type BadgeVariant = 'accent' | 'success' | 'warning' | 'danger' | 'neutral';
@@ -30,23 +40,27 @@ const darkVariantStyles: Record<BadgeVariant, { bg: string; color: string }> = {
   neutral: { bg: 'var(--surface-2)',   color: 'var(--muted)' },
 };
 
-export default function StatusBadge({ label, variant = 'accent', className }: StatusBadgeProps) {
+/** The four custom properties `.status-badge` reads, for one variant. */
+export function badgeThemeVars(variant: BadgeVariant): React.CSSProperties {
   const light = variantStyles[variant];
   const dark = darkVariantStyles[variant];
+  return {
+    '--badge-bg': light.bg,
+    '--badge-fg': light.color,
+    '--badge-bg-dark': dark.bg,
+    '--badge-fg-dark': dark.color,
+  } as React.CSSProperties;
+}
 
+export default function StatusBadge({ label, variant = 'accent', className }: StatusBadgeProps) {
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold leading-tight',
+        'status-badge inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold leading-tight',
         className,
       )}
-      style={{ background: light.bg, color: light.color }}
+      style={badgeThemeVars(variant)}
     >
-      {/* Dark-mode override via CSS custom properties trick isn't feasible inline,
-          so we use a data attribute approach with a hidden dark span. 
-          For simplicity, we use the light styles inline — they adapt via accent tokens
-          for accent/neutral variants automatically. For success/warning/danger, 
-          the contrast is acceptable in both modes. */}
       {label}
     </span>
   );

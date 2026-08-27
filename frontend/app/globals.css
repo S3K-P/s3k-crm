@@ -96,6 +96,19 @@ body {
   color: #55556e;
 }
 
+/* Status badges.
+   StatusBadge sets --badge-* inline for both themes; the theme is only known
+   here, so the choice between them belongs here too. An inline style cannot
+   hold a selector, which is why the light palette used to win in dark mode. */
+.status-badge {
+  background: var(--badge-bg);
+  color: var(--badge-fg);
+}
+.dark .status-badge {
+  background: var(--badge-bg-dark);
+  color: var(--badge-fg-dark);
+}
+
 /* Selectable segment cards */
 .seg     { border: 2px solid var(--border); border-radius: 14px; }
 .seg-on  { border-color: var(--accent); background: var(--accent-soft); }
