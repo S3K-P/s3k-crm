@@ -24,7 +24,7 @@ from app.core.database import (
     create_engine,
     create_session_factory,
     dispose_engine,
-    warn_if_rls_is_bypassed,
+    enforce_rls_is_not_bypassed,
 )
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
@@ -72,8 +72,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         api_prefix=settings.api_prefix,
     )
 
-    # Surfaces a misconfigured deployment where RLS would silently not apply.
-    await warn_if_rls_is_bypassed(engine)
+    # A deployment whose role bypasses RLS has no tenant isolation at all.
+    # Fatal outside development, where it is only a warning.
+    await enforce_rls_is_not_bypassed(engine, settings)
 
     try:
         yield
