@@ -21,6 +21,7 @@ import uuid
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import provisioning_scope
 from app.platform.products.models import (
     CRM_PRODUCT_CODE,
     EntitlementStatus,
@@ -92,21 +93,32 @@ class ProductService:
             )
             return None
 
-        existing = await self._repository.get_entitlement(
-            organization_id=organization_id, code=code
-        )
-        if existing is not None:
-            existing.status = EntitlementStatus.ACTIVE
-            existing.expires_at = expires_at
-            return existing
+        # Both the lookup and the write run scoped to the organization being
+        # granted. The caller is organization creation, which runs either with
+        # no tenant context at all (bootstrap, registration) or with one still
+        # naming the *creating* organization; under a role that does not
+        # bypass RLS -- every role outside local development -- the policy
+        # would otherwise hide the existing row and then refuse the INSERT
+        # that follows, turning re-provisioning into a unique-constraint
+        # violation rather than the idempotent repair it is meant to be.
+        async with provisioning_scope(self._repository.session, organization_id):
+            existing = await self._repository.get_entitlement(
+                organization_id=organization_id, code=code
+            )
+            if existing is not None:
+                existing.status = EntitlementStatus.ACTIVE
+                existing.expires_at = expires_at
+                await self._repository.session.flush()
+                return existing
 
-        entitlement = ProductEntitlement(
-            organization_id=organization_id,
-            product_id=product.id,
-            status=EntitlementStatus.ACTIVE,
-            expires_at=expires_at,
-        )
-        await self._repository.add(entitlement)
+            entitlement = ProductEntitlement(
+                organization_id=organization_id,
+                product_id=product.id,
+                status=EntitlementStatus.ACTIVE,
+                expires_at=expires_at,
+            )
+            await self._repository.add(entitlement)
+
         logger.info(
             "product_entitlement_granted",
             code=code,

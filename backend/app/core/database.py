@@ -14,7 +14,9 @@ connection. RLS policies read that setting (:mod:`app.core.rls`).
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Annotated
 
 import structlog
@@ -114,12 +116,82 @@ async def apply_tenant_context(
     )
 
 
-async def warn_if_rls_is_bypassed(engine: AsyncEngine) -> None:
-    """Log loudly when the runtime role ignores RLS.
+@asynccontextmanager
+async def provisioning_scope(
+    session: AsyncSession, organization_id: uuid.UUID
+) -> AsyncIterator[None]:
+    """Scope the open transaction to ``organization_id`` for provisioning writes.
+
+    There is a narrow class of writes that name a tenant but happen *before*
+    that tenant can have a request context: the rows created in the same
+    transaction as the organization itself. Granting the new organization its
+    product entitlements is the case that exists today.
+
+    Such a write is rejected by the tenant policy — ``WITH CHECK`` compares
+    ``organization_id`` against ``app.current_org_id``, which is either unset
+    (bootstrap, registration) or still naming the *creating* organization. The
+    row is legitimate; the setting simply has not caught up with it.
+
+    The alternative would be to exempt the table from RLS, as
+    ``platform.organizations`` and ``organization_memberships`` are. That is
+    the right call for tables read while *establishing* context, but an
+    entitlement is ordinary tenant data everywhere except this one moment, and
+    dropping the policy would cost defence-in-depth for every later read.
+
+    So the setting is moved to the organization being provisioned for the
+    duration of the write and then put back. ``set_config(..., true)`` is
+    transaction-local, so the previous value returns at the ``finally`` and
+    could not outlive the transaction in any case.
+
+    Only ever call this with an organization id the caller has just created or
+    already proven it may act for: it is, by construction, a way to write a row
+    the current context would otherwise be refused.
+    """
+    previous = await session.scalar(
+        text("SELECT current_setting(:setting, true)"), {"setting": TENANT_SETTING}
+    )
+    await session.execute(
+        text("SELECT set_config(:setting, :value, true)"),
+        {"setting": TENANT_SETTING, "value": str(organization_id)},
+    )
+    try:
+        yield
+    finally:
+        # A never-assigned setting reads as NULL; the policy maps '' to NULL
+        # via NULLIF, so restoring the empty string reinstates "no tenant".
+        await session.execute(
+            text("SELECT set_config(:setting, :value, true)"),
+            {"setting": TENANT_SETTING, "value": previous or ""},
+        )
+
+
+class RlsBypassedError(RuntimeError):
+    """The runtime database role is exempt from row-level security."""
+
+
+async def enforce_rls_is_not_bypassed(engine: AsyncEngine, settings: Settings) -> None:
+    """Refuse to serve a deployed environment whose role ignores RLS.
 
     Superusers and ``BYPASSRLS`` roles are exempt from every policy, so tenant
-    isolation silently does not apply to them. That is acceptable for local
-    development but is a serious misconfiguration anywhere else.
+    isolation silently does not apply to them: every query returns every
+    organization's rows and the application layer is the only thing standing
+    between one customer and another's data. In a multi-tenant product that is
+    not a degraded mode, it is the whole guarantee gone, and nothing about the
+    running system looks wrong.
+
+    In development this stays a warning — the docker-compose role is the
+    database owner and making a fresh clone refuse to boot would be hostile.
+    Anywhere else it is fatal, because the failure is silent by nature: the
+    only signal it ever produced was one line in a startup log, and a line in
+    a log is not a control.
+
+    That this needed to become an error is not theoretical. The same privilege
+    hid a defect that made organization provisioning impossible under any
+    correctly configured role, through an entire test suite and a CI pipeline
+    (see ``tests/integration/test_provisioning_under_rls.py``).
+
+    Raises:
+        RlsBypassedError: outside development/test, when the role bypasses RLS.
     """
     try:
         async with engine.connect() as connection:
@@ -131,15 +203,24 @@ async def warn_if_rls_is_bypassed(engine: AsyncEngine) -> None:
         logger.info("rls_privilege_check_skipped", error=str(exc))
         return
 
-    if bypasses:
-        logger.warning(
-            "rls_bypassed_by_database_role",
-            detail=(
-                "The database role is a superuser or has BYPASSRLS, so row-level "
-                "tenant isolation is NOT enforced on this connection. Use an "
-                "ordinary role outside local development."
-            ),
-        )
+    if not bypasses:
+        return
+
+    detail = (
+        "The database role is a superuser or has BYPASSRLS, so row-level "
+        "tenant isolation is NOT enforced on this connection. Connect as an "
+        "ordinary role: CREATE ROLE <app> LOGIN NOSUPERUSER NOBYPASSRLS, "
+        "owning its own database."
+    )
+
+    if settings.environment in ("development", "test"):
+        logger.warning("rls_bypassed_by_database_role", detail=detail)
+        return
+
+    logger.error("rls_bypassed_by_database_role", environment=settings.environment, detail=detail)
+    raise RlsBypassedError(
+        f"Refusing to start with ENVIRONMENT={settings.environment}: {detail}"
+    )
 
 
 async def get_db_session(request: Request) -> AsyncIterator[AsyncSession]:

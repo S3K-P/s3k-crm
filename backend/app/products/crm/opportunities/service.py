@@ -21,6 +21,7 @@ import structlog
 from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import provisioning_scope
 from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
 from app.platform.audit.service import Action as AuditAction
 from app.products.crm.opportunities.models import (
@@ -155,41 +156,52 @@ class OpportunityService(TenantScopedService[Opportunity]):
 
         Idempotent: an organization that already has a pipeline gets it back
         unchanged, so this is safe to call during provisioning and from tests.
+
+        Runs inside :func:`provisioning_scope` because the first call happens
+        in the transaction that creates the organization, before that
+        organization can have a request context of its own -- and ``pipelines``
+        and ``pipeline_stages`` are both RLS-FORCEd, so the INSERT is refused
+        under any role that does not bypass policies. Called later from an
+        ordinary request the scope is a no-op: the setting already names this
+        organization, and it is restored either way.
         """
-        existing = await self._session.execute(
-            select(Pipeline).where(
-                Pipeline.organization_id == organization_id, Pipeline.deleted_at.is_(None)
-            )
-        )
-        pipeline = existing.scalars().first()
-        if pipeline is not None:
-            return pipeline
-
-        pipeline = Pipeline(
-            organization_id=organization_id,
-            name=DEFAULT_PIPELINE_NAME,
-            is_default=True,
-            created_by_id=actor_id,
-            updated_by_id=actor_id,
-        )
-        self._session.add(pipeline)
-        await self._session.flush()
-
-        for name, order, probability, is_won, is_lost in DEFAULT_STAGES:
-            self._session.add(
-                PipelineStage(
-                    organization_id=organization_id,
-                    pipeline_id=pipeline.id,
-                    name=name,
-                    sort_order=order,
-                    default_probability=probability,
-                    is_won=is_won,
-                    is_lost=is_lost,
-                    created_by_id=actor_id,
-                    updated_by_id=actor_id,
+        async with provisioning_scope(self._session, organization_id):
+            existing = await self._session.execute(
+                select(Pipeline).where(
+                    Pipeline.organization_id == organization_id,
+                    Pipeline.deleted_at.is_(None),
                 )
             )
-        await self._session.flush()
+            pipeline = existing.scalars().first()
+            if pipeline is not None:
+                return pipeline
+
+            pipeline = Pipeline(
+                organization_id=organization_id,
+                name=DEFAULT_PIPELINE_NAME,
+                is_default=True,
+                created_by_id=actor_id,
+                updated_by_id=actor_id,
+            )
+            self._session.add(pipeline)
+            await self._session.flush()
+
+            for name, order, probability, is_won, is_lost in DEFAULT_STAGES:
+                self._session.add(
+                    PipelineStage(
+                        organization_id=organization_id,
+                        pipeline_id=pipeline.id,
+                        name=name,
+                        sort_order=order,
+                        default_probability=probability,
+                        is_won=is_won,
+                        is_lost=is_lost,
+                        created_by_id=actor_id,
+                        updated_by_id=actor_id,
+                    )
+                )
+            await self._session.flush()
+
         logger.info("default_pipeline_created", organization_id=str(organization_id))
         return pipeline
 
