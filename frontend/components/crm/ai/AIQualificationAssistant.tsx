@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { Sparkles, BrainCircuit, Target, AlertTriangle, Lightbulb, MessageSquare, Briefcase } from 'lucide-react';
+import { BrainCircuit, Target, AlertTriangle, MessageSquare, Briefcase } from 'lucide-react';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
 
 /* ============================================================
@@ -81,7 +81,7 @@ export default function AIQualificationAssistant({ data, className }: AIQualific
         <ul className="flex flex-col gap-2.5 mt-3">
           {data.suggestedDiscoveryQuestions.map((q, i) => (
             <li key={i} className="txt text-[12px] italic leading-relaxed border-l-2 border-[var(--border)] pl-3">
-              "{q}"
+              &ldquo;{q}&rdquo;
             </li>
           ))}
         </ul>

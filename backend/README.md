@@ -4,10 +4,18 @@ Python 3.13 + FastAPI modular monolith (ADR-001, ADR-002), managed with
 [uv](https://docs.astral.sh/uv/). One deployable application containing the
 Shared Platform layer and the S3K CRM product.
 
-> **Status: Phase 0 scaffold.** Application factory, configuration, database
-> and Redis wiring, health probes, Alembic and the module tree exist. There is
-> no authentication, no tenant context, no RLS and no CRM business logic yet —
-> those are later Phase 0 and Phase 1 tasks.
+> **Status: Phase 2 complete, Phase 3 in progress.** Password authentication
+> with rotating refresh tokens, organizations and memberships, RBAC, teams,
+> product entitlements, audit logging, attachments on S3-compatible storage,
+> and the CRM core (accounts, contacts, leads, campaigns, opportunities and
+> the pipeline, activities, tasks, notes) are implemented and covered by the
+> suite. Tenant isolation is enforced by PostgreSQL row-level security on
+> every table naming a customer.
+>
+> Not yet built: reports (W21–W22), import/export and bulk operations (W23),
+> the transactional outbox and webhooks (Phase 4), and the cross-product
+> integration seams (Phase 5). See
+> [docs/architecture/18-MASTER-IMPLEMENTATION-PLAN.md](../docs/architecture/18-MASTER-IMPLEMENTATION-PLAN.md).
 
 ## Stack
 
@@ -38,13 +46,39 @@ Then the backend:
 
 ```bash
 cd backend
-cp .env.example .env      # DATABASE_URL must match the compose credentials
+cp .env.example .env      # DATABASE_URL already names the app role, see below
 uv sync
+uv run alembic upgrade head
 uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 The application is also runnable as a container:
 `docker compose --profile backend up -d --build`.
+
+### The application does not connect as `POSTGRES_USER`
+
+`POSTGRES_USER` is created **SUPERUSER** by the postgres image, and a superuser
+is exempt from every row-level security policy. Connect the application as it
+and tenant isolation silently does not apply: every query returns every
+organization's rows, and nothing about the running system looks wrong.
+
+So `DATABASE_URL` names `s3k_app` — `NOSUPERUSER NOBYPASSRLS`, owning its own
+database — which `infra/postgres/init/10-application-role.sql` creates when the
+postgres volume is first initialised. Outside development the application
+**refuses to start** as an RLS-exempt role, and CI provisions the same kind of
+role so the suite cannot pass for the wrong reason.
+
+On a volume created before that script existed, make the role once:
+
+```bash
+docker compose exec postgres psql -U s3k -d postgres -v ON_ERROR_STOP=1 -c "CREATE ROLE s3k_app LOGIN PASSWORD 'app-local-only' NOSUPERUSER NOCREATEDB CREATEROLE NOBYPASSRLS;" -c "CREATE DATABASE s3k_app OWNER s3k_app;"
+```
+
+Then `uv run alembic upgrade head` against it, and bootstrap an organization:
+
+```bash
+BOOTSTRAP_PASSWORD='<a strong password>' uv run python -m app.bootstrap --organization "Acme" --email admin@acme.example
+```
 
 ## Health endpoints
 
@@ -90,7 +124,10 @@ uv run alembic upgrade head
 migrations cannot drift from the application. See
 [migrations/README.md](./migrations/README.md).
 
-`versions/` is empty on purpose: no tables are defined yet.
+Every revision runs from zero in CI, so one that only applies to an
+already-migrated database fails there rather than on a first deployment. CI
+also runs `downgrade base` and back up again, which is the only thing that
+checks a `downgrade()` is real.
 
 ## Configuration
 
@@ -121,27 +158,36 @@ backend/
 │   │   └── health.py         liveness and readiness probes
 │   ├── core/
 │   │   ├── config.py         typed settings
-│   │   ├── database.py       async engine, session factory, DbSession dep
+│   │   ├── database.py       async engine, session factory, DbSession dep,
+│   │   │                     RLS privilege guard, provisioning_scope
+│   │   ├── tenant.py         per-request tenant context (contextvar + ASGI)
+│   │   ├── rls.py            row-level security helpers for migrations
+│   │   ├── schema_audit.py   catalogue-driven RLS coverage audit
 │   │   ├── metadata.py       single metadata target for Alembic
+│   │   ├── pagination.py     shared list envelope
 │   │   ├── redis.py          async client + lifecycle
 │   │   ├── logging.py        structlog configuration
 │   │   └── exceptions.py     error hierarchy + structured handlers
+│   ├── bootstrap.py          provisions the first organization and admin
 │   ├── platform/             Shared Platform (ADR-003)
-│   │   ├── auth/  organizations/  authorization/
-│   │   └── documents/  audit/  notifications/
+│   │   ├── auth/  organizations/  authorization/  teams/
+│   │   └── products/  documents/  audit/  notifications/
 │   └── products/
 │       └── crm/              S3K CRM (ADR-004)
-│           ├── accounts/  contacts/  leads/  opportunities/
-│           └── activities/  tasks/  notes/  dashboard/
-├── migrations/               Alembic (async), versions/ empty by design
+│           ├── accounts/  contacts/  leads/  opportunities/  campaigns/
+│           └── activities/  tasks/  notes/  search/  dashboard/
+├── migrations/               Alembic (async)
 └── tests/
     ├── unit/
     └── integration/
+
+../infra/postgres/init/        local app role (NOSUPERUSER, NOBYPASSRLS)
 ```
 
 Every business module carries the same seven files — `router`, `service`,
-`repository`, `schemas`, `models`, `policies`, `events` — currently documented
-placeholders.
+`repository`, `schemas`, `models`, `policies`, `events`. `service.py` is the
+module's public interface: other modules call it and never reach into its
+repository or models.
 
 ## Module boundaries
 

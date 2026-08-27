@@ -7,7 +7,7 @@ import { CalendarDays, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
-import { notifyError, notifySuccess, notifyWarning } from '@/components/crm/feedback/notify';
+import { notifyError, notifySuccess } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
 import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';

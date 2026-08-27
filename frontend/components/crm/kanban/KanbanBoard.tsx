@@ -9,14 +9,14 @@ import { ReactNode } from 'react';
    Supports generic items and custom renderers for cards.
    ============================================================ */
 
-export interface KanbanColumnDef<T> {
+export interface KanbanColumnDef {
   id: string;
   label: string;
   color?: string; // e.g., 'var(--accent)'
 }
 
 interface KanbanBoardProps<T> {
-  columns: KanbanColumnDef<T>[];
+  columns: KanbanColumnDef[];
   data: T[];
   /** Group items by a specific key */
   groupBy: (item: T) => string;

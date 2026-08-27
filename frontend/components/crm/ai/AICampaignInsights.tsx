@@ -1,6 +1,5 @@
 import { cn } from '@/lib/utils';
-import { Sparkles, TrendingUp, Users, Target, Lightbulb, BarChart3, AlertTriangle, ArrowRight } from 'lucide-react';
-import SectionHeader from '@/components/crm/shared/SectionHeader';
+import { Sparkles, TrendingUp, Target, Lightbulb, BarChart3, AlertTriangle, ArrowRight } from 'lucide-react';
 
 /* ============================================================
    AI CAMPAIGN INSIGHTS

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { ArrowRight, Building2, Users, Target, Kanban, CalendarClock, BarChart3 } from 'lucide-react';
+import { ArrowRight, Building2 } from 'lucide-react';
 
 export function CrmFeaturesSection() {
   const capabilities = [

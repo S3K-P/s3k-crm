@@ -55,7 +55,7 @@ const STATUS_FILTER_OPTIONS = [
   ...LEAD_STATUSES.map((value) => ({ value, label: humanize(value) })),
 ];
 
-const KANBAN_COLUMNS: KanbanColumnDef<Lead>[] = LEAD_STATUSES.map((status) => ({
+const KANBAN_COLUMNS: KanbanColumnDef[] = LEAD_STATUSES.map((status) => ({
   id: status,
   label: humanize(status),
   color:

@@ -1,6 +1,5 @@
 import { cn } from '@/lib/utils';
-import { Sparkles, TrendingUp, AlertTriangle, Lightbulb, Map, Heart, MessageSquare, Activity, Users } from 'lucide-react';
-import SectionHeader from '@/components/crm/shared/SectionHeader';
+import { Sparkles, TrendingUp, AlertTriangle, Lightbulb, Map, Heart, MessageSquare, Users } from 'lucide-react';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
 
 /* ============================================================

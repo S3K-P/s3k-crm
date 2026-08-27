@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion';
 import Link from 'next/link';
-import { ArrowRight, BarChart3, CheckCircle2, ChevronRight, LayoutDashboard, Target } from 'lucide-react';
+import { ArrowRight, CheckCircle2, LayoutDashboard, Target } from 'lucide-react';
 
 export function HeroSection() {
   return (

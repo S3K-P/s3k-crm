@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { 
   LayoutDashboard, Users, Shield, UsersRound, Settings, 
-  Workflow, Database, Bell, Blocks, ScrollText, Lock, CreditCard 
+  Workflow, Database, Bell, Blocks, ScrollText, Lock 
 } from 'lucide-react';
 
 const ADMIN_NAVIGATION = [

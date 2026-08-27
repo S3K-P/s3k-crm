@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { BRAND } from '@/config/site';
-import { Sparkles, Brain, ArrowRight, BarChart3, Users, Target, Activity } from 'lucide-react';
+import { Sparkles, Brain, ArrowRight, BarChart3, Users, Target } from 'lucide-react';
 
 export function Hero() {
   return (

@@ -1,6 +1,5 @@
 import { cn } from '@/lib/utils';
 import { Sparkles, FileText, CheckSquare, Mail, AlertTriangle, Heart, Map } from 'lucide-react';
-import SectionHeader from '@/components/crm/shared/SectionHeader';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
 
 /* ============================================================

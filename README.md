@@ -48,7 +48,21 @@ so a backend suite that reports skips there means MinIO is not running.
 cd backend
 cp .env.example .env
 uv sync
+uv run alembic upgrade head
 uv run uvicorn app.main:app --reload --port 8000
+```
+
+`DATABASE_URL` names `s3k_app`, **not** the `POSTGRES_USER` from the root
+`.env`. That user is a superuser, and a superuser is exempt from every
+row-level security policy — running the application as it removes tenant
+isolation silently. `infra/postgres/init/` creates the ordinary role when the
+postgres volume is first initialised; on an older volume, see
+[backend/README.md](./backend/README.md#the-application-does-not-connect-as-postgres_user).
+
+Then create the first organization and its administrator:
+
+```bash
+BOOTSTRAP_PASSWORD='<a strong password>' uv run python -m app.bootstrap --organization "Acme" --email admin@acme.example
 ```
 
 Health checks:
