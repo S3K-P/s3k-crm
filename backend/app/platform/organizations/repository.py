@@ -28,6 +28,18 @@ class OrganizationRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    @property
+    def session(self) -> AsyncSession:
+        """The session this repository reads and writes through.
+
+        Exposed for the same reason ``TenantScopedRepository`` exposes it: so
+        the service can provision a new organization's product entitlements on
+        the *same* transaction that created it, rather than taking a second
+        dependency in its constructor. Not an invitation to build queries for
+        this module's tables elsewhere.
+        """
+        return self._session
+
     # --- Organizations -----------------------------------------------------
 
     async def get(self, organization_id: uuid.UUID) -> Organization | None:

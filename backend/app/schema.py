@@ -27,6 +27,7 @@ from app.platform.auth import models as auth_models
 from app.platform.authorization import models as authorization_models
 from app.platform.documents import models as document_models
 from app.platform.organizations import models as organization_models
+from app.platform.products import models as product_models
 from app.platform.teams import models as team_models
 
 # --- S3K CRM models ---------------------------------------------------------
@@ -57,6 +58,7 @@ __all__ = [
     "note_models",
     "opportunity_models",
     "organization_models",
+    "product_models",
     "target_metadata",
     "task_models",
     "team_models",

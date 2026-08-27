@@ -87,6 +87,21 @@ class OrganizationService:
 
         organization = Organization(name=name.strip(), slug=candidate)
         await self._repository.add(organization)
+
+        # Entitle the new tenant to the products it is created with (ADR-011).
+        # In the same transaction as the organization itself: a tenant that
+        # exists but cannot open any product is a half-provisioned state
+        # somebody would have to notice and repair by hand, and the product
+        # gate would refuse them with a 403 that looks like a bug.
+        #
+        # Imported here rather than at module scope because the products
+        # service imports organization types; a top-level import is a cycle.
+        from app.platform.products.service import products_for_session
+
+        await products_for_session(self._repository.session).grant_default_products(
+            organization.id
+        )
+
         logger.info(
             "organization_created",
             organization_id=str(organization.id),

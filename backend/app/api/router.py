@@ -31,6 +31,9 @@ from app.platform.auth import router as auth_router
 from app.platform.authorization import router as authorization_router
 from app.platform.documents import router as documents_router
 from app.platform.organizations import router as organizations_router
+from app.platform.products import router as products_router
+from app.platform.products.models import CRM_PRODUCT_CODE
+from app.platform.products.policies import product_gate
 from app.platform.teams import router as teams_router
 from app.products.crm.accounts import router as accounts_router
 from app.products.crm.activities import router as activities_router
@@ -59,6 +62,10 @@ api_router.include_router(
     authorization_router.router, prefix="/roles", tags=["platform:authorization"]
 )
 api_router.include_router(audit_router.router, prefix="/audit-logs", tags=["platform:audit"])
+# Deliberately *not* behind the product gate: a caller has to be able to find
+# out which products their organization holds, and gating that on holding one
+# would make the 403 unexplainable to the person hitting it.
+api_router.include_router(products_router.router, prefix="/products", tags=["platform:products"])
 api_router.include_router(teams_router.router, prefix="/teams", tags=["platform:teams"])
 api_router.include_router(
     teams_router.department_router, prefix="/departments", tags=["platform:teams"]
@@ -80,26 +87,42 @@ api_router.include_router(
 )
 
 # --- S3K CRM routers --------------------------------------------------------
-api_router.include_router(
+#
+# Every CRM route hangs off this one router, and the router carries the
+# product gate (ADR-011, `P1-W08-BE-02`). Declaring it here once means a new
+# CRM module cannot be mounted without it: the dependency is attached to the
+# parent, so it applies to every route beneath and travels with them if the
+# prefix ever changes. That is the property an ASGI middleware matching on the
+# string "/crm/" would not have — see CR18.
+#
+# It runs before any handler and refuses with 403 `product_not_licensed` when
+# the caller's organization holds no usable entitlement, whatever CRM
+# permissions their role grants.
+crm_router = APIRouter(dependencies=[product_gate(CRM_PRODUCT_CODE)])
+
+crm_router.include_router(
     dashboard_router.router, prefix="/crm/dashboard", tags=["crm:dashboard"]
 )
-api_router.include_router(accounts_router.router, prefix="/crm/accounts", tags=["crm:accounts"])
-api_router.include_router(contacts_router.router, prefix="/crm/contacts", tags=["crm:contacts"])
-api_router.include_router(
+crm_router.include_router(accounts_router.router, prefix="/crm/accounts", tags=["crm:accounts"])
+crm_router.include_router(contacts_router.router, prefix="/crm/contacts", tags=["crm:contacts"])
+crm_router.include_router(
     lead_sources_router.router, prefix="/crm/lead-sources", tags=["crm:lead-sources"]
 )
-api_router.include_router(leads_router.router, prefix="/crm/leads", tags=["crm:leads"])
-api_router.include_router(
+crm_router.include_router(leads_router.router, prefix="/crm/leads", tags=["crm:leads"])
+crm_router.include_router(
     opportunities_router.router, prefix="/crm/opportunities", tags=["crm:opportunities"]
 )
-api_router.include_router(campaigns_router.router, prefix="/crm/campaigns", tags=["crm:campaigns"])
-api_router.include_router(
+crm_router.include_router(campaigns_router.router, prefix="/crm/campaigns", tags=["crm:campaigns"])
+crm_router.include_router(
     activities_router.router, prefix="/crm/activities", tags=["crm:activities"]
 )
-api_router.include_router(tasks_router.router, prefix="/crm/tasks", tags=["crm:tasks"])
-api_router.include_router(notes_router.router, prefix="/crm/notes", tags=["crm:notes"])
+crm_router.include_router(tasks_router.router, prefix="/crm/tasks", tags=["crm:tasks"])
+crm_router.include_router(notes_router.router, prefix="/crm/notes", tags=["crm:notes"])
 # Search spans four modules, so it is gated by the permission snapshot inside
 # the query rather than by a module permission on the route — see its router.
-api_router.include_router(search_router.router, prefix="/crm/search", tags=["crm:search"])
+crm_router.include_router(search_router.router, prefix="/crm/search", tags=["crm:search"])
+
+# Mounted last, so every CRM route above is already behind the gate.
+api_router.include_router(crm_router)
 
 __all__ = ["api_router", "root_router"]
