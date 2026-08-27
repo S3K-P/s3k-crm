@@ -86,6 +86,24 @@ jobs:
   # The real suite, against real infrastructure. RLS cannot be tested against
   # a stub: the policies are enforced by PostgreSQL, so a fake database would
   # prove nothing about tenant isolation.
+  #
+  # ── And not as a superuser either ─────────────────────────────────────────
+  # A real PostgreSQL is necessary but not sufficient. `POSTGRES_USER` in the
+  # official image is created SUPERUSER, and a superuser is exempt from every
+  # policy — so running the suite as `s3k` exercised real tables with tenant
+  # isolation silently switched off, and the run was green either way.
+  #
+  # That is not hypothetical. It hid a defect that made organization creation
+  # impossible under any correctly-privileged role: the INSERT into
+  # `platform.product_entitlements` happens in the transaction that creates
+  # the organization, before that organization can have a tenant context, and
+  # `WITH CHECK` refused it. 359 tests failed the moment a NOSUPERUSER role
+  # ran them. Every one of them had been passing.
+  #
+  # So the job now provisions `s3k_app` — NOSUPERUSER, NOBYPASSRLS, owning its
+  # own database so trusted extensions still install — and runs both the
+  # migrations and the suite as that role. It is also the closer match to
+  # production, where the application must never hold BYPASSRLS.
   # ──────────────────────────────────────────────────────────────────────────
   backend-tests:
     name: Backend · tests
@@ -133,7 +151,10 @@ jobs:
     env:
       # The runtime deliberately refuses to start without these; CI is not
       # exempt from that. Values are throwaway and match the services above.
-      DATABASE_URL: postgresql+asyncpg://s3k:s3k_ci@localhost:5432/s3k_crm
+      #
+      # Note the role: `s3k_app`, not the service container's `s3k`. See the
+      # comment on this job — `s3k` is a superuser and would bypass RLS.
+      DATABASE_URL: postgresql+asyncpg://s3k_app:s3k_ci_app@localhost:5432/s3k_app
       REDIS_URL: redis://localhost:6379/0
       ENVIRONMENT: development
       STORAGE_BUCKET: s3k-attachments
@@ -160,6 +181,28 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
         working-directory: backend
+
+      # The role the suite actually runs as. NOSUPERUSER and NOBYPASSRLS are
+      # the whole point: they are what make the tenant policies apply. It owns
+      # its database so `CREATE EXTENSION pgcrypto` / `pg_trgm` still work —
+      # both are trusted extensions, installable by a database owner.
+      #
+      # CREATEROLE is granted because `test_crm_rls.py` and
+      # `test_tenant_isolation.py` provision a throwaway role of their own to
+      # connect as. It confers no exemption from RLS: a CREATEROLE role cannot
+      # grant BYPASSRLS it does not itself hold, so the guarantee stands.
+      - name: Create the non-superuser application role
+        env:
+          PGPASSWORD: s3k_ci
+        run: |
+          psql -h localhost -U s3k -d s3k_crm -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE s3k_app LOGIN PASSWORD 's3k_ci_app' NOSUPERUSER NOCREATEDB CREATEROLE NOBYPASSRLS;" \
+            -c "CREATE DATABASE s3k_app OWNER s3k_app;"
+          # Fail loudly rather than run a green suite that proves nothing.
+          psql -h localhost -U s3k -d s3k_crm -v ON_ERROR_STOP=1 -t \
+            -c "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = 's3k_app';" \
+            | grep -qi '^ *f$' \
+            || { echo "::error::s3k_app can bypass RLS; tenant isolation would not be tested"; exit 1; }
 
       # Migrations run from zero on every CI run, which is the from-scratch
       # check a long-lived development database never performs. A revision
