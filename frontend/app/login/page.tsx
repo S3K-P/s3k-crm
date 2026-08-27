@@ -4,9 +4,6 @@ import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertCircle, Loader2, Lock, Mail } from 'lucide-react';
 
-// TEMPORARY (development only) — delete this import and the <DevCredentials />
-// element below to remove the seeded sign-in panel. See the file's header.
-import DevCredentials from './DevCredentials';
 import BrandLogo from '@/components/brand/BrandLogo';
 import { useAuth } from '@/context/AuthContext';
 import { ApiError } from '@/lib/api-client';
@@ -206,15 +203,6 @@ function LoginForm() {
               {submitting ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
-
-          {/* TEMPORARY (development only) — see DevCredentials.tsx to remove. */}
-          <DevCredentials
-            onPick={(demoEmail, demoPassword) => {
-              setEmail(demoEmail);
-              setPassword(demoPassword);
-              setError(null);
-            }}
-          />
         </div>
 
         <p className="txt-faint mt-5 text-center text-[11.5px]">
