@@ -32,7 +32,7 @@ from app.products.crm.activities.models import (
 )
 from app.products.crm.common import CrmEntityType, Priority
 from app.products.crm.tasks.models import Task, TaskStatus
-from tests.integration.conftest import ApiSession, DualMember, Tenant
+from tests.integration.conftest import ApiSession, DualMember, Tenant, scope_session_to
 
 pytestmark = pytest.mark.integration
 
@@ -97,6 +97,9 @@ async def _seed_task(
     priority: Priority = Priority.MEDIUM,
     status: TaskStatus = TaskStatus.PENDING,
 ) -> Task:
+    # The CRM tables are RLS-FORCEd; a session with no tenant scope
+    # has its INSERT refused outright.
+    await scope_session_to(session, organization_id)
     task = Task(
         organization_id=organization_id,
         title=title,
@@ -117,6 +120,9 @@ async def _seed_meeting(
     status: ActivityStatus = ActivityStatus.PLANNED,
     related: tuple[CrmEntityType, uuid.UUID] | None = None,
 ) -> Activity:
+    # The CRM tables are RLS-FORCEd; a session with no tenant scope
+    # has its INSERT refused outright.
+    await scope_session_to(session, organization_id)
     activity = Activity(
         organization_id=organization_id,
         type=ActivityType.MEETING,
@@ -147,6 +153,9 @@ async def _seed_activity(
     activity_type: ActivityType = ActivityType.CALL,
     completed_at: dt.datetime | None = None,
 ) -> Activity:
+    # The CRM tables are RLS-FORCEd; a session with no tenant scope
+    # has its INSERT refused outright.
+    await scope_session_to(session, organization_id)
     activity = Activity(
         organization_id=organization_id,
         type=activity_type,

@@ -24,7 +24,7 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError, ProgrammingError
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
 from app.core.config import ConfigurationError, Settings, get_settings
 from app.core.models import TENANT_SETTING
@@ -61,6 +61,37 @@ async def admin_engine(settings: Settings) -> AsyncIterator[AsyncEngine]:
         await engine.dispose()
 
 
+#: Statements that strip every privilege this file grants the probe role, in
+#: the order that lets the role finally be dropped.
+#:
+#: ``DROP OWNED BY`` is the obvious tool and the one this used to reach for,
+#: but PostgreSQL 16+ requires *membership* in the target role to run it, and
+#: CREATEROLE alone does not confer that. It therefore failed in teardown,
+#: leaving a role that still held grants -- and ``DROP ROLE IF EXISTS`` is a
+#: no-op only when the role is *absent*, so the next run's setup died on a
+#: dependency error and every subsequent run failed identically until someone
+#: cleaned up by hand. Revoking exactly what was granted needs no privilege the
+#: grantor lacks.
+def _role_reset_statements() -> tuple[str, ...]:
+    statements: list[str] = []
+    statements.append(f"REVOKE ALL ON {PROBE} FROM {TEST_ROLE}")
+    statements.append(f"REVOKE USAGE ON SCHEMA platform FROM {TEST_ROLE}")
+
+    statements.append(f"DROP ROLE {TEST_ROLE}")
+    return tuple(statements)
+
+
+async def _drop_probe_role_if_present(connection: AsyncConnection) -> None:
+    """Remove the probe role and its grants, whether or not it exists."""
+    for statement in _role_reset_statements():
+        await connection.execute(
+            text(
+                "DO $$ BEGIN "
+                f"IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{TEST_ROLE}') "
+                f"THEN EXECUTE '{statement}'; END IF; END $$"
+            )
+        )
+
 @pytest_asyncio.fixture
 async def tenant_engine(
     admin_engine: AsyncEngine, settings: Settings
@@ -75,7 +106,8 @@ async def tenant_engine(
     password = secrets.token_hex(24)
 
     async with admin_engine.begin() as connection:
-        await connection.execute(text(f"DROP ROLE IF EXISTS {TEST_ROLE}"))
+        # An interrupted run leaves the role behind, still holding grants.
+        await _drop_probe_role_if_present(connection)
         await connection.execute(
             text(f"CREATE ROLE {TEST_ROLE} LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '{password}'")
         )
@@ -91,27 +123,51 @@ async def tenant_engine(
     finally:
         await engine.dispose()
         async with admin_engine.begin() as connection:
-            await connection.execute(text(f"DROP OWNED BY {TEST_ROLE}"))
-            await connection.execute(text(f"DROP ROLE IF EXISTS {TEST_ROLE}"))
+            await _drop_probe_role_if_present(connection)
 
 
 @pytest_asyncio.fixture
 async def seeded(admin_engine: AsyncEngine) -> AsyncIterator[None]:
-    """Two rows for organization A, one for organization B."""
+    """Two rows for organization A, one for organization B.
+
+    Seeded one organization at a time, each under its own tenant scope. The
+    probe table is RLS-FORCEd, and the policy's ``WITH CHECK`` admits only rows
+    matching the *current* setting -- so a single statement inserting rows for
+    two organizations is refused outright, and an unscoped one is refused for
+    every row. This used to run as a superuser, for which no policy applies at
+    all; against an ordinary role the seeding has to obey the same rule the
+    tests then go on to verify.
+    """
+    rows = {
+        ORG_A: ("org-a-first", "org-a-second"),
+        ORG_B: ("org-b-secret",),
+    }
+
     async with admin_engine.begin() as connection:
-        await connection.execute(
-            text(
-                f"INSERT INTO {PROBE} (organization_id, payload) VALUES "
-                "(:a, 'org-a-first'), (:a, 'org-a-second'), (:b, 'org-b-secret')"
-            ),
-            {"a": ORG_A, "b": ORG_B},
-        )
+        for organization_id, payloads in rows.items():
+            await connection.execute(
+                text("SELECT set_config(:setting, :value, true)"),
+                {"setting": TENANT_SETTING, "value": str(organization_id)},
+            )
+            for payload in payloads:
+                await connection.execute(
+                    text(
+                        f"INSERT INTO {PROBE} (organization_id, payload) "
+                        "VALUES (:org, :payload)"
+                    ),
+                    {"org": organization_id, "payload": payload},
+                )
     yield
     async with admin_engine.begin() as connection:
-        await connection.execute(
-            text(f"DELETE FROM {PROBE} WHERE organization_id IN (:a, :b)"),
-            {"a": ORG_A, "b": ORG_B},
-        )
+        for organization_id in rows:
+            await connection.execute(
+                text("SELECT set_config(:setting, :value, true)"),
+                {"setting": TENANT_SETTING, "value": str(organization_id)},
+            )
+            await connection.execute(
+                text(f"DELETE FROM {PROBE} WHERE organization_id = :org"),
+                {"org": organization_id},
+            )
 
 
 async def _scoped_payloads(engine: AsyncEngine, organization_id: uuid.UUID | None) -> list[str]:

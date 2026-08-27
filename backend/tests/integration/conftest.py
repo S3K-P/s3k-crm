@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.application import create_app
 from app.core.config import ConfigurationError, Settings, get_settings
+from app.core.models import TENANT_SETTING
 from app.platform.audit.models import APPEND_ONLY_TRIGGER
 from app.platform.auth.repository import AuthRepository
 from app.platform.auth.security import PasswordHasher
@@ -46,17 +47,23 @@ TEST_PASSWORD = "Str0ngPassphrase!"
 
 #: Cleared between tests, dependants first.
 #:
+#: Split by whether the tenant policy applies, because the two halves have to
+#: be deleted differently. RLS is enforced on ``DELETE`` exactly as on
+#: ``SELECT``: a statement with no ``app.current_org_id`` matches nothing and
+#: commits without complaint, so these ran between every test and removed
+#: nothing at all. The fixture below therefore repeats this list once per
+#: organization, with that organization in scope.
+#:
 #: ``DELETE`` rather than ``TRUNCATE ... CASCADE``: ``platform.roles`` has a
 #: foreign key to ``platform.organizations``, so a cascading truncate would take
 #: the migration-seeded **system** roles with it and break every later test.
-_STATEMENTS_TO_CLEAN = (
+_TENANT_SCOPED_STATEMENTS_TO_CLEAN = (
     "DELETE FROM crm.opportunity_stage_history",
     "DELETE FROM crm.opportunities",
     "DELETE FROM crm.campaign_members",
     "DELETE FROM crm.campaigns",
     "DELETE FROM crm.notes",
     "DELETE FROM crm.tasks",
-    "DELETE FROM crm.meetings",
     "DELETE FROM crm.activities",
     "DELETE FROM crm.contacts",
     "DELETE FROM crm.leads",
@@ -64,17 +71,18 @@ _STATEMENTS_TO_CLEAN = (
     "DELETE FROM crm.pipeline_stages",
     "DELETE FROM crm.pipelines",
     "DELETE FROM crm.accounts",
-    # ``platform.audit_logs`` is append-only: a trigger rejects DELETE for
-    # every role, superusers included. Emptying it between tests therefore
-    # requires disabling that trigger, which is DDL and needs table ownership —
-    # exactly the privileged, deliberate act the migration describes retention
-    # as being. The runtime role has no such privilege, which is the point: if
-    # this DELETE ever starts working on its own, the guarantee is gone and
-    # ``test_audit_immutability`` will say so.
-    f"ALTER TABLE platform.audit_logs DISABLE TRIGGER {APPEND_ONLY_TRIGGER}",
     "DELETE FROM platform.audit_logs",
-    f"ALTER TABLE platform.audit_logs ENABLE TRIGGER {APPEND_ONLY_TRIGGER}",
     "DELETE FROM platform.attachments",
+)
+
+#: Tables the tenant policy does *not* cover, so one unscoped pass clears them.
+#:
+#: ``crm.meetings`` is a one-to-one extension of ``crm.activities`` and carries
+#: no tenant column of its own; the rest are the identity and authorization
+#: tables read while tenant context is still being established, which is
+#: exactly why they are RLS-exempt (see the Phase 1 migration).
+_UNSCOPED_STATEMENTS_TO_CLEAN = (
+    "DELETE FROM crm.meetings",
     "DELETE FROM platform.membership_roles",
     "DELETE FROM platform.organization_memberships",
     "DELETE FROM platform.sessions",
@@ -86,6 +94,16 @@ _STATEMENTS_TO_CLEAN = (
     "DELETE FROM platform.roles WHERE organization_id IS NOT NULL",
     "DELETE FROM platform.organizations",
 )
+
+#: ``platform.audit_logs`` is append-only: a trigger rejects DELETE for every
+#: role, superusers included. Emptying it between tests therefore requires
+#: disabling that trigger, which is DDL and needs table ownership -- exactly
+#: the privileged, deliberate act the migration describes retention as being.
+#: The runtime role has no such privilege, which is the point: if the DELETE
+#: above ever starts working on its own, the guarantee is gone and
+#: ``test_audit_immutability`` will say so.
+_AUDIT_TRIGGER_OFF = f"ALTER TABLE platform.audit_logs DISABLE TRIGGER {APPEND_ONLY_TRIGGER}"
+_AUDIT_TRIGGER_ON = f"ALTER TABLE platform.audit_logs ENABLE TRIGGER {APPEND_ONLY_TRIGGER}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,10 +160,46 @@ async def clean_database(
 
     Seeded reference data (permissions, system roles) is left alone: it is
     owned by the migration, not by any test.
+
+    **Why the tenant loop.** Most of these tables are RLS-FORCEd, and the
+    policy applies to ``DELETE`` exactly as it applies to ``SELECT`` — a
+    statement issued with no ``app.current_org_id`` matches zero rows and
+    commits happily. So this fixture ran to completion between every test
+    while deleting nothing, and the isolation it exists to provide was not
+    happening: rows accumulated for the whole session and tests passed or
+    failed depending on what had run before them.
+
+    That was invisible while ``DATABASE_URL`` named a superuser, for whom no
+    policy applies. Against an ordinary role the cleanup has to name each
+    tenant in turn. ``platform.organizations`` is deliberately RLS-exempt (it
+    is read while *establishing* tenant context), so it can be enumerated
+    without a scope — which is what makes the loop possible at all.
     """
+    async def _organization_ids(session: AsyncSession) -> list[str]:
+        result = await session.execute(text("SELECT id FROM platform.organizations"))
+        return [str(row[0]) for row in result]
+
     async def _clear() -> None:
         async with session_factory() as session:
-            for statement in _STATEMENTS_TO_CLEAN:
+            # DDL, so it runs once rather than per tenant.
+            await session.execute(text(_AUDIT_TRIGGER_OFF))
+
+            for organization_id in await _organization_ids(session):
+                await session.execute(
+                    text(f"SELECT set_config('{TENANT_SETTING}', :value, false)"),
+                    {"value": organization_id},
+                )
+                for statement in _TENANT_SCOPED_STATEMENTS_TO_CLEAN:
+                    await session.execute(text(statement))
+
+            await session.execute(text(_AUDIT_TRIGGER_ON))
+
+            # Rows that belong to no tenant, and the organizations themselves.
+            # Run unscoped because none of these tables carries a policy.
+            await session.execute(
+                text(f"SELECT set_config('{TENANT_SETTING}', '', false)")
+            )
+            for statement in _UNSCOPED_STATEMENTS_TO_CLEAN:
                 await session.execute(text(statement))
             await session.commit()
 
@@ -384,3 +438,28 @@ def as_alpha_admin(api: ApiSession, alpha: Tenant) -> ApiSession:
 def as_alpha_member(api: ApiSession, alpha: Tenant) -> ApiSession:
     api.login(alpha.member.email, organization_id=alpha.organization_id)
     return api
+
+
+async def scope_session_to(session: AsyncSession, organization_id: uuid.UUID) -> None:
+    """Scope a seeding session to one organization, as a real request would.
+
+    Tests that seed rows by adding ORM objects to a bare session are writing
+    into RLS-FORCEd tables with no ``app.current_org_id`` set. The tenant
+    policy's ``WITH CHECK`` refuses every one of those INSERTs — and reads
+    return nothing — unless the session says which organization it is acting
+    for. The application does this per request in
+    :func:`app.core.database.get_db_session`; a seeding session has no request
+    to do it for, so it must say so itself.
+
+    This went unnoticed for as long as it did because ``DATABASE_URL`` named a
+    superuser, and a superuser is exempt from every policy: the seeds landed,
+    the reads returned, and the suite was green while proving nothing about
+    isolation. Run as an ordinary role, the omission is loud.
+
+    ``is_local => false`` so the setting survives the helper's own statement
+    and applies to whatever the caller does next in this session.
+    """
+    await session.execute(
+        text(f"SELECT set_config('{TENANT_SETTING}', :value, false)"),
+        {"value": str(organization_id)},
+    )

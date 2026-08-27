@@ -24,12 +24,13 @@ from __future__ import annotations
 
 import statistics
 import time
+import uuid
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from tests.integration.conftest import ApiSession, Tenant
+from tests.integration.conftest import ApiSession, Tenant, scope_session_to
 
 pytestmark = pytest.mark.integration
 
@@ -52,9 +53,12 @@ NEEDLE = "Zephyrine Holdings"
 
 
 async def _seed(
-    session_factory: async_sessionmaker[AsyncSession], organization_id: object
+    session_factory: async_sessionmaker[AsyncSession], organization_id: uuid.UUID
 ) -> None:
     async with session_factory() as session:
+        # `crm.accounts` is RLS-FORCEd, so the bulk INSERT is refused outright
+        # without a tenant scope on the session.
+        await scope_session_to(session, organization_id)
         await session.execute(
             text(
                 """

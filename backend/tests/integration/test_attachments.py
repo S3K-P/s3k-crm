@@ -42,7 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
 from app.platform.documents.models import MAX_ATTACHMENT_BYTES
-from tests.integration.conftest import ApiSession, Tenant
+from tests.integration.conftest import ApiSession, Tenant, scope_session_to
 
 pytestmark = pytest.mark.integration
 
@@ -261,6 +261,9 @@ async def test_the_storage_key_is_prefixed_with_the_organization(
     attachment = _upload(as_alpha_admin, account_id)
 
     async with session_factory() as session:
+        # ``platform.attachments`` is RLS-FORCEd: an unscoped read returns no
+        # rows and `scalar_one` would raise, which says nothing about the key.
+        await scope_session_to(session, alpha.organization_id)
         key = str(
             (
                 await session.execute(
@@ -752,6 +755,12 @@ async def test_write_access_requires_edit_on_the_linked_module(
     ).json()["id"]
 
     async with session_factory() as session:
+        # The verifier reads `crm.leads`, which is RLS-FORCEd. A real request
+        # always carries tenant scope; without it here the lead is invisible
+        # and every answer comes back "cannot view" regardless of permissions,
+        # which is not the branch under test.
+        await scope_session_to(session, alpha.organization_id)
+
         user = await AuthRepository(session).get_user(alpha.admin.user_id)
         assert user is not None
 

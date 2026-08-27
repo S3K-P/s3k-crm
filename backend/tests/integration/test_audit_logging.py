@@ -117,7 +117,29 @@ async def tenant_engine(
     password = secrets.token_hex(24)
 
     async with owner_engine.begin() as connection:
-        await connection.execute(text(f"DROP ROLE IF EXISTS {TEST_ROLE}"))
+        # Teardown revokes and drops this role, but an interrupted run never
+        # reaches it -- and a role that still holds grants cannot be dropped:
+        # DROP ROLE IF EXISTS is a no-op only when the role is *absent*, and
+        # raises a dependency error when it merely has privileges left. The
+        # CREATE below then fails too, so one Ctrl-C leaves the database
+        # poisoned for every later run of this file until somebody notices.
+        #
+        # DROP OWNED BY would be the tidy answer but needs membership in the
+        # role, which PostgreSQL 16+ does not hand to CREATEROLE by default.
+        # Revoking exactly what this fixture grants needs no privilege the
+        # grantor does not already have, so that is what runs here.
+        for statement in (
+            f"REVOKE ALL ON platform.audit_logs FROM {TEST_ROLE}",
+            f"REVOKE USAGE ON SCHEMA platform FROM {TEST_ROLE}",
+            f"DROP ROLE {TEST_ROLE}",
+        ):
+            await connection.execute(
+                text(
+                    "DO $$ BEGIN "
+                    f"IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{TEST_ROLE}') "
+                    f"THEN EXECUTE '{statement}'; END IF; END $$"
+                )
+            )
         await connection.execute(
             text(
                 f"CREATE ROLE {TEST_ROLE} LOGIN PASSWORD '{password}' "
@@ -907,16 +929,33 @@ async def test_an_application_role_cannot_delete_a_record(
 
 
 async def test_even_the_table_owner_cannot_rewrite_a_record(
-    owner_engine: AsyncEngine, as_alpha_admin: ApiSession
+    owner_engine: AsyncEngine, as_alpha_admin: ApiSession, alpha: Tenant
 ) -> None:
-    """The role the application connects as in development is a superuser.
+    """Immutability rests on the trigger, not on row-level security.
 
-    RLS would not apply to it at all, so if immutability rested on policies
-    this would silently succeed. The trigger is what makes it fail.
+    The distinction matters because the two fail differently. RLS *hides* rows
+    it does not permit, so an UPDATE that matches nothing succeeds quietly —
+    which looks identical to being refused, right up until someone connects
+    with a scope that does match. The trigger refuses outright.
+
+    So the tenant scope is set deliberately here: the row is made fully
+    visible and writable as far as the policy is concerned, and the statement
+    must still be rejected. Without the scope this test passes for the wrong
+    reason — the UPDATE touching zero rows — and would keep passing if the
+    trigger were dropped tomorrow.
     """
     as_alpha_admin.post("/crm/accounts", json={"name": "Owner Tamper Ltd"})
 
     async with owner_engine.connect() as connection, connection.begin():
+        await connection.execute(
+            text(f"SELECT set_config('{TENANT_SETTING}', :value, true)"),
+            {"value": str(alpha.organization_id)},
+        )
+        visible = await connection.scalar(
+            text("SELECT count(*) FROM platform.audit_logs")
+        )
+        assert visible, "no audit row is in scope; the test would prove nothing"
+
         with pytest.raises(DBAPIError, match="append-only"):
             await connection.execute(
                 text("UPDATE platform.audit_logs SET action = 'REWRITTEN'")

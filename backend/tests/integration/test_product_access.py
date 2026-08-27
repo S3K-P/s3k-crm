@@ -55,10 +55,25 @@ async def _set_entitlement(
     Through SQL because there is deliberately no API that grants or revokes —
     entitlements are provisioned, not self-served (ADR-011). This is the test
     standing in for the billing integration that will eventually do it.
+
+    The tenant scope is set first, and it is not optional.
+    ``platform.product_entitlements`` is RLS-FORCEd, so a statement issued with
+    no ``app.current_org_id`` matches **zero rows** — silently. Written against
+    a superuser connection this helper appeared to work; under a role the
+    policies actually apply to it changed nothing, every "refused" test got a
+    perfectly correct 200, and the gate looked broken when it was the helper
+    that had quietly stopped doing anything.
+
+    Hence the rowcount assertion: a fixture that no-ops must fail loudly rather
+    than hand the test a false premise.
     """
     async with factory() as session:
+        await session.execute(
+            text("SELECT set_config('app.current_org_id', :value, false)"),
+            {"value": str(organization_id)},
+        )
         if delete:
-            await session.execute(
+            result = await session.execute(
                 text(
                     "DELETE FROM platform.product_entitlements e "
                     "USING platform.products p "
@@ -68,7 +83,7 @@ async def _set_entitlement(
                 {"org": organization_id},
             )
         else:
-            await session.execute(
+            result = await session.execute(
                 text(
                     "UPDATE platform.product_entitlements e "
                     "SET status = COALESCE("
@@ -80,6 +95,10 @@ async def _set_entitlement(
                 ),
                 {"org": organization_id, "status": status, "expires": expires_at},
             )
+        assert result.rowcount == 1, (
+            "the CRM entitlement was not modified — the tenant scope is wrong, "
+            "or RLS hid the row"
+        )
         await session.commit()
 
 
@@ -213,6 +232,13 @@ async def test_one_tenants_entitlement_does_not_admit_another(
 
     beta_entitlement = None
     async with session_factory() as session:
+        # Scoped to beta: the entitlements table is RLS-FORCEd, so an unscoped
+        # read returns no rows and this assertion would fail for the one reason
+        # it is not testing.
+        await session.execute(
+            text("SELECT set_config('app.current_org_id', :value, false)"),
+            {"value": str(beta.organization_id)},
+        )
         result = await session.execute(
             text(
                 "SELECT e.status FROM platform.product_entitlements e "
