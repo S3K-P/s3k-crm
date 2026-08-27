@@ -50,6 +50,9 @@ import { listMembers, type OrganizationMember } from '@/features/admin/users';
 type AccountMode = 'create' | 'link';
 type ContactMode = 'create' | 'link';
 
+/** Module-level so "no contacts" keeps one identity across renders. */
+const EMPTY_CONTACTS: readonly Contact[] = [];
+
 function Field({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
@@ -93,7 +96,12 @@ export default function LeadDetailPage() {
   const [selectedContactId, setSelectedContactId] = useState('');
   const [suggestions, setSuggestions] = useState<LeadConversionSuggestions | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [accountContacts, setAccountContacts] = useState<Contact[]>([]);
+  /* Tagged with the account the rows were loaded for, so the render below can
+     discard them the moment the selection changes — rather than an effect
+     blanking them, which would offer the previous account's contacts for a
+     frame and cost a second render every time. */
+  const [contactsForAccount, setContactsForAccount] =
+    useState<{ accountId: string; rows: Contact[] } | null>(null);
   const [convertLoading, setConvertLoading] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
   const { pending, error: convertError, clearError, run } = useMutation();
@@ -198,28 +206,33 @@ export default function LeadDetailPage() {
     accountMode === 'link' ? selectedAccountId : null;
 
   useEffect(() => {
-    if (!convertOpen || !mayViewContacts || !linkedAccountId) {
-      setAccountContacts([]);
-      return;
-    }
+    if (!convertOpen || !mayViewContacts || !linkedAccountId) return;
+
+    const accountId = linkedAccountId;
     let cancelled = false;
     void (async () => {
       try {
         const page = await listContacts({
-          account_id: linkedAccountId,
+          account_id: accountId,
           page_size: 100,
           sort_by: 'last_name',
           sort_dir: 'asc',
         });
-        if (!cancelled) setAccountContacts(page.data);
+        if (!cancelled) setContactsForAccount({ accountId, rows: page.data });
       } catch {
-        if (!cancelled) setAccountContacts([]);
+        if (!cancelled) setContactsForAccount({ accountId, rows: [] });
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [convertOpen, mayViewContacts, linkedAccountId]);
+
+  /* Only contacts belonging to the account currently being linked. */
+  const accountContacts =
+    contactsForAccount && contactsForAccount.accountId === linkedAccountId
+      ? contactsForAccount.rows
+      : EMPTY_CONTACTS;
 
   const accountOptions = useMemo(() => {
     const matchingIds = new Set(

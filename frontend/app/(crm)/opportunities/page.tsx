@@ -45,6 +45,9 @@ import {
    and that message is shown rather than guessed at.
    ============================================================ */
 
+/** Module-level so "no contacts" keeps one identity across renders. */
+const EMPTY_CONTACTS: readonly Contact[] = [];
+
 const EMPTY_FORM: OpportunityInput = {
   name: '',
   account_id: '',
@@ -110,7 +113,13 @@ function OpportunitiesPageContent() {
   /* ---- Reference data ---- */
   const [stages, setStages] = useState<PipelineStage[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [accountContacts, setAccountContacts] = useState<Contact[]>([]);
+  /* Contacts for one account, tagged with the account they were loaded for.
+     Storing the key alongside the rows lets the render below discard them the
+     instant the account changes, instead of an effect having to blank them —
+     which would both re-render twice and briefly offer the previous account's
+     contacts as choices. */
+  const [contactsForAccount, setContactsForAccount] =
+    useState<{ accountId: string; rows: Contact[] } | null>(null);
   const [allContacts, setAllContacts] = useState<Contact[]>([]);
 
   useEffect(() => {
@@ -174,7 +183,7 @@ function OpportunitiesPageContent() {
   );
   const openStages = useMemo(() => stages.filter((s) => !s.is_won && !s.is_lost), [stages]);
 
-  const kanbanColumns = useMemo<KanbanColumnDef<Opportunity>[]>(
+  const kanbanColumns = useMemo<KanbanColumnDef[]>(
     () =>
       stages.map((stage) => ({
         id: stage.id,
@@ -213,21 +222,20 @@ function OpportunitiesPageContent() {
 
   /* Contacts filtered to the selected account for the primary-contact picker. */
   useEffect(() => {
-    if (!drawerOpen || !mayViewContacts || !form.account_id) {
-      setAccountContacts([]);
-      return;
-    }
+    if (!drawerOpen || !mayViewContacts || !form.account_id) return;
+
+    const accountId = form.account_id;
     let cancelled = false;
     void (async () => {
       try {
         const page = await listContacts({
-          account_id: form.account_id,
+          account_id: accountId,
           page_size: 100,
           sort_by: 'last_name',
           sort_dir: 'asc',
         });
         if (cancelled) return;
-        setAccountContacts(page.data);
+        setContactsForAccount({ accountId, rows: page.data });
         // Drop a primary contact that no longer belongs to this account.
         if (
           form.primary_contact_id &&
@@ -236,7 +244,7 @@ function OpportunitiesPageContent() {
           setForm((prev) => ({ ...prev, primary_contact_id: '' }));
         }
       } catch {
-        if (!cancelled) setAccountContacts([]);
+        if (!cancelled) setContactsForAccount({ accountId, rows: [] });
       }
     })();
     return () => {
@@ -245,6 +253,14 @@ function OpportunitiesPageContent() {
     // Only reload when the account (or drawer) changes — not on every form keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawerOpen, mayViewContacts, form.account_id]);
+
+  /* The picker only ever offers contacts loaded for the account now selected:
+     anything else is stale, and offering it would let the form submit a
+     contact that does not belong to the account. */
+  const accountContacts =
+    contactsForAccount && contactsForAccount.accountId === form.account_id
+      ? contactsForAccount.rows
+      : EMPTY_CONTACTS;
 
   const openAdd = () => {
     setEditing(null);

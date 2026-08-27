@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Info } from 'lucide-react';
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
 import FormField, { FormInput, FormTextarea } from '@/components/crm/forms/FormField';
@@ -30,48 +30,49 @@ interface NbaScheduleMeetingSheetProps {
   onSchedule: (record: NbaRecord, form: MeetingForm) => void;
 }
 
+/** The form as it stands before anyone types: derived from the record. */
+function prefill(record: NbaRecord): MeetingForm {
+  return {
+    title: record.recommendation,
+    date: record.nextFollowUp || DEMO_TODAY,
+    time: '10:00',
+    participants: `${record.leadName}, ${record.assignedTo}`,
+    notes: record.reason,
+  };
+}
+
 export default function NbaScheduleMeetingSheet({
   open,
   record,
   onClose,
   onSchedule,
 }: NbaScheduleMeetingSheetProps) {
-  const [form, setForm] = useState<MeetingForm>({
-    title: '',
-    date: '',
-    time: '10:00',
-    participants: '',
-    notes: '',
-  });
-  const [touched, setTouched] = useState(false);
-
-  // Reset the form each time the sheet opens for a different record.
-  useEffect(() => {
-    if (open && record) {
-      setForm({
-        title: record.recommendation,
-        date: record.nextFollowUp || DEMO_TODAY,
-        time: '10:00',
-        participants: `${record.leadName}, ${record.assignedTo}`,
-        notes: record.reason,
-      });
-      setTouched(false);
-    }
-  }, [open, record]);
+  /* Only what the user has actually changed is stored, tagged with the record
+     it was typed against. The sheet opening for a different record therefore
+     resets itself by derivation — no effect writing state on open, which
+     costs a second render and briefly shows the previous lead's details in
+     the fields. `null` means untouched: show the prefill. */
+  const [draft, setDraft] = useState<
+    { recordId: string; form: MeetingForm; touched: boolean } | null
+  >(null);
 
   if (!record) return null;
+
+  const isDraftForThisRecord = draft?.recordId === record.id;
+  const form = isDraftForThisRecord ? draft.form : prefill(record);
+  const touched = isDraftForThisRecord ? draft.touched : false;
 
   const titleMissing = form.title.trim().length === 0;
   const dateMissing = form.date.trim().length === 0;
 
   const handleSubmit = () => {
-    setTouched(true);
+    setDraft({ recordId: record.id, form, touched: true });
     if (titleMissing || dateMissing) return;
     onSchedule(record, form);
   };
 
   const update = <K extends keyof MeetingForm>(key: K, value: MeetingForm[K]) =>
-    setForm(previous => ({ ...previous, [key]: value }));
+    setDraft({ recordId: record.id, form: { ...form, [key]: value }, touched });
 
   return (
     <SlideDrawer

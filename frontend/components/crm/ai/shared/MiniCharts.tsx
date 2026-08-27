@@ -290,21 +290,33 @@ export function DonutChart({ data, formatValue, caption, className }: DonutChart
 
   const radius = 54;
   const circumference = 2 * Math.PI * radius;
-  let cursor = 0;
 
-  const segments = data.map((point, index) => {
+  // Each arc starts where the previous one ended, so the offsets are a running
+  // sum. Built with `reduce` rather than a `let` the map callback increments:
+  // mutating a variable that outlives the render is what
+  // `react-hooks/immutability` forbids, and under concurrent rendering a
+  // half-updated cursor would draw overlapping arcs.
+  const segments = data.reduce<
+    Array<(typeof data)[number] & {
+      index: number;
+      color: string;
+      dash: number;
+      offset: number;
+      percent: number;
+    }>
+  >((accumulated, point, index) => {
     const fraction = point.value / total;
-    const segment = {
+    const previous = accumulated[index - 1];
+    accumulated.push({
       ...point,
       index,
       color: SERIES_COLORS[index % SERIES_COLORS.length],
       dash: fraction * circumference,
-      offset: cursor,
+      offset: previous ? previous.offset + previous.dash : 0,
       percent: fraction * 100,
-    };
-    cursor += fraction * circumference;
-    return segment;
-  });
+    });
+    return accumulated;
+  }, []);
 
   return (
     <figure className={cn('m-0 flex flex-col items-center gap-4 sm:flex-row sm:items-center', className)}>
