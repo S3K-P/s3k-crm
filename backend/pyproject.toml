@@ -7,6 +7,10 @@ requires-python = ">=3.13,<3.14"
 
 dependencies = [
     "fastapi>=0.115.0",
+    # Multipart form parsing. Required by Starlette for `UploadFile` and
+    # `Form`, which the CSV import endpoints use; attachments never needed it
+    # because those upload straight to object storage through a pre-signed URL.
+    "python-multipart>=0.0.20",
     "uvicorn[standard]>=0.32.0",
     "pydantic[email]>=2.9.0",
     "pydantic-settings>=2.6.0",

@@ -40,6 +40,7 @@ from app.products.crm.activities import router as activities_router
 from app.products.crm.campaigns import router as campaigns_router
 from app.products.crm.contacts import router as contacts_router
 from app.products.crm.dashboard import router as dashboard_router
+from app.products.crm.imports import router as imports_router
 from app.products.crm.leads import router as leads_router
 from app.products.crm.leads import source_router as lead_sources_router
 from app.products.crm.notes import router as notes_router
@@ -121,6 +122,10 @@ crm_router.include_router(notes_router.router, prefix="/crm/notes", tags=["crm:n
 # Search spans four modules, so it is gated by the permission snapshot inside
 # the query rather than by a module permission on the route — see its router.
 crm_router.include_router(search_router.router, prefix="/crm/search", tags=["crm:search"])
+# Import chooses its entity from a path parameter, so the permission it needs
+# is not known when the route is declared. The route authorizes against the
+# named entity's own module inside the handler — see its router.
+crm_router.include_router(imports_router.router, prefix="/crm/imports", tags=["crm:imports"])
 
 # Mounted last, so every CRM route above is already behind the gate.
 api_router.include_router(crm_router)
