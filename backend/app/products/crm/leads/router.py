@@ -25,6 +25,7 @@ from app.products.crm.leads.schemas import (
     LeadUpdate,
 )
 from app.products.crm.leads.service import LeadService
+from app.products.crm.shared.csv_export import collect_rows, csv_response
 from app.products.crm.shared.pagination import Page, PageParams, page_params
 from app.products.crm.shared.visibility import RecordVisibility
 
@@ -74,6 +75,52 @@ async def list_leads(
     return Page.build(
         [LeadResponse.model_validate(item) for item in items], total=total, params=params
     )
+
+
+@router.get("/export", response_class=Response)
+async def export_leads(
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.EXPORT))],
+    service: ServiceDep,
+    search: Annotated[str | None, Query(max_length=255)] = None,
+    lead_status: Annotated[LeadStatus | None, Query(alias="status")] = None,
+    owner_id: Annotated[uuid.UUID | None, Query()] = None,
+    lead_source_id: Annotated[uuid.UUID | None, Query()] = None,
+) -> Response:
+    """Download the leads this caller can see, as CSV.
+
+    Declared before the id route: FastAPI matches in registration order, and
+    ``/{lead_id}`` would otherwise claim ``/export`` and reject it as a
+    malformed UUID.
+
+    Takes the same filters as the list endpoint and resolves rows through the
+    same service call and the same ``RecordVisibility``, so the file contains
+    exactly the rows on screen. ``EXPORT`` is a separate permission from
+    ``VIEW``: reading a record in the application and removing a copy of it
+    from every control the application has are different acts.
+    """
+    filters = service.build_filters(
+        search=search, status=lead_status, owner_id=owner_id, lead_source_id=lead_source_id
+    )
+    rows = await collect_rows(
+        service,
+        principal.organization_id,
+        filters=filters,
+        visibility=visible_to(principal),
+        sort_by="last_name",
+        sort_dir="asc",
+    )
+    await service.record_export(
+        organization_id=principal.organization_id,
+        actor_id=principal.user_id,
+        row_count=len(rows),
+        filters_applied={
+            "search": search,
+            "status": lead_status,
+            "owner_id": owner_id,
+            "lead_source_id": lead_source_id,
+        },
+    )
+    return csv_response(rows, LeadResponse, entity_plural="leads")
 
 
 @router.get("/status-counts", response_model=LeadStatusCounts)

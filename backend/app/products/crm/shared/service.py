@@ -28,7 +28,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, TypeVar, cast
 
 from sqlalchemy import ColumnElement, Text
@@ -186,6 +186,41 @@ class TenantScopedService[ModelT: TenantOwnedModel]:
         if visibility is None:
             return None
         return visibility.filter_for(self._model)
+
+    async def record_export(
+        self,
+        *,
+        organization_id: uuid.UUID,
+        actor_id: uuid.UUID | None,
+        row_count: int,
+        filters_applied: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Append the audit entry for a completed export (`P3-W22-BE-03`).
+
+        Lives here, beside the CRUD audit calls, for the reason given at the
+        top of this module: every entity service inherits it, so the next
+        module to gain an export cannot ship one that records nothing.
+
+        No row identifiers are stored. A ten-thousand-row export would write a
+        ten-thousand-element array into a JSON column, and the question the
+        trail has to answer is "who took how much of what, filtered how" --
+        the rows themselves are still in the database to compare against.
+
+        ``filters_applied`` passes through the audit module's redaction like
+        every other ``details`` payload, so a filter value cannot smuggle a
+        credential into the trail.
+        """
+        await self.audit.record(
+            organization_id=organization_id,
+            action=AuditAction.RECORDS_EXPORTED,
+            module=self.audit_module,
+            actor_id=actor_id,
+            entity_type=self.audit_entity_type,
+            details={
+                "row_count": row_count,
+                "filters": dict(filters_applied) if filters_applied else {},
+            },
+        )
 
     # --- Writes ------------------------------------------------------------
 

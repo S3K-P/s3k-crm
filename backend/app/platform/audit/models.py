@@ -87,6 +87,21 @@ class AuditAction(enum.StrEnum):
     UPDATED = "UPDATED"
     DELETED = "DELETED"
 
+    # --- Bulk data movement ------------------------------------------------
+    #
+    # Audited for the same reason attachment downloads are: an export is the
+    # one operation that removes records from every control the application
+    # has. Once a CSV is on somebody's laptop, RLS, RBAC and record-level
+    # visibility have no further say, so the trail of who took what is the
+    # only remaining answer to "how did this data get out" (doc 13, "Data
+    # Access Control"; `P3-W22-BE-03`).
+    #
+    # An import is audited as one event rather than one per row: a thousand
+    # CREATED entries would bury the rest of the trail, and the question an
+    # auditor asks is "who loaded this file, and what happened to it".
+    RECORDS_EXPORTED = "RECORDS_EXPORTED"
+    RECORDS_IMPORTED = "RECORDS_IMPORTED"
+
     # --- Access control ----------------------------------------------------
     ROLE_ASSIGNED = "ROLE_ASSIGNED"
     ROLE_REVOKED = "ROLE_REVOKED"

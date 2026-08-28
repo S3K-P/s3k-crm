@@ -15,7 +15,7 @@ to reach.
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator, Sequence
 from dataclasses import dataclass
 
 import pytest
@@ -463,3 +463,86 @@ async def scope_session_to(session: AsyncSession, organization_id: uuid.UUID) ->
         text(f"SELECT set_config('{TENANT_SETTING}', :value, false)"),
         {"value": str(organization_id)},
     )
+
+
+async def membership_id_for(
+    session_factory: async_sessionmaker[AsyncSession], user_id: uuid.UUID
+) -> uuid.UUID:
+    """The membership row that carries a user's roles in the seeded tenant."""
+    async with session_factory() as session:
+        value = await session.scalar(
+            text("SELECT id FROM platform.organization_memberships WHERE user_id = :user"),
+            {"user": user_id},
+        )
+    assert value is not None, "the seeded user has no membership"
+    return uuid.UUID(str(value))
+
+
+async def grant_custom_role(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    organization_id: uuid.UUID,
+    membership_id: uuid.UUID,
+    codes: Sequence[str],
+    name: str | None = None,
+) -> uuid.UUID:
+    """Give one membership a tenant-defined role holding exactly ``codes``.
+
+    Written in SQL because roles are seeded by the migration and the API
+    exposes no role-authoring endpoint -- only assignment. The permission
+    combinations worth testing are the ones the three system roles do *not*
+    offer: ``EXPORT`` without ``VIEW_ALL``, or ``VIEW`` without ``CREATE``.
+    Those are exactly what a real tenant's custom role would express, and the
+    rules under test read the permission catalogue rather than a role name.
+
+    ``platform.roles``, ``role_permissions`` and ``membership_roles`` are
+    RLS-exempt by design -- they are read while tenant context is still being
+    established -- so no tenant scope is set here.
+
+    Returns the new role's id, for a test that needs to revoke it again.
+    """
+    async with session_factory() as session:
+        role_id = await session.scalar(
+            text(
+                "INSERT INTO platform.roles (organization_id, name, description, is_system) "
+                "VALUES (:org, :name, 'Created by a test', false) RETURNING id"
+            ),
+            {"org": organization_id, "name": name or f"Custom {uuid.uuid4().hex[:8]}"},
+        )
+        for code in codes:
+            module, action = code.split(".", 1)
+            await session.execute(
+                text(
+                    "INSERT INTO platform.role_permissions (role_id, permission_id) "
+                    "SELECT :role, p.id FROM platform.permissions p "
+                    "WHERE p.module = :module AND p.action = CAST(:action AS "
+                    "platform.permission_action)"
+                ),
+                {"role": role_id, "module": module, "action": action},
+            )
+        await session.execute(
+            text(
+                "INSERT INTO platform.membership_roles (membership_id, role_id) "
+                "VALUES (:membership, :role)"
+            ),
+            {"membership": membership_id, "role": role_id},
+        )
+        await session.commit()
+    return uuid.UUID(str(role_id))
+
+
+async def revoke_all_roles(
+    session_factory: async_sessionmaker[AsyncSession], membership_id: uuid.UUID
+) -> None:
+    """Strip every role from a membership.
+
+    For the tests that need a principal holding *less* than any seeded role
+    does -- proving a refusal needs an absence, and the seeded User already
+    holds CREATE on all three importable modules.
+    """
+    async with session_factory() as session:
+        await session.execute(
+            text("DELETE FROM platform.membership_roles WHERE membership_id = :membership"),
+            {"membership": membership_id},
+        )
+        await session.commit()

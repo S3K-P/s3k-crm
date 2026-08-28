@@ -22,6 +22,7 @@ from app.products.crm.accounts.schemas import (
     AccountUpdate,
 )
 from app.products.crm.accounts.service import AccountService
+from app.products.crm.shared.csv_export import collect_rows, csv_response
 from app.products.crm.shared.pagination import Page, PageParams, page_params
 from app.products.crm.shared.visibility import RecordVisibility
 
@@ -71,6 +72,52 @@ async def list_accounts(
     return Page.build(
         [AccountResponse.model_validate(item) for item in items], total=total, params=params
     )
+
+
+@router.get("/export", response_class=Response)
+async def export_accounts(
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.EXPORT))],
+    service: ServiceDep,
+    search: Annotated[str | None, Query(max_length=255)] = None,
+    account_status: Annotated[AccountStatus | None, Query(alias="status")] = None,
+    industry: Annotated[str | None, Query(max_length=120)] = None,
+    owner_id: Annotated[uuid.UUID | None, Query()] = None,
+) -> Response:
+    """Download the accounts this caller can see, as CSV.
+
+    Declared before ``/{account_id}``: FastAPI matches in registration order,
+    and the id route would otherwise claim ``/export`` and reject it as a
+    malformed UUID.
+
+    Takes the same filters as the list endpoint and resolves rows through the
+    same service call and the same ``RecordVisibility``, so the file contains
+    exactly the rows on screen. ``EXPORT`` is a separate permission from
+    ``VIEW``: reading a record in the application and removing a copy of it
+    from every control the application has are different acts.
+    """
+    filters = service.build_filters(
+        search=search, status=account_status, industry=industry, owner_id=owner_id
+    )
+    rows = await collect_rows(
+        service,
+        principal.organization_id,
+        filters=filters,
+        visibility=visible_to(principal),
+        sort_by="name",
+        sort_dir="asc",
+    )
+    await service.record_export(
+        organization_id=principal.organization_id,
+        actor_id=principal.user_id,
+        row_count=len(rows),
+        filters_applied={
+            "search": search,
+            "status": account_status,
+            "industry": industry,
+            "owner_id": owner_id,
+        },
+    )
+    return csv_response(rows, AccountResponse, entity_plural="accounts")
 
 
 @router.post("", response_model=AccountResponse, status_code=status.HTTP_201_CREATED)
