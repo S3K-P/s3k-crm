@@ -14,6 +14,7 @@ import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
 import { FormError, ListEmpty, ListError, ResultCount } from '@/components/crm/shared/ListStates';
+import ExportButton from '@/components/crm/toolbar/ExportButton';
 import { usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
 import { listAccounts, type Account } from '@/features/crm/accounts';
@@ -22,6 +23,7 @@ import {
   archiveOpportunity,
   changeStage,
   createOpportunity,
+  exportOpportunities,
   isClosed,
   listOpportunities,
   listStages,
@@ -80,6 +82,7 @@ function OpportunitiesPageContent() {
   const confirm = useConfirm();
   const { can } = usePermissions();
   const mayCreate = can('opportunities', 'CREATE');
+  const mayExport = can('opportunities', 'EXPORT');
   const mayEdit = can('opportunities', 'EDIT');
   const mayDelete = can('opportunities', 'DELETE');
   const mayViewAccounts = can('accounts', 'VIEW');
@@ -538,6 +541,13 @@ function OpportunitiesPageContent() {
         />
         {refreshing && (
           <Loader2 className="txt-faint h-4 w-4 motion-safe:animate-spin" aria-label="Refreshing" />
+        )}
+        {mayExport && (
+          <ExportButton
+            entityPlural="opportunities"
+            count={pagination?.total}
+            onExport={() => exportOpportunities({ search: search.trim() || null, stage_id: stageFilter || null })}
+          />
         )}
         <div className="ml-auto">
           <ResultCount shown={items.length} total={pagination?.total ?? 0} />

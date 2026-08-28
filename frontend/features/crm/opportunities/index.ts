@@ -7,7 +7,8 @@
  */
 
 import { api } from '@/lib/api-client';
-import { toQuery, type ListParams, type Page, type RecordMeta } from '@/features/shared/types/api';
+import { downloadAndSave } from '@/lib/save-file';
+import { toQuery, withoutPaging, type ListParams, type Page, type RecordMeta } from '@/features/shared/types/api';
 
 export interface PipelineStage {
   id: string;
@@ -80,6 +81,20 @@ export const isClosed = (opportunity: Opportunity): boolean =>
 
 export const listOpportunities = (params?: OpportunityListParams) =>
   api.get<Page<Opportunity>>(`/crm/opportunities${toQuery(params)}`);
+
+/**
+ * Download the opportunities matching `params` as CSV.
+ *
+ * Takes the same parameters as `listOpportunities` so the file matches the screen —
+ * the backend applies the identical filters and the identical record-level
+ * visibility, and pagination is deliberately not passed: an export is the
+ * whole filtered set, not the page being looked at.
+ *
+ * Requires the `opportunities.EXPORT` permission; the API answers 403 without it,
+ * and 413 when the filtered set is larger than the export ceiling.
+ */
+export const exportOpportunities = (params?: OpportunityListParams) =>
+  downloadAndSave(`/crm/opportunities/export${toQuery(withoutPaging(params))}`, 'opportunities.csv');
 
 export const getOpportunity = (id: string) =>
   api.get<Opportunity>(`/crm/opportunities/${id}`);

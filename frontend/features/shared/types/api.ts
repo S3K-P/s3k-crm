@@ -30,6 +30,30 @@ export interface ListParams {
   [key: string]: string | number | boolean | null | undefined;
 }
 
+/**
+ * The same filters, without the page the user happens to be looking at.
+ *
+ * An export is the whole filtered set, so passing `page`/`page_size` through
+ * would either be ignored or — worse, if the endpoint ever grew them — quietly
+ * truncate the file to 25 rows.
+ *
+ * Stripping them here rather than typing the export parameter as
+ * `Omit<XListParams, 'page' | 'page_size'>` is deliberate. `ListParams` carries
+ * an index signature, and `Omit` over such a type collapses every declared key
+ * into it: the result accepts `status: 'anything'` where the list function
+ * demands one of four literals. Keeping the parameter type intact keeps that
+ * check.
+ */
+export function withoutPaging<T extends ListParams>(params: T | undefined): ListParams | undefined {
+  if (!params) return undefined;
+  const filters: ListParams = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (key === 'page' || key === 'page_size') continue;
+    filters[key] = value;
+  }
+  return filters;
+}
+
 /** Drop empty values so the query string carries only real filters. */
 export function toQuery(params: ListParams | undefined): string {
   if (!params) return '';

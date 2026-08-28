@@ -6,7 +6,8 @@
  */
 
 import { api } from '@/lib/api-client';
-import { toQuery, type ListParams, type Page, type RecordMeta } from '@/features/shared/types/api';
+import { downloadAndSave } from '@/lib/save-file';
+import { toQuery, withoutPaging, type ListParams, type Page, type RecordMeta } from '@/features/shared/types/api';
 
 export type AccountStatus = 'ACTIVE' | 'ONBOARDING' | 'AT_RISK' | 'CHURNED';
 
@@ -62,6 +63,20 @@ export interface AccountListParams extends ListParams {
 
 export const listAccounts = (params?: AccountListParams) =>
   api.get<Page<Account>>(`/crm/accounts${toQuery(params)}`);
+
+/**
+ * Download the accounts matching `params` as CSV.
+ *
+ * Takes the same parameters as `listAccounts` so the file matches the screen —
+ * the backend applies the identical filters and the identical record-level
+ * visibility, and pagination is deliberately not passed: an export is the
+ * whole filtered set, not the page being looked at.
+ *
+ * Requires the `accounts.EXPORT` permission; the API answers 403 without it,
+ * and 413 when the filtered set is larger than the export ceiling.
+ */
+export const exportAccounts = (params?: AccountListParams) =>
+  downloadAndSave(`/crm/accounts/export${toQuery(withoutPaging(params))}`, 'accounts.csv');
 
 export const getAccount = (id: string) => api.get<Account>(`/crm/accounts/${id}`);
 

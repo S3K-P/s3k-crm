@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Users, Plus, Pencil, Trash2, Loader2, LayoutList, LayoutGrid,
+  Users, Plus, Pencil, Trash2, Loader2, LayoutList, LayoutGrid, Upload,
 } from 'lucide-react';
 
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
@@ -17,6 +17,8 @@ import FilterSelect from '@/components/crm/forms/FilterSelect';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
 import { humanize, statusVariant } from '@/components/crm/shared/statusVariants';
 import { FormError, ListEmpty, ListError, ResultCount } from '@/components/crm/shared/ListStates';
+import ImportWizard from '@/components/crm/import/ImportWizard';
+import ExportButton from '@/components/crm/toolbar/ExportButton';
 import { usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
 import { listLeadSources, type LeadSource } from '@/features/crm/lead-sources';
@@ -28,6 +30,7 @@ import {
   archiveLead,
   changeLeadStatus,
   createLead,
+  exportLeads,
   listLeads,
   updateLead,
   type Lead,
@@ -91,6 +94,8 @@ export default function LeadsPage() {
   const confirm = useConfirm();
   const { can } = usePermissions();
   const mayCreate = can('leads', 'CREATE');
+  const mayExport = can('leads', 'EXPORT');
+  const [importOpen, setImportOpen] = useState(false);
   const mayEdit = can('leads', 'EDIT');
   const mayDelete = can('leads', 'DELETE');
   const mayViewSources = can('lead_sources', 'VIEW');
@@ -459,6 +464,27 @@ export default function LeadsPage() {
         {refreshing && (
           <Loader2 className="txt-faint h-4 w-4 motion-safe:animate-spin" aria-label="Refreshing" />
         )}
+        {mayCreate && (
+          <button
+            type="button"
+            onClick={() => setImportOpen(true)}
+            className="ctl flex items-center gap-2 px-3 py-2 text-[13px] font-semibold transition hover:opacity-80"
+          >
+            <Upload className="h-4 w-4" aria-hidden="true" /> Import CSV
+          </button>
+        )}
+        {mayExport && (
+          <ExportButton
+            entityPlural="leads"
+            count={pagination?.total}
+            onExport={() =>
+              exportLeads({
+                search: search.trim() || null,
+                status: (statusFilter || null) as LeadStatus | null,
+              })
+            }
+          />
+        )}
         <div className="ml-auto">
           <ResultCount shown={items.length} total={pagination?.total ?? 0} />
         </div>
@@ -469,6 +495,13 @@ export default function LeadsPage() {
           {boardError}
         </p>
       )}
+
+      <ImportWizard
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        slug="leads"
+        onImported={reload}
+      />
 
       {status === 'error' && error !== null ? (
         <ListError message={error} onRetry={reload} />

@@ -101,6 +101,16 @@ async function refreshAccessToken(): Promise<boolean> {
 
 interface RequestOptions extends Omit<RequestInit, 'body'> {
   body?: unknown;
+  /**
+   * A body to send as-is, for requests that are not JSON — a `FormData` file
+   * upload being the only case today.
+   *
+   * When set, `Content-Type` is deliberately left unset: the browser has to
+   * choose it so that the multipart boundary in the header matches the body it
+   * generates. Setting it by hand produces a request the server cannot parse,
+   * and the failure looks like a malformed file rather than a wrong header.
+   */
+  rawBody?: BodyInit;
   /** Skip the automatic refresh-and-retry (used by login/refresh themselves). */
   skipRefresh?: boolean;
 }
@@ -115,12 +125,29 @@ async function parseError(response: Response): Promise<ApiError> {
   return new ApiError(response.status, body, response.statusText || 'Request failed');
 }
 
-export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { body, skipRefresh, headers, ...rest } = options;
+/**
+ * Send a request with the session's credentials, refreshing once on a 401.
+ *
+ * Everything that touches the API goes through here — the JSON helpers below
+ * and the CSV download alike. Keeping it in one function is the point: a
+ * second copy of "attach the token, retry once, end the session if the refresh
+ * fails" would be a second thing to get wrong, and the two would drift the
+ * first time one of them was fixed.
+ *
+ * Returns the raw `Response`, still unread, so each caller decides how to
+ * interpret a successful body. Errors are already normalised to `ApiError`.
+ */
+async function sendAuthenticated(
+  path: string,
+  options: RequestOptions & { accept?: string } = {},
+): Promise<Response> {
+  const { body, rawBody, skipRefresh, headers, accept, ...rest } = options;
 
   const send = async (): Promise<Response> => {
     const merged = new Headers(headers);
-    merged.set('Content-Type', 'application/json');
+    // Left to the browser for a raw body — see `rawBody` above.
+    if (rawBody === undefined) merged.set('Content-Type', 'application/json');
+    if (accept) merged.set('Accept', accept);
     if (accessToken) merged.set('Authorization', `Bearer ${accessToken}`);
     if (organizationId) merged.set(ORGANIZATION_HEADER, organizationId);
 
@@ -129,7 +156,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       headers: merged,
       // Required for the refresh cookie to travel with the request.
       credentials: 'include',
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: rawBody ?? (body === undefined ? undefined : JSON.stringify(body)),
     });
   };
 
@@ -147,9 +174,39 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 
   if (!response.ok) throw await parseError(response);
-  if (response.status === 204) return undefined as T;
+  return response;
+}
 
+export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const response = await sendAuthenticated(path, options);
+
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
+}
+
+/** A file the API returned, ready to be handed to the browser. */
+export interface DownloadedFile {
+  blob: Blob;
+  /** Server-chosen filename, or `fallback` when the header is absent. */
+  filename: string;
+}
+
+/**
+ * Fetch a file rather than JSON, with the same authentication and retry.
+ *
+ * A plain `<a href>` cannot be used for these: the access token lives in
+ * memory and never in a cookie, so a browser-initiated navigation would arrive
+ * unauthenticated. The file therefore comes back through `fetch` and is handed
+ * to the browser as an object URL by `saveFile`.
+ */
+export async function apiDownload(path: string, fallback: string): Promise<DownloadedFile> {
+  const response = await sendAuthenticated(path, { method: 'GET', accept: 'text/csv' });
+  const disposition = response.headers.get('content-disposition') ?? '';
+  // Only the plain `filename="…"` form is produced by this API; a quoted value
+  // is matched first so a name containing a semicolon cannot truncate it.
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+
+  return { blob: await response.blob(), filename: match?.[1] ?? fallback };
 }
 
 export const api = {

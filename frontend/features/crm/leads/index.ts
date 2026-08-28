@@ -7,7 +7,8 @@
  */
 
 import { api } from '@/lib/api-client';
-import { toQuery, type ListParams, type Page, type RecordMeta } from '@/features/shared/types/api';
+import { downloadAndSave } from '@/lib/save-file';
+import { toQuery, withoutPaging, type ListParams, type Page, type RecordMeta } from '@/features/shared/types/api';
 
 export type LeadStatus =
   | 'NEW'
@@ -124,6 +125,20 @@ export interface LeadConversionSuggestions {
 
 export const listLeads = (params?: LeadListParams) =>
   api.get<Page<Lead>>(`/crm/leads${toQuery(params)}`);
+
+/**
+ * Download the leads matching `params` as CSV.
+ *
+ * Takes the same parameters as `listLeads` so the file matches the screen —
+ * the backend applies the identical filters and the identical record-level
+ * visibility, and pagination is deliberately not passed: an export is the
+ * whole filtered set, not the page being looked at.
+ *
+ * Requires the `leads.EXPORT` permission; the API answers 403 without it,
+ * and 413 when the filtered set is larger than the export ceiling.
+ */
+export const exportLeads = (params?: LeadListParams) =>
+  downloadAndSave(`/crm/leads/export${toQuery(withoutPaging(params))}`, 'leads.csv');
 
 export const getLead = (id: string) => api.get<Lead>(`/crm/leads/${id}`);
 

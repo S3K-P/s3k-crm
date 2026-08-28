@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Contact as ContactIcon, Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
+import { Contact as ContactIcon, Plus, Pencil, Trash2, Loader2, Upload } from 'lucide-react';
 
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
@@ -14,6 +14,8 @@ import FilterSelect from '@/components/crm/forms/FilterSelect';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
 import { humanize, statusVariant } from '@/components/crm/shared/statusVariants';
 import { FormError, ListEmpty, ListError, ResultCount } from '@/components/crm/shared/ListStates';
+import ImportWizard from '@/components/crm/import/ImportWizard';
+import ExportButton from '@/components/crm/toolbar/ExportButton';
 import { usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
 import { listAccounts, type Account } from '@/features/crm/accounts';
@@ -21,6 +23,7 @@ import {
   CONTACT_STATUSES,
   archiveContact,
   createContact,
+  exportContacts,
   listContacts,
   updateContact,
   type Contact,
@@ -57,6 +60,8 @@ function ContactsPageContent() {
   const confirm = useConfirm();
   const { can } = usePermissions();
   const mayCreate = can('contacts', 'CREATE');
+  const mayExport = can('contacts', 'EXPORT');
+  const [importOpen, setImportOpen] = useState(false);
   const mayEdit = can('contacts', 'EDIT');
   const mayDelete = can('contacts', 'DELETE');
   const mayViewAccounts = can('accounts', 'VIEW');
@@ -327,10 +332,38 @@ function ContactsPageContent() {
         {refreshing && (
           <Loader2 className="txt-faint h-4 w-4 motion-safe:animate-spin" aria-label="Refreshing" />
         )}
+        {mayCreate && (
+          <button
+            type="button"
+            onClick={() => setImportOpen(true)}
+            className="ctl flex items-center gap-2 px-3 py-2 text-[13px] font-semibold transition hover:opacity-80"
+          >
+            <Upload className="h-4 w-4" aria-hidden="true" /> Import CSV
+          </button>
+        )}
+        {mayExport && (
+          <ExportButton
+            entityPlural="contacts"
+            count={pagination?.total}
+            onExport={() =>
+              exportContacts({
+                search: search.trim() || null,
+                status: (statusFilter || null) as ContactStatus | null,
+              })
+            }
+          />
+        )}
         <div className="ml-auto">
           <ResultCount shown={items.length} total={pagination?.total ?? 0} />
         </div>
       </div>
+
+      <ImportWizard
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        slug="contacts"
+        onImported={reload}
+      />
 
       {status === 'error' && error !== null ? (
         <ListError message={error} onRetry={reload} />

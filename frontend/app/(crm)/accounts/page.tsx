@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Building2, Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
+import { Building2, Plus, Pencil, Trash2, Loader2, Upload } from 'lucide-react';
 
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
@@ -14,12 +14,15 @@ import FilterSelect from '@/components/crm/forms/FilterSelect';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
 import { humanize, statusVariant } from '@/components/crm/shared/statusVariants';
 import { FormError, ListEmpty, ListError, ResultCount } from '@/components/crm/shared/ListStates';
+import ImportWizard from '@/components/crm/import/ImportWizard';
+import ExportButton from '@/components/crm/toolbar/ExportButton';
 import { usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
 import {
   ACCOUNT_STATUSES,
   archiveAccount,
   createAccount,
+  exportAccounts,
   listAccounts,
   updateAccount,
   type Account,
@@ -65,6 +68,8 @@ export default function AccountsPage() {
   const confirm = useConfirm();
   const { can } = usePermissions();
   const mayCreate = can('accounts', 'CREATE');
+  const mayExport = can('accounts', 'EXPORT');
+  const [importOpen, setImportOpen] = useState(false);
   const mayEdit = can('accounts', 'EDIT');
   const mayDelete = can('accounts', 'DELETE');
 
@@ -288,10 +293,38 @@ export default function AccountsPage() {
         {refreshing && (
           <Loader2 className="txt-faint h-4 w-4 motion-safe:animate-spin" aria-label="Refreshing" />
         )}
+        {mayCreate && (
+          <button
+            type="button"
+            onClick={() => setImportOpen(true)}
+            className="ctl flex items-center gap-2 px-3 py-2 text-[13px] font-semibold transition hover:opacity-80"
+          >
+            <Upload className="h-4 w-4" aria-hidden="true" /> Import CSV
+          </button>
+        )}
+        {mayExport && (
+          <ExportButton
+            entityPlural="accounts"
+            count={pagination?.total}
+            onExport={() =>
+              exportAccounts({
+                search: search.trim() || null,
+                status: (statusFilter || null) as AccountStatus | null,
+              })
+            }
+          />
+        )}
         <div className="ml-auto">
           <ResultCount shown={items.length} total={pagination?.total ?? 0} />
         </div>
       </div>
+
+      <ImportWizard
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        slug="accounts"
+        onImported={reload}
+      />
 
       {status === 'error' && error !== null ? (
         <ListError message={error} onRetry={reload} />
