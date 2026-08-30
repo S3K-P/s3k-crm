@@ -19,6 +19,14 @@
   --accent-2: #9333ea;    /* brand gradient partner */
   --accent-soft: #f0ecff; /* selected-card background */
 
+  /* Frosted overlay surface — tooltips and floating panels */
+  --glass: rgba(255, 255, 255, 0.72);
+  --glass-bd: rgba(255, 255, 255, 0.6);
+
+  /* Elevation for raised cards and their hover state */
+  --shadow-card: 0 18px 40px -22px rgba(50, 30, 90, 0.28);
+  --shadow-lift: 0 24px 44px -24px rgba(50, 30, 90, 0.4);
+
   /* Back-compat aliases used by tailwind.config.ts */
   --background: var(--bg);
   --foreground: var(--text);
@@ -39,6 +47,12 @@
   --accent: #a78bfa;
   --accent-2: #c084fc;
   --accent-soft: #221b3a;
+
+  --glass: rgba(30, 28, 46, 0.6);
+  --glass-bd: rgba(255, 255, 255, 0.07);
+
+  --shadow-card: 0 18px 40px -22px rgba(0, 0, 0, 0.6);
+  --shadow-lift: 0 24px 44px -24px rgba(0, 0, 0, 0.72);
 
   --background: var(--bg);
   --foreground: var(--text);
@@ -129,4 +143,59 @@ input[type=range] { accent-color: var(--accent); }
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+
+/* ============================================================
+   ENTRANCE & AMBIENT ANIMATIONS
+   Token-agnostic motion primitives shared by the richer CRM
+   surfaces (Pipeline Journey funnel, hero, goal radial).
+   Every class is disabled under prefers-reduced-motion, and
+   each keyframe ends on the element's natural rendered state
+   so switching the animation off never changes the layout.
+   Stagger with an inline `animationDelay`.
+   ============================================================ */
+
+@keyframes anim-fade-up   { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+@keyframes anim-stage-in  { from { opacity: 0; transform: translateY(-26px) scaleX(0.9); } to { opacity: 1; transform: none; } }
+@keyframes anim-tip-in    { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes anim-drawer-in { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: none; } }
+@keyframes anim-bar-grow  { from { width: 0; } }
+@keyframes anim-radial    { from { stroke-dashoffset: 528; } }
+@keyframes anim-spark     { from { opacity: 0.3; transform: scaleY(0.15); } to { opacity: 1; transform: scaleY(1); } }
+@keyframes anim-shimmer   { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.9; } }
+@keyframes anim-glow      { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.7; } }
+@keyframes anim-flow {
+  0%   { opacity: 0;    transform: translateY(-10px) scale(0.7); }
+  12%  { opacity: 0.95; }
+  88%  { opacity: 0.12; }
+  100% { opacity: 0;    transform: translateY(440px) scale(0.45); }
+}
+
+.anim-fade-up   { animation: anim-fade-up   0.55s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+.anim-stage-in  { animation: anim-stage-in  0.7s  cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+.anim-tip-in    { animation: anim-tip-in    0.18s ease both; }
+.anim-drawer-in { animation: anim-drawer-in 0.28s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+.anim-bar-grow  { animation: anim-bar-grow  1.3s  cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+.anim-radial    { animation: anim-radial    1.6s  cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+.anim-spark     { animation: anim-spark     0.7s  ease both; transform-origin: bottom; }
+.anim-shimmer   { animation: anim-shimmer   1.4s  ease-in-out infinite; }
+.anim-glow      { animation: anim-glow      7s    ease-in-out infinite; }
+.anim-flow      { animation: anim-flow      5.2s  linear infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-fade-up,
+  .anim-stage-in,
+  .anim-tip-in,
+  .anim-drawer-in,
+  .anim-bar-grow,
+  .anim-radial,
+  .anim-spark,
+  .anim-shimmer,
+  .anim-glow {
+    animation: none !important;
+  }
+  /* Purely decorative — nothing is lost by removing it entirely. */
+  .anim-flow {
+    display: none !important;
+  }
 }
