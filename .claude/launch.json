@@ -61,6 +61,20 @@
         "3001"
       ],
       "port": 3001
+    },
+    {
+      "name": "uat-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--workspace=frontend",
+        "--",
+        "--port",
+        "3005"
+      ],
+      "port": 3005,
+      "autoPort": false
     }
   ]
 }

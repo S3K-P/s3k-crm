@@ -1,0 +1,5 @@
+First name,Last name,Email,Company
+Marie,Curie,marie@radium.uat,Radium Labs
+Broken,,not-an-email,Missing Surname And Bad Email
+Edsger,Dijkstra,also-not-an-email,Algorithms BV
+Ada,Lovelace,ada@analytical.uat,Duplicate Of A Valid Row
