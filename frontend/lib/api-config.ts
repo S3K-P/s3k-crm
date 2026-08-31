@@ -30,5 +30,12 @@ export const REFRESH_COOKIE_NAME = 's3k_refresh';
 /** Where an unauthenticated visitor is sent. */
 export const LOGIN_PATH = '/login';
 
-/** Where a signed-in user lands. */
-export const POST_LOGIN_PATH = '/dashboard';
+/**
+ * Where a signed-in user lands.
+ *
+ * The S3K workspace, not the CRM dashboard: a user may hold several apps, and
+ * dropping them straight into one of them is the thing that made the CRM feel
+ * like the whole product. `/dashboard` still works and is still the CRM's own
+ * landing page — it is simply no longer the platform's front door.
+ */
+export const POST_LOGIN_PATH = '/workspace';

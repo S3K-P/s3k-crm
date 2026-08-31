@@ -38,6 +38,52 @@
       "port": 8001
     },
     {
+      "name": "platform-backend",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "--directory",
+        "backend",
+        "uvicorn",
+        "app.main:app",
+        "--reload",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8002"
+      ],
+      "port": 8002,
+      "autoPort": false
+    },
+    {
+      "name": "platform-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--workspace=frontend",
+        "--",
+        "--port",
+        "3002"
+      ],
+      "port": 3002,
+      "autoPort": false
+    },
+    {
+      "name": "platform-frontend-prod",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "start",
+        "--workspace=frontend",
+        "--",
+        "--port",
+        "3003"
+      ],
+      "port": 3003,
+      "autoPort": false
+    },
+    {
       "name": "pipeline-journey",
       "runtimeExecutable": "npm",
       "runtimeArgs": [

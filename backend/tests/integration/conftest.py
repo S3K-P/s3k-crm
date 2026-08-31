@@ -83,6 +83,12 @@ _TENANT_SCOPED_STATEMENTS_TO_CLEAN = (
 #: exactly why they are RLS-exempt (see the Phase 1 migration).
 _UNSCOPED_STATEMENTS_TO_CLEAN = (
     "DELETE FROM crm.meetings",
+    # Cleared explicitly rather than left to the ON DELETE CASCADE from
+    # ``platform.organizations`` below: the cascade would do it today, but a
+    # test that leaks a PENDING invitation collides with the next one through
+    # the partial unique index on (organization_id, email), and that failure
+    # would point at the invitation code rather than at the fixture.
+    "DELETE FROM platform.organization_invitations",
     "DELETE FROM platform.membership_roles",
     "DELETE FROM platform.organization_memberships",
     "DELETE FROM platform.sessions",

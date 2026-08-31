@@ -26,6 +26,7 @@ import type {
   TokenResponse,
 } from '@/features/auth/types';
 import { permission } from '@/features/auth/types';
+import type { SignupPayload } from '@/features/platform/types';
 
 /* ============================================================
    AUTH CONTEXT
@@ -47,8 +48,12 @@ interface AuthContextValue {
   memberships: Membership[];
   activeOrganizationId: string | null;
   login: (credentials: LoginCredentials) => Promise<void>;
+  /** Create an S3K account and start a session for it — no organization yet. */
+  signup: (payload: SignupPayload) => Promise<void>;
   logout: () => Promise<void>;
   switchOrganization: (organizationId: string) => Promise<void>;
+  /** Re-read `/auth/me` after memberships or permissions change. */
+  refreshProfile: () => Promise<void>;
   /** Effective permissions in the active organization. */
   permissions: ReadonlySet<string>;
   /**
@@ -168,6 +173,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [loadCurrentUser],
   );
 
+  const signup = useCallback(
+    async (payload: SignupPayload) => {
+      const tokens = await apiRequest<TokenResponse>('/auth/signup', {
+        method: 'POST',
+        body: payload,
+        skipRefresh: true,
+      });
+      setAccessToken(tokens.access_token);
+      // Deliberately null at this point: a brand-new account belongs to no
+      // organization until the next step of the wizard creates one. Storing
+      // the null keeps any organization left over from a previous session on
+      // this browser from being applied to the new one.
+      setOrganizationId(tokens.organization_id);
+      storeOrganization(tokens.organization_id);
+      await loadCurrentUser();
+    },
+    [loadCurrentUser],
+  );
+
+  /**
+   * Re-read `/auth/me`.
+   *
+   * Needed after anything that changes what the user belongs to — creating an
+   * organization, accepting an invitation — because memberships, the active
+   * organization and the permission set all come from that one response and
+   * would otherwise still describe the state before the change.
+   */
+  const refreshProfile = useCallback(async () => {
+    await loadCurrentUser();
+  }, [loadCurrentUser]);
+
   const logout = useCallback(async () => {
     try {
       await api.post('/auth/logout');
@@ -209,12 +245,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       memberships: currentUser?.memberships ?? [],
       activeOrganizationId: currentUser?.active_organization_id ?? null,
       login,
+      signup,
       logout,
       switchOrganization,
+      refreshProfile,
       permissions,
       can,
     }),
-    [currentUser, loading, login, logout, switchOrganization, permissions, can],
+    [
+      currentUser,
+      loading,
+      login,
+      signup,
+      logout,
+      switchOrganization,
+      refreshProfile,
+      permissions,
+      can,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

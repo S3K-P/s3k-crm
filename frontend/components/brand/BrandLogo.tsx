@@ -17,12 +17,22 @@ interface BrandLogoProps {
   variant?: 'wordmark' | 'icon';
   className?: string;
   priority?: boolean;
+  /**
+   * What the mark stands for *here*.
+   *
+   * The artwork is the same on both layers, but the alt text is not:
+   * on the workspace this mark means S3K Platforms, and inside the CRM
+   * it means S3K CRM. Defaults to the CRM, which is where most of its
+   * uses are.
+   */
+  label?: string;
 }
 
 export default function BrandLogo({
   variant = 'wordmark',
   className,
   priority = false,
+  label = BRAND.name,
 }: BrandLogoProps) {
   const isIcon = variant === 'icon';
   const src = isIcon ? logoIcon : logoWordmark;
@@ -36,7 +46,7 @@ export default function BrandLogo({
       )}>
       <Image
         src={src}
-        alt={`${BRAND.name} logo`}
+        alt={`${label} logo`}
         fill
         sizes={isIcon ? '36px' : '160px'}
         priority={priority}

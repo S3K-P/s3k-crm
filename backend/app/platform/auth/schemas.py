@@ -99,6 +99,36 @@ class RegisterUserRequest(BaseModel):
     last_name: str = Field(min_length=1, max_length=120)
 
 
+class SignupRequest(BaseModel):
+    """Self-service account creation — the public front door to S3K.
+
+    Shaped identically to :class:`RegisterUserRequest` but kept separate: that
+    one is an administrator provisioning somebody else inside an organization
+    that already exists, this one is an anonymous stranger creating an identity
+    with no tenant at all. They authorize differently and they will diverge
+    (terms acceptance, captcha, email verification), so sharing the schema
+    would couple two things that only look alike today.
+    """
+
+    email: EmailStr
+    password: SecretStr = Field(min_length=1, max_length=256)
+    first_name: str = Field(min_length=1, max_length=120)
+    last_name: str = Field(min_length=1, max_length=120)
+
+
+class ForgotPasswordRequest(BaseModel):
+    """Ask for a reset link. Always answered identically — see the route."""
+
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    """Redeem a reset token for a new password."""
+
+    token: SecretStr = Field(min_length=1, max_length=512)
+    new_password: SecretStr = Field(min_length=1, max_length=256)
+
+
 class ChangePasswordRequest(BaseModel):
     current_password: SecretStr = Field(min_length=1, max_length=256)
     new_password: SecretStr = Field(min_length=1, max_length=256)
@@ -107,10 +137,13 @@ class ChangePasswordRequest(BaseModel):
 __all__ = [
     "ChangePasswordRequest",
     "CurrentUserResponse",
+    "ForgotPasswordRequest",
     "LoginRequest",
     "MembershipSummary",
     "RefreshRequest",
     "RegisterUserRequest",
+    "ResetPasswordRequest",
+    "SignupRequest",
     "TokenResponse",
     "UserProfileResponse",
     "UserResponse",

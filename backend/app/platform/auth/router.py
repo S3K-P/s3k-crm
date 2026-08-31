@@ -27,6 +27,7 @@ from app.platform.auth.schemas import (
     LoginRequest,
     MembershipSummary,
     RefreshRequest,
+    SignupRequest,
     TokenResponse,
     UserResponse,
 )
@@ -91,6 +92,55 @@ def _clear_refresh_cookie(response: Response, settings: Settings) -> None:
         samesite="lax",
         domain=settings.cookie_domain,
         path="/",
+    )
+
+
+@router.post("/signup", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+async def signup(
+    payload: SignupRequest,
+    request: Request,
+    response: Response,
+    service: AuthServiceDep,
+    settings: SettingsDep,
+) -> TokenResponse:
+    """Create an S3K identity and start a session for it.
+
+    **No organization is created here**, and the returned token names none. A
+    brand-new account is a person, not yet a tenant; they become one at
+    ``POST /organizations``, or they join an existing tenant by redeeming an
+    invitation. Keeping the two steps apart is what stops an invited user from
+    accidentally founding a second organization — the case Phase 11 warns
+    about — because signing up simply does not create one.
+
+    Tokens are issued immediately rather than bouncing the user to the login
+    form: they have just proven the password by choosing it, and a redirect to
+    ``/login`` mid-wizard is the step most likely to lose them.
+
+    Raises:
+        ConflictError: 409, the address is already registered.
+        WeakPasswordError: 422, the password fails the configured policy.
+    """
+    user = await service.register_user(
+        email=payload.email,
+        password=payload.password.get_secret_value(),
+        first_name=payload.first_name,
+        last_name=payload.last_name,
+    )
+
+    # Not ``authenticate``: that refuses a user who belongs to no organization,
+    # which is exactly what this user is until the next screen. See
+    # ``begin_onboarding_session`` for why the exception gets its own door
+    # rather than being carved out of login.
+    tokens = await service.begin_onboarding_session(
+        user=user,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("User-Agent"),
+    )
+    _set_refresh_cookie(response, tokens, settings)
+    return TokenResponse(
+        access_token=tokens.access_token,
+        expires_at=tokens.access_expires_at,
+        organization_id=tokens.organization_id,
     )
 
 

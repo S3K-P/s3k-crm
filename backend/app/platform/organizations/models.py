@@ -29,6 +29,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -143,9 +144,99 @@ class OrganizationMembership(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         return self.status is MembershipStatus.ACTIVE
 
 
+class InvitationStatus(enum.StrEnum):
+    """Where an invitation is in its one-way lifecycle."""
+
+    PENDING = "PENDING"
+    ACCEPTED = "ACCEPTED"
+    #: Withdrawn by an administrator, or superseded. Never reverts to PENDING.
+    REVOKED = "REVOKED"
+
+
+class OrganizationInvitation(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """An outstanding offer to join an organization.
+
+    Like the two tables above, and for the same reason, this one is **not**
+    RLS-protected: it is read while a person who does not yet belong to the
+    organization is establishing that they may. Isolation comes from the
+    repository filtering every administrator-facing query on
+    ``organization_id``, and from redemption being possible only with the token
+    itself. The migration that creates it sets out the full argument.
+
+    ``token_hash`` is a SHA-256 digest. The token is shown to the inviting
+    administrator once, at creation, and is not recoverable from this row.
+    """
+
+    __tablename__ = "organization_invitations"
+    __table_args__ = (
+        Index("uq_organization_invitations_token_hash", "token_hash", unique=True),
+        Index(
+            "uq_organization_invitations_pending_email",
+            "organization_id",
+            "email",
+            unique=True,
+            postgresql_where=text("status = 'PENDING'"),
+        ),
+        {"schema": PLATFORM_SCHEMA},
+    )
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(
+            f"{PLATFORM_SCHEMA}.organizations.id",
+            ondelete="CASCADE",
+            name="fk_organization_invitations_organization_id_organizations",
+        ),
+        nullable=False,
+        index=True,
+    )
+    #: Stored lower-cased. Redemption compares the *invited* address against the
+    #: authenticated user's own, so an invitation cannot be redeemed by
+    #: whoever happens to hold the link.
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    role_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(
+            f"{PLATFORM_SCHEMA}.roles.id",
+            ondelete="SET NULL",
+            name="fk_organization_invitations_role_id_roles",
+        ),
+        nullable=True,
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[InvitationStatus] = mapped_column(
+        Enum(
+            InvitationStatus,
+            name="invitation_status",
+            schema=PLATFORM_SCHEMA,
+            native_enum=True,
+        ),
+        nullable=False,
+        default=InvitationStatus.PENDING,
+        server_default=InvitationStatus.PENDING.value,
+    )
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    invited_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    accepted_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    accepted_by_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+
+    def is_redeemable(self, *, now: dt.datetime) -> bool:
+        """Whether this invitation can still be accepted.
+
+        Expiry is read from the clock rather than from a status somebody has to
+        remember to sweep, so a lapsed invitation is refused even if no
+        background job has ever run.
+        """
+        return self.status is InvitationStatus.PENDING and self.expires_at > now
+
+
 __all__ = [
+    "InvitationStatus",
     "MembershipStatus",
     "Organization",
+    "OrganizationInvitation",
     "OrganizationMembership",
     "OrganizationStatus",
 ]

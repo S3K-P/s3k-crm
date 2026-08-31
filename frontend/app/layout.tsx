@@ -4,7 +4,7 @@ import { Toaster } from "sonner";
 import { AuthProvider } from "@/context/AuthContext";
 import { ConfirmProvider } from "@/components/crm/dialogs/ConfirmDialog";
 import { ThemeProvider, themeInitScript } from "@/context/ThemeContext";
-import { BRAND } from "@/config/site";
+import { PLATFORM_BRAND } from "@/config/site";
 import "./globals.css";
 
 const inter = Inter({
@@ -19,9 +19,18 @@ const sora = Sora({
   display: "swap",
 });
 
+/**
+ * The platform's title, not the CRM's.
+ *
+ * This is the fallback for every route that does not set its own, which
+ * now includes the workspace, the app catalogue and the signup wizard —
+ * pages where the visitor has not chosen an app yet. The `(crm)` layout
+ * and the marketing pages override it with their own.
+ */
 export const metadata: Metadata = {
-  title: `${BRAND.name} — ${BRAND.tagline}`,
-  description: "App starter built on the S3K UI template",
+  title: `${PLATFORM_BRAND.name} — ${PLATFORM_BRAND.tagline}`,
+  description:
+    "One S3K account across every S3K application, with shared users, roles and data boundaries.",
 };
 
 export default function RootLayout({

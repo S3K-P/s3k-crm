@@ -44,16 +44,20 @@ export function LandingNavbar() {
           <Link href="/dashboard" className="hover:text-brand-violet transition-colors">Dashboard</Link>
         </div>
 
-        {/* Right: Actions */}
+        {/* Right: Actions
+            "Sign In" goes to /login and the primary call to action to /signup.
+            Both used to point at /dashboard, which bounced a signed-out
+            visitor to the login form and left a new customer with no way into
+            the product at all — the public site is where the journey starts. */}
         <div className="flex items-center gap-4">
-          <Link href="/dashboard" className="hidden md:block text-sm font-medium text-gray-600 hover:text-brand-violet transition-colors">
+          <Link href="/login" className="hidden md:block text-sm font-medium text-gray-600 hover:text-brand-violet transition-colors">
             Sign In
           </Link>
           <Link
-            href="/dashboard"
+            href="/signup"
             className="bg-brand-violet hover:bg-brand-purple transition-colors text-white px-5 py-2.5 rounded-xl font-medium text-sm shadow-sm"
           >
-            Launch CRM
+            Get started
           </Link>
         </div>
       </div>

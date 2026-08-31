@@ -1,6 +1,24 @@
+import type { Metadata } from 'next';
+
 import RequireAuth from '@/components/auth/RequireAuth';
 import { SidebarProvider } from '@/components/crm/sidebar/SidebarContext';
 import CrmShell from '@/components/crm/shared/CrmShell';
+import { BRAND } from '@/config/site';
+
+/**
+ * Inside an app, the app names the page.
+ *
+ * The root layout titles everything "S3K Platforms", which is right for the
+ * shell above the apps and wrong once you are in one — a browser tab reading
+ * "S3K Platforms" while the user is looking at their pipeline tells them
+ * nothing about where they are, and gives two open tabs the same name.
+ */
+export const metadata: Metadata = {
+  title: {
+    template: `%s · ${BRAND.name}`,
+    default: `${BRAND.name} — ${BRAND.tagline}`,
+  },
+};
 
 /* ============================================================
    CRM ROUTE GROUP LAYOUT

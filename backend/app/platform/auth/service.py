@@ -272,11 +272,18 @@ class AuthService:
         logger.info(
             "login_succeeded",
             user_id=str(user.id),
-            organization_id=str(resolved_organization_id),
+            organization_id=(
+                str(resolved_organization_id) if resolved_organization_id else None
+            ),
         )
         # In-transaction: a successful sign-in commits with the session row it
         # created, so the trail cannot claim a sign-in that did not persist.
-        if self._audit is not None:
+        #
+        # Skipped entirely when the session has no organization: audit rows are
+        # tenant-scoped and RLS-protected, so there is no tenant to attribute
+        # this sign-in to. The alternative — inventing one — would put a record
+        # in some organization's trail that its administrators cannot act on.
+        if self._audit is not None and resolved_organization_id is not None:
             await self._audit.record(
                 organization_id=resolved_organization_id,
                 action=Action.LOGIN_SUCCEEDED,
@@ -287,6 +294,53 @@ class AuthService:
                 entity_label=user.email,
                 details={"session_id": tokens.session_id},
             )
+        return tokens
+
+    async def begin_onboarding_session(
+        self,
+        *,
+        user: User,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+        now: dt.datetime | None = None,
+    ) -> IssuedTokens:
+        """Open a session for a user who belongs to no organization yet.
+
+        **Why this is not just ``authenticate``.** Login deliberately refuses a
+        user with no usable organization (:class:`NoOrganizationError`): for
+        someone signing in at ``/login``, landing in a product with no tenant
+        is a dead end, and failing loudly is right. Signup is the one moment
+        where that state is legitimate and expected — the account was created a
+        millisecond ago and the tenant is the *next* screen. Loosening
+        ``authenticate`` to allow it would remove the check for every ordinary
+        login too, so the exception gets its own door instead.
+
+        No credential check happens here, and none is needed: the only caller
+        is the signup route, which was handed the password in the same request
+        and used it to create this very user. It is deliberately **not** given
+        an email/password signature, so it cannot be repurposed into a second
+        authentication path that skips lockout.
+
+        The session it issues is ordinary in every other respect — same table,
+        same rotation, same revocation — and simply carries a null
+        organization, which the token issuer, the tenant middleware and
+        ``/auth/me`` all already model.
+        """
+        now = now or dt.datetime.now(dt.UTC)
+        user.last_login_at = now
+
+        tokens = await self._issue_session(
+            user=user,
+            organization_id=None,
+            family_id=uuid.uuid4(),
+            ip_address=ip_address,
+            user_agent=user_agent,
+            now=now,
+        )
+        logger.info("onboarding_session_issued", user_id=str(user.id))
+        # No audit record: audit rows are tenant-scoped and there is no tenant
+        # to attribute this to yet. The organization's own creation is audited
+        # a moment later, with this user as its actor.
         return tokens
 
     async def _register_failure(self, user: User, *, now: dt.datetime) -> None:
@@ -399,12 +453,30 @@ class AuthService:
 
     async def _resolve_organization(
         self, *, user_id: uuid.UUID, requested: uuid.UUID | None
-    ) -> uuid.UUID:
-        """Pick the organization the session will act in.
+    ) -> uuid.UUID | None:
+        """Pick the organization the session will act in, if there is one.
 
-        A requested organization is honoured only after membership is verified,
-        so naming someone else's organization at login fails exactly as a
-        forged header would.
+        Two cases, and only one of them is a refusal.
+
+        **A requested organization** is honoured only after membership is
+        verified, so naming someone else's organization at login fails exactly
+        as a forged header would. That is the security property
+        ``test_logging_into_an_organization_you_do_not_belong_to_is_refused``
+        exists to hold, and it is unchanged.
+
+        **No requested organization and no memberships** returns ``None``
+        rather than raising. Since self-service signup exists, "authenticated
+        but not yet in a tenant" is an ordinary state: somebody who created an
+        account and closed the tab before finishing onboarding, or who was
+        removed from the only organization they were in. Refusing them at login
+        left them permanently unable to sign in — with a valid password, a real
+        account, and no way to reach the screen that would have fixed it.
+
+        The token that results carries no organization, which the issuer, the
+        tenant middleware and ``/auth/me`` all already model, and every
+        tenant-scoped route still refuses it with 403 until the caller has a
+        verified membership. So this widens where a user may *stand*, never
+        what they may reach.
         """
         if requested is not None:
             if not await self._organizations.has_active_membership(
@@ -418,10 +490,7 @@ class AuthService:
                 raise NoOrganizationError
             return requested
 
-        default = await self._organizations.default_organization_id(user_id)
-        if default is None:
-            raise NoOrganizationError
-        return default
+        return await self._organizations.default_organization_id(user_id)
 
     # --- Refresh -----------------------------------------------------------
 

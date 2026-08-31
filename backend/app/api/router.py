@@ -31,6 +31,7 @@ from app.platform.auth import router as auth_router
 from app.platform.authorization import router as authorization_router
 from app.platform.documents import router as documents_router
 from app.platform.organizations import router as organizations_router
+from app.platform.organizations.provisioning import register_provisioning_hook
 from app.platform.products import router as products_router
 from app.platform.products.models import CRM_PRODUCT_CODE
 from app.platform.products.policies import product_gate
@@ -47,6 +48,7 @@ from app.products.crm.notes import router as notes_router
 from app.products.crm.opportunities import router as opportunities_router
 from app.products.crm.search import router as search_router
 from app.products.crm.shared.attachments import crm_entity_access
+from app.products.crm.shared.provisioning import crm_provisioning_hook
 from app.products.crm.tasks import router as tasks_router
 
 root_router = APIRouter()
@@ -58,6 +60,13 @@ api_router = APIRouter()
 api_router.include_router(auth_router.router, prefix="/auth", tags=["platform:auth"])
 api_router.include_router(
     organizations_router.router, prefix="/organizations", tags=["platform:organizations"]
+)
+# Redemption sits outside ``/organizations`` because the person accepting is
+# not a member yet and has no tenant context to scope the path to.
+api_router.include_router(
+    organizations_router.invitation_router,
+    prefix="/invitations",
+    tags=["platform:organizations"],
 )
 api_router.include_router(
     authorization_router.router, prefix="/roles", tags=["platform:authorization"]
@@ -86,6 +95,14 @@ documents_router.register_entity_access(crm_entity_access)
 api_router.include_router(
     documents_router.router, prefix="/attachments", tags=["platform:documents"]
 )
+
+# The CRM's first-run setup for a newly created organization. Same inversion,
+# and for the same reason: ``POST /organizations`` lives in the Platform layer
+# and may not import a product, but a tenant with no pipeline cannot create an
+# opportunity, so the CRM would be broken on the customer's first visit.
+# ``app.bootstrap`` calls ``ensure_default_pipeline`` directly because it holds
+# a lint exemption an HTTP route has no business borrowing.
+register_provisioning_hook(crm_provisioning_hook)
 
 # --- S3K CRM routers --------------------------------------------------------
 #

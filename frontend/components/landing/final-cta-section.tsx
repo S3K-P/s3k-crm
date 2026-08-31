@@ -34,11 +34,11 @@ export function FinalCtaSection() {
             </p>
             
             <div className="flex flex-col sm:flex-row items-center gap-4 w-full sm:w-auto">
-              <Link 
-                href="/dashboard"
+              <Link
+                href="/signup"
                 className="w-full sm:w-auto px-8 py-4 bg-white hover:bg-gray-50 focus:ring-4 focus:ring-white/20 transition-all rounded-xl text-brand-violet font-bold text-lg flex items-center justify-center shadow-xl group"
               >
-                Launch CRM Dashboard
+                Create your S3K account
                 <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
               </Link>
               <Link 

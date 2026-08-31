@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import uuid
 from collections.abc import Sequence
+from typing import Any
 
 import structlog
 from fastapi import status as http_status
@@ -68,10 +69,56 @@ class OrganizationService:
 
     # --- Organizations -----------------------------------------------------
 
+    async def available_slug(self, name: str) -> str:
+        """A free slug derived from ``name``, disambiguated with a counter.
+
+        Slugs are globally unique, so on a public signup form the second
+        customer called "Acme" would otherwise be told their own company name
+        is taken — by a tenant they cannot see and have no relationship with.
+        That is not a conflict the person filling in the form can act on, so it
+        is resolved here instead of surfaced: they become ``acme-2``.
+
+        Only for self-service. A caller that passes an explicit slug is asking
+        for that exact string and still gets a conflict, because there the name
+        collision is meaningful.
+
+        There is a small race: two simultaneous signups can settle on the same
+        candidate, and the loser hits the unique index. It is left to the
+        database rather than locked against, because the failure is a retryable
+        500 on one request and holding a table lock across signup would be a
+        far worse trade.
+
+        Raises:
+            ConflictError: ``name`` contains nothing sluggable.
+        """
+        base = slugify(name)
+        if not base:
+            raise ConflictError(
+                "Organization name must contain at least one alphanumeric character."
+            )
+
+        candidate = base
+        suffix = 2
+        while await self._repository.get_by_slug(candidate) is not None:
+            candidate = f"{base}-{suffix}"
+            suffix += 1
+        return candidate
+
     async def create_organization(
-        self, *, name: str, slug: str | None = None, created_by_id: uuid.UUID | None = None
+        self,
+        *,
+        name: str,
+        slug: str | None = None,
+        created_by_id: uuid.UUID | None = None,
+        profile: dict[str, Any] | None = None,
     ) -> Organization:
         """Create a tenant.
+
+        ``profile`` holds the descriptive answers collected at signup —
+        industry, company size, country. They live in the existing ``settings``
+        JSON rather than in new columns because nothing authorizes on them and
+        the set will keep changing as the onboarding form does; promoting one
+        to a column is a migration away if it ever needs an index.
 
         Raises:
             ConflictError: the slug is already taken. Slugs are global, so this
@@ -86,6 +133,8 @@ class OrganizationService:
             raise ConflictError(f"The slug '{candidate}' is already in use.")
 
         organization = Organization(name=name.strip(), slug=candidate)
+        if profile:
+            organization.settings = {"profile": profile}
         await self._repository.add(organization)
 
         # Entitle the new tenant to the products it is created with (ADR-011).
@@ -198,6 +247,20 @@ class OrganizationService:
         if membership is None:
             raise NotFoundError("Membership not found.")
         return membership
+
+    async def get_membership_or_none(
+        self, *, organization_id: uuid.UUID, user_id: uuid.UUID
+    ) -> OrganizationMembership | None:
+        """Like :meth:`get_membership`, but absence is an answer rather than a fault.
+
+        Redeeming an invitation needs to know whether the user is *already* a
+        member — somebody invited twice, or invited to an organization they
+        never left. That is an ordinary branch, not a 404, so it would be wrong
+        to reach it by catching :class:`NotFoundError`.
+        """
+        return await self._repository.get_membership(
+            organization_id=organization_id, user_id=user_id
+        )
 
     async def list_members(
         self, organization_id: uuid.UUID, *, limit: int = 50, offset: int = 0

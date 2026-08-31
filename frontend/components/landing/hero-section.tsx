@@ -37,11 +37,11 @@ export function HeroSection() {
           </p>
           
           <div className="flex flex-col sm:flex-row items-center gap-4 justify-center lg:justify-start">
-            <Link 
-              href="/dashboard"
+            <Link
+              href="/signup"
               className="w-full sm:w-auto px-7 py-3.5 bg-brand-violet hover:bg-brand-purple transition-all rounded-xl text-white font-semibold text-base flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(91,79,247,0.3)]"
             >
-              Launch CRM Dashboard
+              Create your S3K account
               <ArrowRight className="w-4 h-4" />
             </Link>
             <Link 

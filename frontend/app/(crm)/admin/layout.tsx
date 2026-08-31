@@ -4,16 +4,20 @@ import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { 
-  LayoutDashboard, Users, Shield, UsersRound, Settings, 
-  Workflow, Database, Bell, Blocks, ScrollText, Lock 
+  LayoutDashboard, Users, Shield, UsersRound, Settings,
+  Workflow, Database, Bell, Blocks, ScrollText, Lock, Grid2x2, MailPlus
 } from 'lucide-react';
 
 const ADMIN_NAVIGATION = [
   { group: 'Overview', items: [
     { name: 'Dashboard', href: '/admin', icon: LayoutDashboard }
   ]},
+  { group: 'Organization', items: [
+    { name: 'Applications', href: '/admin/applications', icon: Grid2x2 },
+  ]},
   { group: 'Access Management', items: [
     { name: 'Users', href: '/admin/users', icon: Users },
+    { name: 'Invitations', href: '/admin/invitations', icon: MailPlus },
     { name: 'Roles & Permissions', href: '/admin/roles', icon: Shield },
     { name: 'Teams', href: '/admin/teams', icon: UsersRound },
   ]},

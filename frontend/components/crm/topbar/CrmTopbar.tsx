@@ -5,6 +5,8 @@ import { Search, Bell, Menu } from 'lucide-react';
 import ThemeToggle from '@/components/ThemeToggle';
 import AccountMenu from '@/components/crm/topbar/AccountMenu';
 import CommandPalette from '@/components/crm/topbar/CommandPalette';
+import AppLauncher from '@/components/platform/AppLauncher';
+import { CRM_PRODUCT_CODE } from '@/features/platform/constants';
 import { useSidebar } from '@/components/crm/sidebar/SidebarContext';
 
 /* ============================================================
@@ -44,6 +46,14 @@ export default function CrmTopbar() {
         >
           <Menu className="h-5 w-5" />
         </button>
+
+        {/* S3K app launcher — the CRM is one app on the platform, so the way
+            out of it belongs in the chrome that is always present. Hidden on
+            the narrowest screens, where the sidebar's own header carries the
+            brand and space is scarce. */}
+        <div className="hidden shrink-0 sm:block">
+          <AppLauncher currentAppCode={CRM_PRODUCT_CODE} />
+        </div>
 
         {/* Search trigger */}
         <button

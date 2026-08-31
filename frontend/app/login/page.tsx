@@ -8,7 +8,7 @@ import BrandLogo from '@/components/brand/BrandLogo';
 import { useAuth } from '@/context/AuthContext';
 import { ApiError } from '@/lib/api-client';
 import { POST_LOGIN_PATH } from '@/lib/api-config';
-import { BRAND } from '@/config/site';
+import { PLATFORM_BRAND } from '@/config/site';
 
 /* ============================================================
    LOGIN
@@ -112,16 +112,16 @@ function LoginForm() {
       <div className="w-full max-w-[400px]">
         {/* ── Brand ── */}
         <div className="mb-7 flex flex-col items-center gap-3 text-center">
-          <BrandLogo variant="icon" priority />
+          <BrandLogo variant="icon" priority label={PLATFORM_BRAND.name} />
           <div>
             <h1 className="font-display txt text-[20px] font-extrabold tracking-tight">
-              {BRAND.name}
+              {PLATFORM_BRAND.name}
             </h1>
             <p
               className="text-[9px] font-bold uppercase tracking-[0.16em]"
               style={{ color: 'var(--accent)' }}
             >
-              {BRAND.tagline}
+              {PLATFORM_BRAND.tagline}
             </p>
           </div>
         </div>
@@ -206,7 +206,7 @@ function LoginForm() {
         </div>
 
         <p className="txt-faint mt-5 text-center text-[11.5px]">
-          {BRAND.footer}
+          {PLATFORM_BRAND.footer}
         </p>
       </div>
     </div>
