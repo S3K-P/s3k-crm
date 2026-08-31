@@ -23,6 +23,8 @@ dependencies = [
     "pyjwt[crypto]>=2.10.0",
     # ADR-014: object storage on Cloudflare R2, which speaks the S3 API.
     "boto3>=1.35.0",
+    # ADR-016: the Shared AI Gateway calls Claude through the official SDK.
+    "anthropic>=0.69.0",
 ]
 
 [dependency-groups]

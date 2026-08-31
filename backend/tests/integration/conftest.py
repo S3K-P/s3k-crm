@@ -58,6 +58,17 @@ TEST_PASSWORD = "Str0ngPassphrase!"
 #: foreign key to ``platform.organizations``, so a cascading truncate would take
 #: the migration-seeded **system** roles with it and break every later test.
 _TENANT_SCOPED_STATEMENTS_TO_CLEAN = (
+    # Market Insights first: sources and messages cascade from sessions, but
+    # deleting the parent explicitly keeps the order readable rather than
+    # relying on the cascade to imply it.
+    "DELETE FROM crm.market_insight_sources",
+    "DELETE FROM crm.market_insight_messages",
+    "DELETE FROM crm.market_insight_sessions",
+    # Prompt versions are tenant data, not migration-seeded reference data, so
+    # they are cleaned like everything else a test creates. They belong in the
+    # tenant-scoped half because the migration RLS-enables the table: an
+    # unscoped DELETE would match nothing and pass in silence.
+    "DELETE FROM platform.ai_prompt_versions",
     "DELETE FROM crm.opportunity_stage_history",
     "DELETE FROM crm.opportunities",
     "DELETE FROM crm.campaign_members",
@@ -414,6 +425,9 @@ class ApiSession:
 
     def post(self, path: str, **kwargs: object) -> Response:
         return self.request("POST", path, **kwargs)
+
+    def put(self, path: str, **kwargs: object) -> Response:
+        return self.request("PUT", path, **kwargs)
 
     def patch(self, path: str, **kwargs: object) -> Response:
         return self.request("PATCH", path, **kwargs)

@@ -22,6 +22,7 @@ from sqlalchemy import MetaData
 from app.core.metadata import target_metadata as target_metadata
 
 # --- Shared Platform models -------------------------------------------------
+from app.platform.ai import models as ai_models
 from app.platform.audit import models as audit_models
 from app.platform.auth import models as auth_models
 from app.platform.authorization import models as authorization_models
@@ -36,6 +37,7 @@ from app.products.crm.activities import models as activity_models
 from app.products.crm.campaigns import models as campaign_models
 from app.products.crm.contacts import models as contact_models
 from app.products.crm.leads import models as lead_models
+from app.products.crm.market_insights import models as market_insight_models
 from app.products.crm.notes import models as note_models
 from app.products.crm.opportunities import models as opportunity_models
 from app.products.crm.tasks import models as task_models
@@ -47,6 +49,7 @@ metadata: MetaData = target_metadata
 __all__ = [
     "account_models",
     "activity_models",
+    "ai_models",
     "audit_models",
     "auth_models",
     "authorization_models",
@@ -54,6 +57,7 @@ __all__ = [
     "contact_models",
     "document_models",
     "lead_models",
+    "market_insight_models",
     "metadata",
     "note_models",
     "opportunity_models",
