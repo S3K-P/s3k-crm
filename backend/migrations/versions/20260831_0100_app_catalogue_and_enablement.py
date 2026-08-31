@@ -1,7 +1,7 @@
 """The S3K app catalogue: presentation metadata and administrator enablement.
 
 Revision ID: 20260831_0100
-Revises: 20260826_0200
+Revises: 20260827_0100
 Create Date: 2026-08-31 01:00:00.000000
 
 The platform shell needs to answer two questions the entitlement tables could
@@ -46,7 +46,13 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "20260831_0100"
-down_revision: str | None = "20260826_0200"
+#: Chained after the AI gateway rather than beside it. Both this and
+#: ``20260827_0100`` were written against ``20260826_0200`` on separate
+#: branches, which left Alembic with two heads and ``upgrade head`` refusing to
+#: run at all. They touch disjoint tables — this one the product catalogue, the
+#: other the AI and Market Insights tables — so ordering them is a free choice,
+#: and chronological order is the one a reader can predict.
+down_revision: str | None = "20260827_0100"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -26,6 +26,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app.api import health
+from app.platform.ai import router as ai_router
 from app.platform.audit import router as audit_router
 from app.platform.auth import router as auth_router
 from app.platform.authorization import router as authorization_router
@@ -44,6 +45,7 @@ from app.products.crm.dashboard import router as dashboard_router
 from app.products.crm.imports import router as imports_router
 from app.products.crm.leads import router as leads_router
 from app.products.crm.leads import source_router as lead_sources_router
+from app.products.crm.market_insights import router as market_insights_router
 from app.products.crm.notes import router as notes_router
 from app.products.crm.opportunities import router as opportunities_router
 from app.products.crm.search import router as search_router
@@ -72,6 +74,11 @@ api_router.include_router(
     authorization_router.router, prefix="/roles", tags=["platform:authorization"]
 )
 api_router.include_router(audit_router.router, prefix="/audit-logs", tags=["platform:audit"])
+# The AI gateway (ADR-016). Not behind the CRM product gate: ``/ai/status``
+# answers whether AI is connected at all, which the AI section needs in order
+# to render its "not connected" state, and prompt configuration is
+# organization-level administration rather than a CRM resource.
+api_router.include_router(ai_router.router, prefix="/ai", tags=["platform:ai"])
 # Deliberately *not* behind the product gate: a caller has to be able to find
 # out which products their organization holds, and gating that on holding one
 # would make the 403 unexplainable to the person hitting it.
@@ -136,6 +143,11 @@ crm_router.include_router(
 )
 crm_router.include_router(tasks_router.router, prefix="/crm/tasks", tags=["crm:tasks"])
 crm_router.include_router(notes_router.router, prefix="/crm/notes", tags=["crm:notes"])
+crm_router.include_router(
+    market_insights_router.router,
+    prefix="/crm/market-insights",
+    tags=["crm:market-insights"],
+)
 # Search spans four modules, so it is gated by the permission snapshot inside
 # the query rather than by a module permission on the route — see its router.
 crm_router.include_router(search_router.router, prefix="/crm/search", tags=["crm:search"])
