@@ -233,12 +233,18 @@ jobs:
           done
 
           # Create the attachments bucket, as docker-compose's `minio-init`
-          # service does. Idempotent, and on its own network alias-free run
-          # the container reaches MinIO over the host gateway.
+          # service does. Idempotent, and `--network host` lets the container
+          # reach the MinIO published above on localhost.
+          #
+          # `--entrypoint sh` is required: this image's entrypoint is `mc`
+          # itself, so an unqualified `sh -c ...` is parsed as `mc sh` and
+          # rejected. docker-compose.yml overrides it the same way, with its
+          # own `entrypoint:` key.
           docker run --rm --network host \
+            --entrypoint sh \
             minio/mc:RELEASE.2025-04-16T18-13-26Z \
-            sh -c "mc alias set local http://localhost:9000 s3k-ci s3k_ci_secret &&
-                   mc mb --ignore-existing local/s3k-attachments"
+            -c "mc alias set local http://localhost:9000 s3k-ci s3k_ci_secret &&
+                mc mb --ignore-existing local/s3k-attachments"
 
       # Migrations run from zero on every CI run, which is the from-scratch
       # check a long-lived development database never performs. A revision
