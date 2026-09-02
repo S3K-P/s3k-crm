@@ -107,12 +107,15 @@ async def create_opportunity(
     accounts = AccountService(session)
     if not await accounts.exists(payload.account_id, principal.organization_id):
         raise NotFoundError("Account not found.")
-    await service.get_stage(payload.stage_id, principal.organization_id)
+    stage = await service.get_stage(payload.stage_id, principal.organization_id)
 
-    opportunity = await service.create(
+    opportunity = await service.create_opportunity(
         organization_id=principal.organization_id,
         actor_id=principal.user_id,
         values=payload.model_dump(exclude_unset=True),
+        # Already fetched and organization-checked above; passing it avoids a
+        # second lookup of the same row.
+        stage=stage,
     )
     return OpportunityResponse.model_validate(opportunity)
 

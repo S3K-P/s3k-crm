@@ -22,6 +22,7 @@ from typing import Any
 from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import ValidationFailedError
 from app.products.crm.activities.models import (
     Activity,
     ActivityStatus,
@@ -33,6 +34,36 @@ from app.products.crm.shared.pagination import PageParams
 from app.products.crm.shared.relations import validate_related_entity
 from app.products.crm.shared.repository import TenantScopedRepository
 from app.products.crm.shared.service import TenantScopedService
+
+#: Activity types that duplicate a module of their own.
+#:
+#: ``ActivityType`` carries TASK and NOTE, but ``crm.tasks`` and ``crm.notes``
+#: are separate tables with their own endpoints, permissions and lifecycle. Two
+#: places to record the same thing makes activity reporting ambiguous: "how
+#: many tasks are open" has two answers, and the one nobody queries is the one
+#: that quietly diverges.
+#:
+#: The enum values are kept rather than dropped — removing a value from a
+#: PostgreSQL enum means recreating the type and rewriting every dependent
+#: column, which is a large, risky migration to buy a constraint the service
+#: layer can state exactly. Nothing in the codebase produced these values, so
+#: this closes the door before anything walks through it.
+_TYPES_WITH_THEIR_OWN_MODULE: dict[ActivityType, str] = {
+    ActivityType.TASK: "/crm/tasks",
+    ActivityType.NOTE: "/crm/notes",
+}
+
+
+def _reject_duplicated_module_type(activity_type: object) -> None:
+    """Refuse an activity type that has a dedicated module."""
+    if not isinstance(activity_type, ActivityType):
+        return
+    endpoint = _TYPES_WITH_THEIR_OWN_MODULE.get(activity_type)
+    if endpoint is not None:
+        raise ValidationFailedError(
+            f"{activity_type.value} records are created through {endpoint}.",
+            details={"type": activity_type.value, "use_instead": endpoint},
+        )
 
 
 class ActivityService(TenantScopedService[Activity]):
@@ -156,6 +187,7 @@ class ActivityService(TenantScopedService[Activity]):
     ) -> Activity:
         """Create an activity and, for meetings, its scheduling row."""
         payload = dict(values)
+        _reject_duplicated_module_type(payload.get("type"))
         meeting_detail = payload.pop("meeting", None)
         payload.pop("completed_at", None)
 

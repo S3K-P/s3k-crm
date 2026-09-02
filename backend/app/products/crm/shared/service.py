@@ -55,6 +55,10 @@ ModelT = TypeVar("ModelT", bound=TenantOwnedModel)
 #: reads every column by name: touching a deferred attribute on a detached or
 #: mid-flush instance triggers a lazy load, which under asyncio is a
 #: ``MissingGreenlet`` rather than a query.
+#:
+#: ``phone_digits`` is excluded on both counts too: PostgreSQL derives it from
+#: ``phone``, which is already in the diff, and it is deferred for the same
+#: greenlet reason. Any generated column added later belongs here.
 _AUDIT_IGNORED_COLUMNS = frozenset(
     {
         "id",
@@ -64,6 +68,7 @@ _AUDIT_IGNORED_COLUMNS = frozenset(
         "created_by_id",
         "updated_by_id",
         "search_vector",
+        "phone_digits",
     }
 )
 

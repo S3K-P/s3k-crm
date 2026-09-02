@@ -24,15 +24,46 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
 from app.platform.audit.service import Action as AuditAction
 from app.products.crm.accounts.models import Account
+from app.products.crm.common import PHONE_MATCH_MIN_DIGITS
 from app.products.crm.contacts.models import Contact
 from app.products.crm.leads.models import Lead, LeadStatus
-from app.products.crm.opportunities.models import Opportunity, PipelineStage
+from app.products.crm.opportunities.models import (
+    Opportunity,
+    OpportunityStageHistory,
+    PipelineStage,
+)
 from app.products.crm.shared.pagination import PageParams
 from app.products.crm.shared.repository import TenantScopedRepository
 from app.products.crm.shared.service import TenantScopedService
 from app.products.crm.shared.visibility import RecordVisibility
 
 logger = structlog.get_logger(__name__)
+
+#: How far ahead a converted lead's deal is assumed to close when the caller
+#: supplies no date. Deliberately round: it reads as provisional, which is
+#: what it is.
+DEFAULT_CLOSE_HORIZON_DAYS = 30
+
+#: Statuses that model *selling*, not *qualifying* — retired from the lead
+#: lifecycle (analysis §5.7, constraint C8).
+#:
+#: A lead used to be able to reach PROPOSAL_SENT and NEGOTIATION without an
+#: Opportunity ever being created. Those are commercially real deals, and in
+#: that state they had no ``deal_value``, no ``expected_close_date``, no stage
+#: history and no presence in any forecast — the pipeline was modelled twice
+#: and the weaker copy was the one that won by default.
+#:
+#: Selling now happens on the Opportunity, where ``pipeline_stages`` already
+#: carries the equivalent stages ("Proposal", "Negotiation") together with the
+#: probability, close date and history that make a deal forecastable.
+#:
+#: The enum values are **kept** rather than dropped. Rows already sitting in
+#: these statuses stay valid and must still be movable — they are absent from
+#: every *target* set below, so nothing new can enter them, but they remain
+#: sources so existing leads can be converted, lost or re-opened normally.
+LEGACY_SELLING_STATUSES: frozenset[LeadStatus] = frozenset(
+    {LeadStatus.PROPOSAL_SENT, LeadStatus.NEGOTIATION}
+)
 
 #: Legal status moves. A lead may always be marked LOST or UNQUALIFIED from
 #: an open stage; CONVERTED is reachable only through :meth:`LeadService.convert`,
@@ -44,12 +75,11 @@ LEAD_TRANSITIONS: dict[LeadStatus, frozenset[LeadStatus]] = {
     LeadStatus.CONTACTED: frozenset(
         {LeadStatus.QUALIFIED, LeadStatus.UNQUALIFIED, LeadStatus.LOST}
     ),
-    LeadStatus.QUALIFIED: frozenset(
-        {LeadStatus.PROPOSAL_SENT, LeadStatus.UNQUALIFIED, LeadStatus.LOST}
-    ),
-    LeadStatus.PROPOSAL_SENT: frozenset(
-        {LeadStatus.NEGOTIATION, LeadStatus.UNQUALIFIED, LeadStatus.LOST}
-    ),
+    # QUALIFIED is the last stop. From here the lead is converted, which is
+    # what creates the Opportunity that carries it the rest of the way.
+    LeadStatus.QUALIFIED: frozenset({LeadStatus.UNQUALIFIED, LeadStatus.LOST}),
+    # Legacy sources: reachable only by rows that predate the change above.
+    LeadStatus.PROPOSAL_SENT: frozenset({LeadStatus.UNQUALIFIED, LeadStatus.LOST}),
     LeadStatus.NEGOTIATION: frozenset({LeadStatus.UNQUALIFIED, LeadStatus.LOST}),
     # Terminal / near-terminal states.
     LeadStatus.UNQUALIFIED: frozenset({LeadStatus.CONTACTED}),  # re-open
@@ -58,9 +88,11 @@ LEAD_TRANSITIONS: dict[LeadStatus, frozenset[LeadStatus]] = {
 }
 
 #: A lead must have reached at least this far before it can be converted.
+#: The two legacy statuses remain convertible so leads already in them are not
+#: stranded; no new lead can reach them.
 CONVERTIBLE_FROM: frozenset[LeadStatus] = frozenset(
-    {LeadStatus.QUALIFIED, LeadStatus.PROPOSAL_SENT, LeadStatus.NEGOTIATION}
-)
+    {LeadStatus.QUALIFIED}
+) | LEGACY_SELLING_STATUSES
 
 
 class InvalidLeadTransitionError(ValidationFailedError):
@@ -89,6 +121,38 @@ class DuplicateLeadEmailError(ConflictError):
     code = "duplicate_lead_email"
     message = (
         "An open lead with that email already exists. Re-submit with allow_duplicate to proceed."
+    )
+
+
+class CompanyRequiredForConversionError(ValidationFailedError):
+    """The lead names no company, so there is nothing to call the account."""
+
+    code = "company_required_for_conversion"
+    message = (
+        "This lead has no company. Set one, or supply account_id to link an existing account."
+    )
+
+
+class AmbiguousConversionMatchError(ConflictError):
+    """Several existing records match the lead, so linking cannot be guessed.
+
+    Account names are deliberately **not** unique (decision C03: duplicates are
+    warned about and may be overridden, because two real companies do share a
+    name). The consequence is that "find the account called Acme" can return
+    more than one row, and conversion used to silently take the first — so
+    which account a converted lead attached to depended on insertion order, and
+    the loser's pipeline quietly went to the wrong company.
+
+    Rather than making names unique — which would break a deliberate product
+    decision — conversion refuses to guess. The caller already has
+    ``GET /leads/{id}/conversion-suggestions`` to show the candidates, and
+    resolves this by passing an explicit ``account_id`` or ``contact_id``.
+    """
+
+    code = "ambiguous_conversion_match"
+    message = (
+        "Several existing records match this lead. Choose one explicitly by "
+        "supplying account_id or contact_id."
     )
 
 
@@ -185,8 +249,15 @@ class LeadService(TenantScopedService[Lead]):
     async def conversion_suggestions(
         self, lead: Lead
     ) -> ConversionSuggestions:
-        """Find existing accounts/contacts the convert UI should offer to link."""
-        account_name = (lead.company or lead.full_name).strip()
+        """Find existing accounts/contacts the convert UI should offer to link.
+
+        ``suggested_account_name`` is the lead's company and nothing else. It
+        used to fall back to the person's name, which put "Ada Lovelace" in the
+        account-name box — the UI proposing exactly the person-named company
+        record conversion now refuses to create. Empty is the honest answer:
+        the form should ask for a company, not invent one.
+        """
+        account_name = (lead.company or "").strip()
         accounts = await self._find_accounts_by_name(lead.organization_id, account_name)
         contacts: list[Contact] = []
         seen: set[uuid.UUID] = set()
@@ -209,7 +280,9 @@ class LeadService(TenantScopedService[Lead]):
             matching_contacts=tuple(contacts),
             suggested_account_name=account_name,
             suggested_contact_name=lead.full_name,
-            suggested_opportunity_name=f"{account_name} — new opportunity",
+            suggested_opportunity_name=(
+                f"{account_name} — new opportunity" if account_name else "New opportunity"
+            ),
             suggested_deal_value=lead.expected_deal_size,
         )
 
@@ -340,8 +413,40 @@ class LeadService(TenantScopedService[Lead]):
                 raise NotFoundError("Account not found.")
             return existing
 
-        account_name = (lead.company or lead.full_name).strip()
+        # A company is required to *create* an account, but not to hold a lead.
+        #
+        # Conversion used to fall back to the person's name, which created
+        # Accounts called "Ada Lovelace" — a company record naming a human.
+        # Those accumulate silently and are indistinguishable from real
+        # companies afterwards.
+        #
+        # Requiring ``company`` on the Lead itself would be the wrong place for
+        # it: meeting someone before you know where they work is ordinary, and
+        # blocking capture over it loses the lead entirely. The requirement
+        # belongs where the Account is actually made. A caller who genuinely
+        # wants to attach the person to a known company still can, by passing
+        # ``account_id``.
+        account_name = (lead.company or "").strip()
+        if not account_name:
+            raise CompanyRequiredForConversionError(
+                details={
+                    "lead_id": str(lead.id),
+                    "resolution": (
+                        "Set the lead's company, or supply account_id to link an "
+                        "existing account."
+                    ),
+                }
+            )
+
         matches = await self._find_accounts_by_name(organization_id, account_name)
+        if len(matches) > 1:
+            raise AmbiguousConversionMatchError(
+                details={
+                    "field": "account_id",
+                    "name": account_name,
+                    "candidates": [str(match.id) for match in matches],
+                }
+            )
         if matches:
             return matches[0]
 
@@ -389,18 +494,30 @@ class LeadService(TenantScopedService[Lead]):
                 await self._session.flush()
             return existing
 
-        if lead.email:
-            matches = await self._find_contacts_by_email(organization_id, str(lead.email))
-            if matches:
-                contact = matches[0]
-                if contact.account_id != account.id:
-                    contact.account_id = account.id
-                    contact.updated_by_id = actor_id
-                    await self._session.flush()
-                return contact
-
-        if lead.phone:
-            matches = await self._find_contacts_by_phone(organization_id, lead.phone)
+        # Email first, then phone: an address identifies a person more
+        # precisely than a number a whole office may share.
+        for field, matches in (
+            (
+                "email",
+                await self._find_contacts_by_email(organization_id, str(lead.email))
+                if lead.email
+                else (),
+            ),
+            (
+                "phone",
+                await self._find_contacts_by_phone(organization_id, lead.phone)
+                if lead.phone
+                else (),
+            ),
+        ):
+            if len(matches) > 1:
+                raise AmbiguousConversionMatchError(
+                    details={
+                        "field": "contact_id",
+                        "matched_on": field,
+                        "candidates": [str(match.id) for match in matches],
+                    }
+                )
             if matches:
                 contact = matches[0]
                 if contact.account_id != account.id:
@@ -437,12 +554,32 @@ class LeadService(TenantScopedService[Lead]):
         stage_id: uuid.UUID | None,
         expected_close_date: dt.date | None,
     ) -> Opportunity:
-        resolved_stage_id = stage_id or await self._first_stage_id(lead.organization_id)
-        if resolved_stage_id is None:
+        stage = await self._resolve_stage(lead.organization_id, stage_id)
+        if stage is None:
+            if stage_id is not None:
+                # An explicitly named stage that did not resolve is either
+                # missing or another tenant's, and those must be
+                # indistinguishable — the same rule ``get_or_404`` follows
+                # everywhere else. Reported as 404 rather than as "no pipeline
+                # configured", which would be both wrong and a hint that the id
+                # exists somewhere.
+                raise NotFoundError("Pipeline stage not found.")
             raise ValidationFailedError(
                 "No pipeline stage is configured for this organization.",
                 details={"hint": "Create a pipeline and at least one stage first."},
             )
+        resolved_stage_id = stage.id
+        stage_probability = stage.default_probability
+
+        # ``expected_close_date`` is NOT NULL: a deal with no close date drops
+        # out of every forecast while still looking like live pipeline. The
+        # caller may supply one; when they do not, conversion picks a default
+        # rather than refusing, because the alternative is failing a conversion
+        # over a date the rep has not thought about yet. It is deliberately a
+        # round, obviously-provisional horizon.
+        close_date = expected_close_date or (
+            dt.datetime.now(dt.UTC).date() + dt.timedelta(days=DEFAULT_CLOSE_HORIZON_DAYS)
+        )
 
         opportunity = Opportunity(
             organization_id=lead.organization_id,
@@ -452,7 +589,12 @@ class LeadService(TenantScopedService[Lead]):
             owner_id=lead.owner_id,
             stage_id=resolved_stage_id,
             deal_value=value if value is not None else lead.expected_deal_size,
-            expected_close_date=expected_close_date,
+            expected_close_date=close_date,
+            # The opening stage's probability, for the same reason
+            # ``OpportunityService.create_opportunity`` applies it: a converted
+            # deal must be indistinguishable from one created by hand into the
+            # same stage.
+            win_probability=stage_probability,
             lead_source_id=lead.lead_source_id,
             products=lead.product_interest,
             notes=lead.notes,
@@ -461,21 +603,47 @@ class LeadService(TenantScopedService[Lead]):
         )
         self._session.add(opportunity)
         await self._session.flush()
+
+        # Conversion is the deal's first stage entry, and history is what makes
+        # time-in-stage computable. Without this the opening stage is the one
+        # stage a deal is never recorded as having entered.
+        self._session.add(
+            OpportunityStageHistory(
+                organization_id=lead.organization_id,
+                opportunity_id=opportunity.id,
+                from_stage_id=None,
+                to_stage_id=resolved_stage_id,
+                changed_by_id=actor_id,
+                note="Created by lead conversion",
+            )
+        )
+        await self._session.flush()
         return opportunity
 
-    async def _first_stage_id(self, organization_id: uuid.UUID) -> uuid.UUID | None:
-        """The earliest open stage of the organization's default pipeline."""
-        result = await self._session.execute(
-            select(PipelineStage.id)
-            .where(
-                PipelineStage.organization_id == organization_id,
-                PipelineStage.deleted_at.is_(None),
-                PipelineStage.is_won.is_(False),
-                PipelineStage.is_lost.is_(False),
-            )
-            .order_by(PipelineStage.sort_order)
-            .limit(1)
+    async def _resolve_stage(
+        self, organization_id: uuid.UUID, stage_id: uuid.UUID | None
+    ) -> PipelineStage | None:
+        """The stage a converted lead's deal opens in.
+
+        Returns the whole stage rather than its id because the caller needs
+        ``default_probability`` from it too — a converted deal must carry the
+        same probability a hand-created deal in that stage would.
+
+        An explicit ``stage_id`` is still organization-scoped, so a stage
+        borrowed from another tenant resolves to ``None`` and is reported as
+        "no pipeline configured" rather than being silently accepted.
+        """
+        statement = select(PipelineStage).where(
+            PipelineStage.organization_id == organization_id,
+            PipelineStage.deleted_at.is_(None),
         )
+        if stage_id is not None:
+            statement = statement.where(PipelineStage.id == stage_id)
+        else:
+            statement = statement.where(
+                PipelineStage.is_won.is_(False), PipelineStage.is_lost.is_(False)
+            ).order_by(PipelineStage.sort_order)
+        result = await self._session.execute(statement.limit(1))
         return result.scalar_one_or_none()
 
     async def _find_accounts_by_name(
@@ -513,27 +681,32 @@ class LeadService(TenantScopedService[Lead]):
     async def _find_contacts_by_phone(
         self, organization_id: uuid.UUID, phone: str
     ) -> tuple[Contact, ...]:
-        """Match on digit-normalized phone so formatting differences still hit."""
+        """Match on digit-normalized phone, in SQL and against an index.
+
+        This previously read the fifty oldest contacts and filtered them in
+        Python. That was not merely slow, it was wrong: an organization with
+        more than fifty contacts could not match the fifty-first, so conversion
+        created a duplicate contact and reported success. The bug grew with the
+        tenant.
+
+        ``Contact.phone_digits`` is a generated column holding the same last-ten
+        digits this computes, so the comparison is an indexed equality over the
+        whole table (revision ``20260902_0100``).
+        """
         digits = "".join(ch for ch in phone if ch.isdigit())
-        if len(digits) < 7:
+        if len(digits) < PHONE_MATCH_MIN_DIGITS:
             return ()
         result = await self._session.execute(
             select(Contact)
             .where(
                 Contact.organization_id == organization_id,
                 Contact.deleted_at.is_(None),
-                Contact.phone.is_not(None),
+                Contact.phone_digits == digits[-10:],
             )
             .order_by(Contact.created_at.asc())
-            .limit(50)
+            .limit(10)
         )
-        matches = [
-            contact
-            for contact in result.scalars().all()
-            if contact.phone
-            and "".join(ch for ch in contact.phone if ch.isdigit()).endswith(digits[-10:])
-        ]
-        return tuple(matches[:10])
+        return tuple(result.scalars().all())
 
     async def _open_email_exists(self, organization_id: uuid.UUID, email: str) -> bool:
         result = await self._session.execute(
@@ -660,7 +833,11 @@ class LeadService(TenantScopedService[Lead]):
 
 __all__ = [
     "CONVERTIBLE_FROM",
+    "DEFAULT_CLOSE_HORIZON_DAYS",
     "LEAD_TRANSITIONS",
+    "LEGACY_SELLING_STATUSES",
+    "AmbiguousConversionMatchError",
+    "CompanyRequiredForConversionError",
     "ConversionResult",
     "ConversionSuggestions",
     "DuplicateLeadEmailError",

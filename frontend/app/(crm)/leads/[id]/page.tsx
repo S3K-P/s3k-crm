@@ -19,7 +19,7 @@ import FilterSelect from '@/components/crm/forms/FilterSelect';
 import { useAuth, usePermissions } from '@/context/AuthContext';
 import { describeApiError, useMutation } from '@/features/shared/hooks/useCollection';
 import {
-  LEAD_STATUSES,
+  SELECTABLE_LEAD_STATUSES,
   changeLeadStatus,
   convertLead,
   getLead,
@@ -304,6 +304,10 @@ export default function LeadDetailPage() {
   const lead = data;
   const leadName = [lead.first_name, lead.last_name].filter(Boolean).join(' ').trim();
   const converted = lead.status === 'CONVERTED';
+  /* An Account is a company record, so creating one needs a company name. The
+     backend refuses to fall back to the person's name; this mirrors that rule
+     so the dialog never offers a conversion that cannot succeed. */
+  const companyKnown = Boolean((lead.company ?? '').trim());
 
   const handleStatus = async (next: LeadStatus) => {
     setStatusError(null);
@@ -370,6 +374,7 @@ export default function LeadDetailPage() {
   const handleConvert = async () => {
     if (accountMode === 'link' && !selectedAccountId) return;
     if (contactMode === 'link' && !selectedContactId) return;
+    if (accountMode === 'create' && !companyKnown) return;
 
     /* Conversion is a one-way door: the backend refuses a second attempt
        (`lead_already_converted`), so the user gets one chance to check what
@@ -378,7 +383,7 @@ export default function LeadDetailPage() {
       accountMode === 'link'
         ? (accountOptions.find((option) => option.value === selectedAccountId)?.label ??
           'the selected account')
-        : `a new account "${suggestions?.suggested_account_name ?? lead.company ?? leadName}"`;
+        : `a new account "${suggestions?.suggested_account_name || lead.company || ''}"`;
     const contactLabel =
       contactMode === 'link'
         ? (contactOptions.find((option) => option.value === selectedContactId)?.label ??
@@ -483,7 +488,7 @@ export default function LeadDetailPage() {
                 value={lead.status}
                 onChange={(event) => void handleStatus(event.target.value as LeadStatus)}
                 aria-label="Change lead status"
-                options={LEAD_STATUSES.filter((s) => s !== 'CONVERTED').map((value) => ({
+                options={SELECTABLE_LEAD_STATUSES.map((value) => ({
                   value,
                   label: humanize(value),
                 }))}
@@ -670,7 +675,8 @@ export default function LeadDetailPage() {
                 pending ||
                 convertLoading ||
                 (accountMode === 'link' && !selectedAccountId) ||
-                (contactMode === 'link' && !selectedContactId)
+                (contactMode === 'link' && !selectedContactId) ||
+                (accountMode === 'create' && !companyKnown)
               }
               className="flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               style={{ background: 'var(--accent)' }}
@@ -744,6 +750,16 @@ export default function LeadDetailPage() {
                 </span>
               ) : null}
             </label>
+            {/* An account is a company record. Without a company name the
+                backend refuses (`company_required_for_conversion`) rather than
+                naming the account after the person, so say so here instead of
+                letting the user find out by pressing Convert. */}
+            {accountMode === 'create' && !companyKnown && (
+              <p className="rounded-xl border border-amber-300/60 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+                This lead has no company, so there is nothing to name a new account after.
+                Set the lead&apos;s company, or link an existing account below.
+              </p>
+            )}
             <label className="flex items-center gap-2 text-[13px] font-semibold">
               <input
                 type="radio"

@@ -16,6 +16,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 from collections.abc import Sequence
+from typing import Any, cast
 
 import structlog
 from sqlalchemy import ColumnElement, func, select
@@ -62,6 +63,13 @@ class LossReasonRequiredError(ValidationFailedError):
 
     code = "loss_reason_required"
     message = "A reason is required when marking an opportunity as lost."
+
+
+class CloseDateRequiredError(ValidationFailedError):
+    """Clearing the close date of a live deal."""
+
+    code = "close_date_required"
+    message = "An opportunity must keep an expected close date."
 
 
 class OpportunityService(TenantScopedService[Opportunity]):
@@ -192,6 +200,78 @@ class OpportunityService(TenantScopedService[Opportunity]):
         await self._session.flush()
         logger.info("default_pipeline_created", organization_id=str(organization_id))
         return pipeline
+
+    # --- Creation ----------------------------------------------------------
+
+    async def create_opportunity(
+        self,
+        *,
+        organization_id: uuid.UUID,
+        actor_id: uuid.UUID | None,
+        values: dict[str, Any],
+        stage: PipelineStage | None = None,
+    ) -> Opportunity:
+        """Create a deal with the derivations its stage implies.
+
+        Three things happen here that generic ``create`` cannot do, and that
+        previously only happened when a deal *moved* between stages — so a deal
+        created directly into a stage was inconsistent with an identical deal
+        that arrived there by transition:
+
+        * **Probability comes from the stage.** ``PipelineStage`` already
+          carries ``default_probability``; making the caller retype it invites
+          a number that disagrees with every other deal in that column. An
+          explicitly supplied value still wins, because a rep who knows this
+          particular deal is a long shot is better informed than the default.
+        * **A terminal opening stage closes the deal.** Creating straight into
+          "Closed Won" (importing historical deals does exactly this) must
+          stamp ``won_at``/``lost_at``, or the row reads as open forever and
+          inflates the pipeline.
+        * **The opening stage is recorded in history.** Creation previously
+          wrote no ``opportunity_stage_history`` row at all, so a deal's first
+          stage had no entry and time-in-first-stage was uncomputable.
+
+        ``stage`` may be passed by a caller that has already fetched and
+        organization-checked it, to avoid a second round trip.
+        """
+        payload = dict(values)
+        resolved = (
+            stage
+            if stage is not None
+            else await self.get_stage(cast("uuid.UUID", payload.get("stage_id")), organization_id)
+        )
+        # Take the stage from the resolved row rather than from the payload, so
+        # the id written can never be one that was not organization-checked.
+        payload["stage_id"] = resolved.id
+
+        if payload.get("win_probability") is None and resolved.default_probability is not None:
+            payload["win_probability"] = resolved.default_probability
+
+        now = dt.datetime.now(dt.UTC)
+        if resolved.is_lost:
+            if not str(payload.get("loss_reason") or "").strip():
+                raise LossReasonRequiredError
+            payload["lost_at"] = now
+        elif resolved.is_won:
+            payload["won_at"] = now
+
+        opportunity = await self.create(
+            organization_id=organization_id, actor_id=actor_id, values=payload
+        )
+
+        self._session.add(
+            OpportunityStageHistory(
+                organization_id=organization_id,
+                opportunity_id=opportunity.id,
+                from_stage_id=None,
+                to_stage_id=resolved.id,
+                changed_by_id=actor_id,
+                changed_at=now,
+                note="Created",
+            )
+        )
+        await self._session.flush()
+        return opportunity
 
     # --- Lifecycle ---------------------------------------------------------
 
@@ -352,12 +432,20 @@ class OpportunityService(TenantScopedService[Opportunity]):
 
         Raises:
             OpportunityClosedError: the deal is won or lost.
+            CloseDateRequiredError: the patch clears the close date.
         """
         if opportunity.is_closed:
             raise OpportunityClosedError
         # ``stage_id`` has its own workflow; ignore it here so a PATCH cannot
         # bypass history recording and the win/loss rules.
         values.pop("stage_id", None)
+        # The column is NOT NULL, so an explicit ``"expected_close_date": null``
+        # would otherwise surface as an IntegrityError — a 500 for what is a
+        # perfectly ordinary bad request. ``exclude_unset`` means the key is
+        # only present when the client actually sent it, so this cannot fire
+        # on a patch that simply leaves the date alone.
+        if "expected_close_date" in values and values["expected_close_date"] is None:
+            raise CloseDateRequiredError
         return await self.update(opportunity, actor_id=actor_id, values=values)
 
     async def stage_history(
@@ -377,6 +465,7 @@ class OpportunityService(TenantScopedService[Opportunity]):
 __all__ = [
     "DEFAULT_PIPELINE_NAME",
     "DEFAULT_STAGES",
+    "CloseDateRequiredError",
     "LossReasonRequiredError",
     "OpportunityClosedError",
     "OpportunityService",

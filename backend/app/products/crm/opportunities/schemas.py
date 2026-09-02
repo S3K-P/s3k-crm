@@ -10,20 +10,38 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class OpportunityCreate(BaseModel):
+    """A new deal.
+
+    ``expected_close_date`` is required: a deal with no close date cannot be
+    placed in a forecast period, so it disappears from every projection while
+    still occupying a column on the board.
+
+    ``win_probability`` is optional and normally omitted — the service fills it
+    from the stage's ``default_probability`` so the number agrees with every
+    other deal in that column. Supply it only to override the default for this
+    particular deal.
+
+    ``loss_reason`` is accepted because a deal may legitimately be created
+    directly into a terminal stage (importing historical deals does this), and
+    closing as lost always requires a reason.
+    """
+
     name: str = Field(min_length=1, max_length=255)
     account_id: uuid.UUID
     stage_id: uuid.UUID
+    expected_close_date: dt.date
     primary_contact_id: uuid.UUID | None = None
     owner_id: uuid.UUID | None = None
     deal_value: Decimal | None = Field(default=None, ge=0)
     currency: str = Field(default="USD", min_length=3, max_length=3)
     win_probability: int | None = Field(default=None, ge=0, le=100)
-    expected_close_date: dt.date | None = None
     forecast_category: str | None = Field(default=None, max_length=64)
     competitor: str | None = Field(default=None, max_length=160)
     lead_source_id: uuid.UUID | None = None
     products: str | None = None
     notes: str | None = None
+    loss_reason: str | None = Field(default=None, max_length=255)
+    win_reason: str | None = Field(default=None, max_length=255)
 
 
 class OpportunityUpdate(BaseModel):
@@ -74,7 +92,7 @@ class OpportunityResponse(BaseModel):
     deal_value: Decimal | None
     currency: str
     win_probability: int | None
-    expected_close_date: dt.date | None
+    expected_close_date: dt.date
     health_score: int | None
     forecast_category: str | None
     competitor: str | None

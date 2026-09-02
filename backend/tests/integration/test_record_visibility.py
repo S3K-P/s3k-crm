@@ -262,6 +262,7 @@ def test_another_users_opportunity_cannot_be_moved_or_closed(
             "name": "Sealed deal",
             "account_id": account_id,
             "stage_id": _stage_id(as_alpha_admin, "Qualification"),
+            "expected_close_date": "2026-12-31",
         },
     )
     assert deal.status_code == 201, deal.text
@@ -413,7 +414,12 @@ def test_the_pipeline_breakdown_is_narrowed_but_keeps_every_stage(
     stage_id = _stage_id(as_alpha_admin, "Qualification")
     created = as_alpha_admin.post(
         "/crm/opportunities",
-        json={"name": "Not the rep's deal", "account_id": account_id, "stage_id": stage_id},
+        json={
+            "name": "Not the rep's deal",
+            "account_id": account_id,
+            "stage_id": stage_id,
+            "expected_close_date": "2026-12-31",
+        },
     )
     assert created.status_code == 201, created.text
 

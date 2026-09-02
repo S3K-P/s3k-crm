@@ -149,7 +149,11 @@ class Opportunity(Base, CrmEntityMixin):
         String(3), nullable=False, default="USD", server_default="USD"
     )
     win_probability: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    expected_close_date: Mapped[dt.date | None] = mapped_column(nullable=True)
+    #: Mandatory: a deal with no close date cannot be placed in a forecast
+    #: period, so it drops out of every projection while still looking like
+    #: live pipeline on the board. Conversion supplies a default rather than
+    #: letting the hole through (revision ``20260902_0100``).
+    expected_close_date: Mapped[dt.date] = mapped_column(nullable=False)
     health_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     forecast_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
     competitor: Mapped[str | None] = mapped_column(String(160), nullable=True)

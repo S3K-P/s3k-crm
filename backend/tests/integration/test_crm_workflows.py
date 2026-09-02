@@ -338,6 +338,7 @@ def opportunity_id(as_alpha_admin: ApiSession) -> uuid.UUID:
             "account_id": account["id"],
             "stage_id": str(_stage_id(as_alpha_admin, "Qualification")),
             "deal_value": "50000.00",
+            "expected_close_date": "2026-12-31",
         },
     )
     assert response.status_code == 201, response.text
@@ -450,6 +451,7 @@ def test_an_opportunity_cannot_use_another_organizations_stage(
             "name": "Cross-tenant stage",
             "account_id": account["id"],
             "stage_id": str(foreign_stage),
+            "expected_close_date": "2026-12-31",
         },
     )
 

@@ -21,6 +21,21 @@ export type LeadStatus =
 
 export type Priority = 'HIGH' | 'MEDIUM' | 'LOW';
 
+/**
+ * Statuses that model selling rather than qualifying.
+ *
+ * Retired from the lead lifecycle: a lead in "Negotiation" was a real deal
+ * with no value, no close date, no stage history and no place in any forecast.
+ * That work now happens on the Opportunity, whose pipeline stages carry all
+ * four. The backend keeps these as legal *sources* so existing leads are not
+ * stranded, but nothing new can move into them — see `LEGACY_SELLING_STATUSES`
+ * in `backend/app/products/crm/leads/service.py`.
+ *
+ * They stay in the type and in `LEAD_STATUSES` so historical rows still render
+ * with a proper label; they are simply never offered as a destination.
+ */
+export const LEGACY_LEAD_STATUSES: LeadStatus[] = ['PROPOSAL_SENT', 'NEGOTIATION'];
+
 /** Board columns, in pipeline order. Terminal states are shown last. */
 export const LEAD_STATUSES: LeadStatus[] = [
   'NEW',
@@ -32,6 +47,18 @@ export const LEAD_STATUSES: LeadStatus[] = [
   'CONVERTED',
   'LOST',
 ];
+
+/**
+ * Statuses a user may move a lead *into*.
+ *
+ * `CONVERTED` is excluded because conversion is a separate transaction that
+ * creates an account, a contact and a deal — reaching it by editing a dropdown
+ * would produce a lead that claims to be converted with nothing to show for
+ * it. The legacy selling statuses are excluded for the reason above.
+ */
+export const SELECTABLE_LEAD_STATUSES: LeadStatus[] = LEAD_STATUSES.filter(
+  (status) => status !== 'CONVERTED' && !LEGACY_LEAD_STATUSES.includes(status),
+);
 
 export const PRIORITIES: Priority[] = ['HIGH', 'MEDIUM', 'LOW'];
 

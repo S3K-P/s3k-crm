@@ -277,14 +277,19 @@ function OpportunitiesPageContent() {
   const handleSave = async () => {
     if (!form.name.trim() || !form.account_id) return;
     if (!editing && !startingStageId) return;
+    // Required on create: a deal with no close date sits in no forecast period,
+    // so it vanishes from every projection while still filling a board column.
+    if (!editing && !form.expected_close_date) return;
     const body: OpportunityInput = {
       name: form.name.trim(),
       account_id: form.account_id,
       primary_contact_id: form.primary_contact_id || null,
       deal_value: form.deal_value || null,
-      expected_close_date: form.expected_close_date || null,
       notes: form.notes?.trim() || null,
     };
+    // Only send the date when there is one: the backend rejects an explicit
+    // null on a PATCH rather than silently clearing a live deal's forecast.
+    if (form.expected_close_date) body.expected_close_date = form.expected_close_date;
     // `stage_id` is only meaningful at creation: a PATCH deliberately ignores
     // it so a stage move cannot skip history recording.
     if (!editing) body.stage_id = startingStageId;
@@ -615,7 +620,8 @@ function OpportunitiesPageContent() {
                 pending ||
                 !form.name.trim() ||
                 !form.account_id ||
-                (!editing && !startingStageId)
+                (!editing && !startingStageId) ||
+                (!editing && !form.expected_close_date)
               }
               className="flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               style={{ background: 'var(--accent)' }}
@@ -714,9 +720,10 @@ function OpportunitiesPageContent() {
               onChange={(event) => setForm({ ...form, deal_value: event.target.value })}
             />
           </FormField>
-          <FormField label="Expected close">
+          <FormField label={editing ? 'Expected close' : 'Expected close *'}>
             <FormInput
               type="date"
+              required={!editing}
               value={form.expected_close_date ?? ''}
               onChange={(event) =>
                 setForm({ ...form, expected_close_date: event.target.value })

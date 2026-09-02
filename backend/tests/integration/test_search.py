@@ -117,6 +117,7 @@ def test_an_opportunity_is_found_and_labelled_with_its_stage(
             "name": "Quarterly Renewal",
             "account_id": account["id"],
             "stage_id": _stage_id(as_alpha_admin, "Qualification"),
+            "expected_close_date": "2026-12-31",
         },
     )
 
@@ -326,6 +327,7 @@ def test_every_entity_type_is_filtered_not_just_accounts(
             "name": "Covert Deal",
             "account_id": account["id"],
             "stage_id": _stage_id(other_rep, "Qualification"),
+            "expected_close_date": "2026-12-31",
         },
     )
 

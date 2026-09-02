@@ -269,7 +269,12 @@ def test_an_opportunity_stage_change_is_audited(as_alpha_admin: ApiSession) -> N
     account_id = as_alpha_admin.post("/crm/accounts", json={"name": "Deal Co"}).json()["id"]
     opportunity_id = as_alpha_admin.post(
         "/crm/opportunities",
-        json={"name": "Big Deal", "account_id": account_id, "stage_id": stages[0]["id"]},
+        json={
+            "name": "Big Deal",
+            "account_id": account_id,
+            "stage_id": stages[0]["id"],
+            "expected_close_date": "2026-12-31",
+        },
     ).json()["id"]
 
     moved = as_alpha_admin.post(

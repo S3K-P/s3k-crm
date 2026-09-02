@@ -67,6 +67,30 @@ EMAIL_TERMS = (
     "split_part(split_part(coalesce(email, ''), '@', 2), '.', 1)"
 )
 
+#: The comparable form of a ``phone`` column: its last ten digits, or NULL.
+#:
+#: Phone numbers are typed by humans and arrive as "+91 98765 43210",
+#: "(555) 010-9999" and "555.010.9999" for the same subscriber, so equality on
+#: the raw column finds nothing and the alternative is a scan. Stripping to
+#: digits and keeping the last ten normalizes away punctuation, spacing and
+#: country/trunk prefixes, which is the comparison people actually mean.
+#:
+#: ``nullif(..., '')`` is the part that matters for correctness. Without it a
+#: row with no phone stores the empty string, and every such row compares equal
+#: to every other — so a lookup for a contact with no number would match all of
+#: them. NULL never equals anything, which is the behaviour a missing value
+#: should have.
+#:
+#: Every function here is IMMUTABLE, which is what makes it legal inside a
+#: generated column. Pinned identically in revision ``20260902_0100``: the
+#: migration is the snapshot that built the column, this is the live
+#: definition, and changing one without the other is a bug.
+PHONE_DIGITS = "nullif(right(regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g'), 10), '')"
+
+#: How many digits a caller must supply before a phone lookup is meaningful.
+#: Below this the suffix is short enough to collide with unrelated numbers.
+PHONE_MATCH_MIN_DIGITS = 7
+
 
 def searchable(expression: str) -> Mapped[str | None]:
     """A read-only ``search_vector`` maintained by PostgreSQL (`P3-W20-BE-01`).
@@ -141,6 +165,8 @@ class CrmEntityType(enum.StrEnum):
 
 __all__ = [
     "CRM_SCHEMA",
+    "PHONE_DIGITS",
+    "PHONE_MATCH_MIN_DIGITS",
     "PLATFORM_SCHEMA",
     "RLS_EXEMPT_TABLES",
     "CrmEntityMixin",

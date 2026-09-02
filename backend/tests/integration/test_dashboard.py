@@ -61,6 +61,7 @@ def _opportunity(
         "account_id": _account(session, f"{name} Ltd"),
         "stage_id": _stage_id(session, stage),
         "deal_value": value,
+        "expected_close_date": "2026-12-31",
     }
     if currency is not None:
         payload["currency"] = currency

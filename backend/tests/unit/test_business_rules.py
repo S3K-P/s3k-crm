@@ -17,7 +17,11 @@ from app.platform.authorization.catalog import (
 )
 from app.platform.authorization.models import PermissionAction
 from app.products.crm.leads.models import LeadStatus
-from app.products.crm.leads.service import CONVERTIBLE_FROM, LEAD_TRANSITIONS
+from app.products.crm.leads.service import (
+    CONVERTIBLE_FROM,
+    LEAD_TRANSITIONS,
+    LEGACY_SELLING_STATUSES,
+)
 
 # --- Permission catalogue ---------------------------------------------------
 
@@ -107,20 +111,44 @@ def test_an_unqualified_lead_can_be_reopened() -> None:
     [
         (LeadStatus.NEW, LeadStatus.CONTACTED),
         (LeadStatus.CONTACTED, LeadStatus.QUALIFIED),
-        (LeadStatus.QUALIFIED, LeadStatus.PROPOSAL_SENT),
-        (LeadStatus.PROPOSAL_SENT, LeadStatus.NEGOTIATION),
     ],
 )
 def test_the_happy_path_is_legal(current: LeadStatus, target: LeadStatus) -> None:
+    """The lifecycle now ends at QUALIFIED; conversion carries it on.
+
+    It used to run on to PROPOSAL_SENT and NEGOTIATION. Those describe
+    *selling*, which belongs to the Opportunity — where deal value, close date,
+    stage probability and stage history exist to support it. A lead sitting in
+    "Negotiation" was a real deal with none of them, invisible to every
+    forecast (analysis §5.7, constraint C8).
+    """
     assert target in LEAD_TRANSITIONS[current]
+
+
+@pytest.mark.parametrize("status", sorted(LEGACY_SELLING_STATUSES))
+def test_no_lead_can_be_moved_into_a_retired_selling_status(status: LeadStatus) -> None:
+    """Nothing may target them, from any source at all."""
+    assert not any(status in targets for targets in LEAD_TRANSITIONS.values())
+
+
+@pytest.mark.parametrize("status", sorted(LEGACY_SELLING_STATUSES))
+def test_a_lead_already_in_a_retired_status_is_not_stranded(
+    status: LeadStatus,
+) -> None:
+    """The enum values stay legal *sources* so existing rows still move.
+
+    Dropping them outright would freeze any lead that reached them before the
+    change, which is a worse outcome than a status nobody new can enter.
+    """
+    assert LEAD_TRANSITIONS[status]
+    assert status in CONVERTIBLE_FROM
 
 
 @pytest.mark.parametrize(
     ("current", "target"),
     [
-        (LeadStatus.NEW, LeadStatus.NEGOTIATION),
         (LeadStatus.NEW, LeadStatus.QUALIFIED),
-        (LeadStatus.CONTACTED, LeadStatus.PROPOSAL_SENT),
+        (LeadStatus.QUALIFIED, LeadStatus.NEW),
     ],
 )
 def test_skipping_stages_is_illegal(current: LeadStatus, target: LeadStatus) -> None:
@@ -131,3 +159,12 @@ def test_only_qualified_or_later_leads_are_convertible() -> None:
     assert LeadStatus.NEW not in CONVERTIBLE_FROM
     assert LeadStatus.CONTACTED not in CONVERTIBLE_FROM
     assert LeadStatus.QUALIFIED in CONVERTIBLE_FROM
+
+
+def test_converted_is_never_a_transition_target() -> None:
+    """Conversion creates three records; a status edit creates none.
+
+    Pinned here as well as in the integration suite because it is the single
+    rule that keeps ``convert()`` the only way in.
+    """
+    assert not any(LeadStatus.CONVERTED in targets for targets in LEAD_TRANSITIONS.values())

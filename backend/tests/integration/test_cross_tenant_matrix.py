@@ -42,7 +42,12 @@ def _seed_opportunity(session: ApiSession, name: str) -> tuple[uuid.UUID, uuid.U
 
     response = session.post(
         "/crm/opportunities",
-        json={"name": name, "account_id": account.json()["id"], "stage_id": stage_id},
+        json={
+            "name": name,
+            "account_id": account.json()["id"],
+            "stage_id": stage_id,
+            "expected_close_date": "2026-12-31",
+        },
     )
     assert response.status_code == 201, response.text
     return uuid.UUID(response.json()["id"]), uuid.UUID(account.json()["id"])
@@ -210,6 +215,7 @@ def test_an_opportunity_cannot_be_created_against_another_tenants_account(
             "name": "Planted In Beta",
             "account_id": foreign_account,
             "stage_id": stage_id,
+            "expected_close_date": "2026-12-31",
         },
     )
 

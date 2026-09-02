@@ -7,6 +7,7 @@ import uuid
 
 from sqlalchemy import (
     CheckConstraint,
+    Computed,
     Enum,
     ForeignKey,
     Index,
@@ -17,7 +18,13 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
-from app.products.crm.common import CRM_SCHEMA, EMAIL_TERMS, CrmEntityMixin, searchable
+from app.products.crm.common import (
+    CRM_SCHEMA,
+    EMAIL_TERMS,
+    PHONE_DIGITS,
+    CrmEntityMixin,
+    searchable,
+)
 
 
 class ContactStatus(enum.StrEnum):
@@ -36,6 +43,7 @@ class Contact(Base, CrmEntityMixin):
     __table_args__ = (
         Index("ix_contacts_organization_id_account_id", "organization_id", "account_id"),
         Index("ix_contacts_organization_id_email", "organization_id", "email"),
+        Index("ix_contacts_organization_id_phone_digits", "organization_id", "phone_digits"),
         Index("ix_contacts_organization_id_owner_id", "organization_id", "owner_id"),
         Index("ix_contacts_organization_id_deleted_at", "organization_id", "deleted_at"),
         CheckConstraint(
@@ -54,6 +62,24 @@ class Contact(Base, CrmEntityMixin):
     last_name: Mapped[str] = mapped_column(String(120), nullable=False)
     email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    #: Last ten digits of ``phone``, maintained by PostgreSQL (:data:`PHONE_DIGITS`).
+    #:
+    #: Exists so "find the contact with this number" is an indexed equality
+    #: rather than a scan. Lead conversion previously read fifty contacts and
+    #: filtered them in Python, which was both unindexable *and* wrong: the
+    #: fifty were the fifty oldest, so a match on the fifty-first contact was
+    #: silently missed and conversion created a duplicate.
+    #:
+    #: ``deferred`` for the same reason ``search_vector`` is: it is never read
+    #: in Python, only compared in SQL, and touching a generated column on a
+    #: mid-flush instance under asyncio raises ``MissingGreenlet`` rather than
+    #: issuing a query.
+    phone_digits: Mapped[str | None] = mapped_column(
+        String(10),
+        Computed(PHONE_DIGITS, persisted=True),
+        nullable=True,
+        deferred=True,
+    )
     mobile: Mapped[str | None] = mapped_column(String(32), nullable=True)
     job_title: Mapped[str | None] = mapped_column(String(160), nullable=True)
     department: Mapped[str | None] = mapped_column(String(120), nullable=True)
