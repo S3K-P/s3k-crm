@@ -17,6 +17,12 @@ export interface PipelineStage {
   default_probability: number | null;
   is_won: boolean;
   is_lost: boolean;
+  /** Raw field names this stage gates on. */
+  required_fields?: string[];
+  /** The same, in plain words, for display before a drag. */
+  requirements?: string[];
+  follow_up_task_title?: string | null;
+  follow_up_task_days?: number | null;
 }
 
 export interface Opportunity extends RecordMeta {

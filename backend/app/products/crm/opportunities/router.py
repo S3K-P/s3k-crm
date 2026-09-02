@@ -12,6 +12,7 @@ from app.core.exceptions import NotFoundError
 from app.platform.auth.dependencies import Principal, require_permission
 from app.platform.authorization.service import Action as PermissionAction
 from app.products.crm.accounts.service import AccountService
+from app.products.crm.opportunities.gating import describe as describe_stage
 from app.products.crm.opportunities.schemas import (
     OpportunityCreate,
     OpportunityReopen,
@@ -87,9 +88,18 @@ async def list_stages(
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
     service: ServiceDep,
 ) -> list[PipelineStageResponse]:
-    """The organization's pipeline stages, in order."""
+    """The organization's pipeline stages, in order.
+
+    Each carries what entering it requires, so the board can tell a user what a
+    stage needs before they try to drag a card onto it.
+    """
     stages = await service.list_stages(principal.organization_id)
-    return [PipelineStageResponse.model_validate(stage) for stage in stages]
+    return [
+        PipelineStageResponse.model_validate(stage).model_copy(
+            update={"requirements": list(describe_stage(stage))}
+        )
+        for stage in stages
+    ]
 
 
 @router.post("", response_model=OpportunityResponse, status_code=status.HTTP_201_CREATED)

@@ -665,3 +665,200 @@ async def test_the_stale_nudge_does_not_create_a_second_task(
     ).json()["data"]
     nudges = [t for t in tasks if t["title"] == "Follow up: no activity recently"]
     assert len(nudges) == 1, "the second run must not duplicate the nudge"
+
+
+# --- Stage gating and reporting ----------------------------------------------
+
+
+async def test_a_stage_gates_on_the_fields_it_is_configured_with(
+    session_factory: async_sessionmaker[AsyncSession],
+    as_alpha_admin: ApiSession,
+    clean_jobs: None,
+) -> None:
+    """The Blueprint idea, sized down: block the move and say what is missing."""
+    account = as_alpha_admin.post("/crm/accounts", json={"name": "Gated Ltd"}).json()
+    stages = as_alpha_admin.get("/crm/opportunities/stages").json()
+    qualification = next(s for s in stages if s["name"] == "Qualification")
+    proposal = next(s for s in stages if s["name"] == "Proposal")
+
+    deal = as_alpha_admin.post(
+        "/crm/opportunities",
+        json={
+            "name": "No value yet",
+            "account_id": str(account["id"]),
+            "stage_id": str(qualification["id"]),
+            "expected_close_date": "2026-12-31",
+        },
+    )
+    assert deal.status_code == 201, deal.text
+
+    # Ungated by default: the move succeeds until somebody configures a rule.
+    assert proposal["required_fields"] == []
+
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            text(
+                "UPDATE crm.pipeline_stages SET required_fields = ARRAY['deal_value'] "
+                "WHERE id = :id"
+            ),
+            {"id": proposal["id"]},
+        )
+
+    blocked = as_alpha_admin.post(
+        f"/crm/opportunities/{deal.json()['id']}/stage",
+        json={"stage_id": str(proposal["id"])},
+    )
+
+    assert blocked.status_code == 422, blocked.text
+    body = blocked.json()["error"]
+    assert body["code"] == "stage_requirements_unmet"
+    assert body["details"]["missing"] == ["deal_value"]
+    # The message names the thing in words, not the column.
+    assert "a deal value" in body["message"]
+
+    # Supplying it lets the same move through.
+    as_alpha_admin.patch(
+        f"/crm/opportunities/{deal.json()['id']}", json={"deal_value": "5000.00"}
+    )
+    allowed = as_alpha_admin.post(
+        f"/crm/opportunities/{deal.json()['id']}/stage",
+        json={"stage_id": str(proposal["id"])},
+    )
+    assert allowed.status_code == 200, allowed.text
+
+
+async def test_a_terminal_stage_is_never_gated(
+    session_factory: async_sessionmaker[AsyncSession],
+    as_alpha_admin: ApiSession,
+    clean_jobs: None,
+) -> None:
+    """Recording bad news must never be the hard path.
+
+    A deal is often lost precisely because it never had a value, so gating the
+    lost stage on one would make the truth unrecordable.
+    """
+    account = as_alpha_admin.post("/crm/accounts", json={"name": "Lost Cause Ltd"}).json()
+    stages = as_alpha_admin.get("/crm/opportunities/stages").json()
+    lost = next(s for s in stages if s["name"] == "Closed Lost")
+    deal = as_alpha_admin.post(
+        "/crm/opportunities",
+        json={
+            "name": "Never had a number",
+            "account_id": str(account["id"]),
+            "stage_id": str(stages[0]["id"]),
+            "expected_close_date": "2026-12-31",
+        },
+    )
+
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            text(
+                "UPDATE crm.pipeline_stages SET required_fields = ARRAY['deal_value'] "
+                "WHERE id = :id"
+            ),
+            {"id": lost["id"]},
+        )
+
+    closed = as_alpha_admin.post(
+        f"/crm/opportunities/{deal.json()['id']}/stage",
+        json={"stage_id": str(lost["id"]), "loss_reason": "No budget"},
+    )
+
+    assert closed.status_code == 200, closed.text
+
+
+def test_source_performance_reports_the_funnel_per_source(
+    as_alpha_admin: ApiSession,
+) -> None:
+    """Answerable because lead_sources is an entity, not a picklist."""
+    sources = as_alpha_admin.get(
+        "/crm/lead-sources", params={"page_size": 100}
+    ).json()["data"]
+    website = next(s for s in sources if s["name"] == "Website")
+
+    for index in range(2):
+        created = as_alpha_admin.post(
+            "/crm/leads",
+            json={
+                "first_name": "Lead",
+                "last_name": f"Number{index}",
+                "company": f"Co {index}",
+                "lead_source_id": str(website["id"]),
+            },
+        )
+        assert created.status_code == 201, created.text
+
+    report = as_alpha_admin.get("/crm/dashboard/reports/sources")
+
+    assert report.status_code == 200, report.text
+    row = next(r for r in report.json() if r["name"] == "Website")
+    assert row["leads"] == 2
+    assert row["qualified"] == 0
+    assert row["conversion_rate"] == 0.0
+
+
+def test_unattributed_leads_are_named_rather_than_hidden(
+    as_alpha_admin: ApiSession,
+) -> None:
+    """"How much pipeline has no attribution" is the useful question."""
+    as_alpha_admin.post(
+        "/crm/leads",
+        json={"first_name": "No", "last_name": "Source", "company": "Anon Ltd"},
+    )
+
+    report = as_alpha_admin.get("/crm/dashboard/reports/sources").json()
+
+    assert any(row["name"] == "Unattributed" and row["leads"] == 1 for row in report)
+
+
+def test_the_reports_do_not_leak_across_tenants(
+    api: ApiSession, alpha: Tenant, beta: Tenant
+) -> None:
+    api.login(alpha.admin.email, organization_id=alpha.organization_id)
+    api.post(
+        "/crm/leads",
+        json={"first_name": "Alpha", "last_name": "Only", "company": "A Ltd"},
+    )
+
+    api.login(beta.admin.email, organization_id=beta.organization_id)
+    report = api.get("/crm/dashboard/reports/sources").json()
+
+    assert all(row["leads"] == 0 for row in report) or report == []
+
+
+def test_pipeline_ageing_returns_every_bucket(as_alpha_admin: ApiSession) -> None:
+    """A gap in an ageing chart reads as missing data rather than as zero."""
+    ageing = as_alpha_admin.get("/crm/dashboard/reports/ageing")
+
+    assert ageing.status_code == 200, ageing.text
+    buckets = [row["bucket"] for row in ageing.json()]
+    assert buckets == ["0-30 days", "31-60 days", "61-90 days", "over 90 days"]
+
+
+def test_win_loss_reports_rate_and_reasons(as_alpha_admin: ApiSession) -> None:
+    account = as_alpha_admin.post("/crm/accounts", json={"name": "Outcomes Ltd"}).json()
+    stages = as_alpha_admin.get("/crm/opportunities/stages").json()
+    for name, stage_name, extra in (
+        ("Won one", "Closed Won", {"win_reason": "Best fit"}),
+        ("Lost one", "Closed Lost", {"loss_reason": "Price"}),
+    ):
+        stage = next(s for s in stages if s["name"] == stage_name)
+        created = as_alpha_admin.post(
+            "/crm/opportunities",
+            json={
+                "name": name,
+                "account_id": str(account["id"]),
+                "stage_id": str(stage["id"]),
+                "expected_close_date": "2026-06-30",
+                "deal_value": "1000.00",
+                **extra,
+            },
+        )
+        assert created.status_code == 201, created.text
+
+    report = as_alpha_admin.get("/crm/dashboard/reports/win-loss").json()
+
+    assert report["won"] == 1
+    assert report["lost"] == 1
+    assert report["win_rate"] == 50.0
+    assert {"reason": "Price", "count": 1} in report["loss_reasons"]

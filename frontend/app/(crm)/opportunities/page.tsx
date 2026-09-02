@@ -180,6 +180,9 @@ function OpportunitiesPageContent() {
         id: stage.id,
         label: stage.name,
         color: stage.is_won ? '#059669' : stage.is_lost ? '#dc2626' : 'var(--accent)',
+        // What entering the stage requires, shown on the column so a user
+        // knows before dragging rather than after being refused.
+        hint: stage.requirements?.length ? stage.requirements.join(', ') : undefined,
       })),
     [stages],
   );
@@ -569,6 +572,14 @@ function OpportunitiesPageContent() {
           columns={kanbanColumns}
           data={items}
           groupBy={(opportunity) => opportunity.stage_id}
+          getId={(opportunity) => opportunity.id}
+          // Dragging goes through the same handler the select uses, so the
+          // confirmation for a closing stage and the loss-reason prompt apply
+          // either way — a board must not be a route around a business rule.
+          onMove={(opportunity, stageId) => handleStageChange(opportunity, stageId)}
+          // A count answers "how many"; a sales manager is asking "how much".
+          aggregate={(opportunity) => Number(opportunity.deal_value ?? 0)}
+          formatAggregate={(total) => formatMoney(String(total), 'USD')}
           renderCard={(opportunity) => (
             <div className="surface bd rounded-xl border p-3">
               <button

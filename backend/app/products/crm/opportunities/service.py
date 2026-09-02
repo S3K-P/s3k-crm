@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
 from app.platform.audit.service import Action as AuditAction
 from app.products.crm.common import CrmEntityType
+from app.products.crm.opportunities.gating import check_stage_entry
 from app.products.crm.opportunities.models import (
     Opportunity,
     OpportunityStageHistory,
@@ -82,6 +83,17 @@ class LossReasonRequiredError(ValidationFailedError):
 
     code = "loss_reason_required"
     message = "A reason is required when marking an opportunity as lost."
+
+
+class StageRequirementsUnmetError(ValidationFailedError):
+    """The deal lacks something the target stage requires.
+
+    The Blueprint idea, sized for S3K (analysis §5.6): gate the change *before*
+    it happens rather than reacting to it afterwards. ``details`` names the
+    missing fields so the UI can highlight them instead of showing a sentence.
+    """
+
+    code = "stage_requirements_unmet"
 
 
 class CloseDateRequiredError(ValidationFailedError):
@@ -404,6 +416,17 @@ class OpportunityService(TenantScopedService[Opportunity]):
         if stage.is_lost and not (loss_reason or "").strip():
             raise LossReasonRequiredError
 
+        # Declarative gating: a deal must carry what the stage needs before it
+        # may enter. Checked here rather than in the router so every path — the
+        # API, a bulk stage move, a future automation — is gated by the same
+        # rule.
+        requirement = check_stage_entry(opportunity, stage)
+        if not requirement.is_satisfied:
+            raise StageRequirementsUnmetError(
+                requirement.message(stage.name),
+                details={"stage": stage.name, "missing": list(requirement.fields)},
+            )
+
         previous_stage_id = opportunity.stage_id
         now = dt.datetime.now(dt.UTC)
 
@@ -569,4 +592,5 @@ __all__ = [
     "LossReasonRequiredError",
     "OpportunityClosedError",
     "OpportunityService",
+    "StageRequirementsUnmetError",
 ]

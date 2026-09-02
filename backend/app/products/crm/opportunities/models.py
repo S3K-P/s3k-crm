@@ -26,6 +26,7 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -113,6 +114,16 @@ class PipelineStage(Base, CrmEntityMixin):
     #: How many days after entering the stage that task is due. NULL means the
     #: task is created with no due date rather than one due immediately.
     follow_up_task_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: Fields a deal must carry before it may enter this stage — the analysis's
+    #: Blueprint slot (§5.6), as a column rather than a workflow engine.
+    #:
+    #: **Empty by default.** Which fields matter is a decision a sales manager
+    #: owns; a product that ships opinions here starts refusing stage moves
+    #: people had been making for months. Values are validated against
+    #: ``gating.GATEABLE_FIELDS`` so a typo cannot block a stage permanently.
+    required_fields: Mapped[list[str]] = mapped_column(
+        ARRAY(String(64)), nullable=False, default=list, server_default="{}"
+    )
 
     @property
     def is_closed(self) -> bool:

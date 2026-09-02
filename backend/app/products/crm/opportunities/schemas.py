@@ -123,6 +123,11 @@ class PipelineStageResponse(BaseModel):
     #: UI can tell a user what entering the stage will do before they do it.
     follow_up_task_title: str | None
     follow_up_task_days: int | None
+    #: Raw field names this stage gates on, for the settings screen.
+    required_fields: list[str]
+    #: The same thing in plain words, for the board. Shown before the user
+    #: drags a card, so the process helps rather than obstructs.
+    requirements: list[str] = []
 
 
 class StageHistoryEntry(BaseModel):
