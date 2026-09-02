@@ -125,6 +125,21 @@ class AuditAction(enum.StrEnum):
     OPPORTUNITY_REOPENED = "OPPORTUNITY_REOPENED"
     OWNER_REASSIGNED = "OWNER_REASSIGNED"
 
+    # --- Bulk data movement -------------------------------------------------
+    #
+    # One entry per *operation*, not per record. Fifty individual UPDATED rows
+    # describe fifty accidents; one BULK_UPDATED row naming the field, the
+    # count and the ids describes a decision somebody made — which is the thing
+    # an administrator is looking for when four thousand records changed at
+    # once. The affected ids are carried in ``details`` so the trail can still
+    # answer "was this record one of them".
+    IMPORTED = "IMPORTED"
+    IMPORT_UNDONE = "IMPORT_UNDONE"
+    EXPORTED = "EXPORTED"
+    BULK_UPDATED = "BULK_UPDATED"
+    BULK_ARCHIVED = "BULK_ARCHIVED"
+    BULK_RESTORED = "BULK_RESTORED"
+
 
 class AuditLog(Base, UUIDPrimaryKeyMixin, TenantMixin):
     """One recorded action.

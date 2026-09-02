@@ -35,6 +35,7 @@ from app.products.crm.accounts import models as account_models
 from app.products.crm.activities import models as activity_models
 from app.products.crm.campaigns import models as campaign_models
 from app.products.crm.contacts import models as contact_models
+from app.products.crm.datatransfer import models as datatransfer_models
 from app.products.crm.leads import models as lead_models
 from app.products.crm.notes import models as note_models
 from app.products.crm.opportunities import models as opportunity_models
@@ -52,6 +53,7 @@ __all__ = [
     "authorization_models",
     "campaign_models",
     "contact_models",
+    "datatransfer_models",
     "document_models",
     "lead_models",
     "metadata",

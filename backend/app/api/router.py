@@ -40,6 +40,7 @@ from app.products.crm.activities import router as activities_router
 from app.products.crm.campaigns import router as campaigns_router
 from app.products.crm.contacts import router as contacts_router
 from app.products.crm.dashboard import router as dashboard_router
+from app.products.crm.datatransfer import router as datatransfer_router
 from app.products.crm.leads import router as leads_router
 from app.products.crm.leads import source_router as lead_sources_router
 from app.products.crm.notes import router as notes_router
@@ -118,6 +119,13 @@ crm_router.include_router(
 )
 crm_router.include_router(tasks_router.router, prefix="/crm/tasks", tags=["crm:tasks"])
 crm_router.include_router(notes_router.router, prefix="/crm/notes", tags=["crm:notes"])
+# Import, export and bulk operations. Mounted once for every registered
+# module rather than per module, because the module name is a path segment
+# resolved against the registry — a new importable entity is a registry
+# entry, not another router.
+crm_router.include_router(
+    datatransfer_router.router, prefix="/crm/data", tags=["crm:data-transfer"]
+)
 # Search spans four modules, so it is gated by the permission snapshot inside
 # the query rather than by a module permission on the route — see its router.
 crm_router.include_router(search_router.router, prefix="/crm/search", tags=["crm:search"])
