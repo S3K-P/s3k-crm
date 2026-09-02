@@ -9,8 +9,8 @@
 > **Guiding question throughout:** *if the user enters this information once, how can the CRM
 > use it everywhere else so they never re-enter it?*
 >
-> **Status:** Research complete (six phases). Implementation in progress — see
-> "Phase 5/6 corrections" at the end for what the gap analysis got wrong.
+> **Status:** Research complete (six phases); Stages 0–4 implemented, 5–6 partial. See
+> "Phase 5/6 corrections" and "Implementation status" at the end.
 
 ---
 
@@ -2435,3 +2435,100 @@ guess (`AmbiguousConversionMatchError`) rather than to outlaw duplicates.
    time-in-first-stage calculation needs — had no row.
 4. **Conversion produced deals with no close date**, which is the exact hole
    §5.4 identified for hand-created deals, on a path Phase 5 did not check.
+
+---
+
+# Implementation status — what was actually built
+
+Recorded against the plan in Phase 6. Where the analysis was wrong, the
+correction stands above rather than being edited away, and this section says
+what shipped.
+
+## Stage 0 — Foundations ✅
+
+| Item | Outcome |
+|---|---|
+| Account linking ambiguity | `AmbiguousConversionMatchError`. The Phase 5 recommendation (a unique index on account names) was **withdrawn**: it contradicts decision C03, which deliberately allows duplicate names. The defect was conversion taking `matches[0]`, not the duplicates |
+| Lead lifecycle (C8) | `NEW → CONTACTED → QUALIFIED → convert()`. `PROPOSAL_SENT`/`NEGOTIATION` kept as legal *sources* so existing rows are not stranded |
+| Phone matching | `contacts.phone_digits` generated column, indexed. Was **wrong, not just slow**: it read the fifty oldest contacts, so a match on the fifty-first was invisible and conversion silently duplicated |
+| Close date / terminal state | `expected_close_date` NOT NULL; `create_opportunity()` applies stage probability, stamps `won_at`/`lost_at`, writes the opening stage-history row |
+| *(unplanned)* | Conversion accepted a **cross-tenant `stage_id`** — a tenant-isolation defect the analysis did not predict |
+
+## Stage 1 — Derivations ✅
+
+Lead notes move to what the lead became (moved, not copied — three copies drift)
+with `origin_entity_*` preserving provenance. Weighted pipeline
+(`deal_value × win_probability`) as total, per stage and KPI, visibility-filtered.
+Declarative stage follow-up tasks with duplicate suppression. Idempotent
+lead-source seeding.
+
+## Stage 2 — Bulk data ✅
+
+CSV import with auto-mapping, preview sharing the commit code path, per-row
+errors numbered as the spreadsheet numbers them, add/update/both, relation
+resolution by name, and `skip_empty_values` on by default. Bounded 30-day undo
+that removes only what the import *created*. Export implementing the `EXPORT`
+permission the catalogue had promised since the beginning. Bulk update,
+archive, restore, owner assignment and stage moves.
+
+**A test caught a real bug**: the importer created unowned records, and
+record-level visibility treats unowned rows as visible organization-wide — an
+import would have published every row to every user in the tenant.
+
+## Stage 3 — Scheduler ✅
+
+PostgreSQL-backed queue: `FOR UPDATE SKIP LOCKED` claiming, a partial unique
+index for idempotency, stale-claim recovery, retries with backoff recorded on a
+*fresh* transaction, per-job tenant context, and job history.
+
+Writing the RLS test exposed a design point worth keeping: **claiming must scan
+across tenants** while **handlers must be scoped to one**, so the runner takes a
+separate `handler_session_factory` and the docstring states what a deployment
+needs.
+
+## Stage 4 — Automation ✅ (backend)
+
+Assignment rules on **every** creation path — the hook sits in
+`TenantScopedService.create`, the choke point every CRM service creates through,
+plus the importer. Zoho skips manual creation; S3K does not. Lead, contact and
+account-health scoring, off by default and explaining themselves. Campaign
+rollups now run on a schedule. Stale-lead, stale-opportunity and closing-soon
+nudges with duplicate suppression.
+
+**Not built:** REST endpoints for editing assignment rules and automation
+settings. The tables, the resolution logic and the jobs all work and are
+tested; configuring them today means a database write. This is the largest
+single gap in Stage 4.
+
+## Stage 5 — Workflow UX 🟡 partial
+
+| Item | Status |
+|---|---|
+| Related-list creation with context inheritance | **Already existed** — verified, not rebuilt. Account→Contact, Account→Opportunity, Contact→Opportunity all pre-fill and save real foreign keys |
+| Stage requirements / gating | ✅ `pipeline_stages.required_fields`, empty by default |
+| Kanban drag-and-drop + per-column value | ✅ Both added; dragging goes through the same handler as the select, so business rules are not bypassed |
+| Inline editing | ❌ Not built |
+| Mass-action UI | ❌ Backend complete; no frontend surface |
+| Import/export UI | ❌ Backend complete; no frontend surface |
+
+## Stage 6 — Differentiators 🟡 partial
+
+| Item | Status |
+|---|---|
+| Source ROI reporting | ✅ Per-source funnel, answerable because `lead_sources` is an entity |
+| Reports: win/loss, ageing, funnel | ✅ |
+| `QualificationRecord` (BANT/MEDDICC) | ❌ Not built. The lifecycle is correct and the frontend queue still refuses to fake scores |
+| Books integration boundary | ❌ Not built |
+
+## Honest summary
+
+Stages 0–4 are complete and tested on the backend. Stages 5 and 6 are partial:
+the backend capabilities are in place and covered, but several of them have no
+frontend surface yet, and two Stage 6 items (qualification records, the Books
+boundary) were not started.
+
+The pattern worth carrying forward is the one from the Phase 5 corrections:
+**read the service before believing something is missing.** Related-list context
+inheritance, campaign rollups, duplicate guards, stage probability and terminal
+stamping were all already built. Roughly a third of what the analysis called
+missing was already there.
