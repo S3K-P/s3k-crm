@@ -133,20 +133,8 @@ jobs:
           --health-timeout 5s
           --health-retries 12
 
-      minio:
-        image: bitnami/minio:latest
-        env:
-          MINIO_ROOT_USER: s3k-ci
-          MINIO_ROOT_PASSWORD: s3k_ci_secret
-          # Bitnami's image creates the bucket on boot, which replaces the
-          # separate `mc` init container docker-compose.yml uses locally.
-          MINIO_DEFAULT_BUCKETS: s3k-attachments
-        ports: ['9000:9000']
-        options: >-
-          --health-cmd "mc ready local || curl -f http://localhost:9000/minio/health/live"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
+      # MinIO is deliberately *not* a service container — see the
+      # "Start MinIO" step below for why it has to be a `docker run`.
 
     env:
       # The runtime deliberately refuses to start without these; CI is not
@@ -203,6 +191,54 @@ jobs:
             -c "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = 's3k_app';" \
             | grep -qi '^ *f$' \
             || { echo "::error::s3k_app can bypass RLS; tenant isolation would not be tested"; exit 1; }
+
+      # ── Why MinIO is a step and not a service container ──────────────────
+      # It used to be `bitnami/minio:latest`, chosen because that image
+      # creates the bucket on boot via MINIO_DEFAULT_BUCKETS and so needed no
+      # `mc` init container. Bitnami has since emptied its public Docker Hub
+      # repositories — `bitnami/minio` now resolves to zero tags, and the pull
+      # fails with "manifest unknown". That failed *container initialisation*,
+      # which aborts the whole job before a single test runs, so the entire
+      # backend suite stopped executing rather than merely skipping the
+      # attachment tests.
+      #
+      # The official image is the one docker-compose.yml already pins, which
+      # makes local and CI storage the same build. It cannot be a service
+      # container, though: it needs `server /data` as its command, and the
+      # `services:` block has no way to pass one. So it is started here, with
+      # the bucket created exactly as the `minio-init` container does locally.
+      #
+      # Tags are pinned rather than `latest` — an unpinned tag is what made
+      # this break arrive silently in the first place.
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=s3k-ci \
+            -e MINIO_ROOT_PASSWORD=s3k_ci_secret \
+            minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+
+          # Wait for the health endpoint rather than sleeping a fixed amount.
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:9000/minio/health/live >/dev/null 2>&1; then
+              echo "MinIO is live after ${i} attempt(s)"
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "::error::MinIO did not become healthy"
+              docker logs minio
+              exit 1
+            fi
+            sleep 2
+          done
+
+          # Create the attachments bucket, as docker-compose's `minio-init`
+          # service does. Idempotent, and on its own network alias-free run
+          # the container reaches MinIO over the host gateway.
+          docker run --rm --network host \
+            minio/mc:RELEASE.2025-04-16T18-13-26Z \
+            sh -c "mc alias set local http://localhost:9000 s3k-ci s3k_ci_secret &&
+                   mc mb --ignore-existing local/s3k-attachments"
 
       # Migrations run from zero on every CI run, which is the from-scratch
       # check a long-lived development database never performs. A revision
@@ -279,9 +315,17 @@ jobs:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
 
+      # `--no-emit-project` omits the `-e file:///.../backend` line for the
+      # project itself. Without it pip-audit fails outright — it installs the
+      # requirements file with hashes enforced, and an editable directory has
+      # no single file to hash. That aborted the audit before it examined a
+      # single dependency, so the job was reporting a packaging error rather
+      # than the advisories it exists to surface. Auditing our own source tree
+      # was never the point: this step is about third-party CVEs.
       - name: Python advisories
         run: |
-          uv export --frozen --no-dev --format requirements-txt > /tmp/requirements.txt
+          uv export --frozen --no-dev --no-emit-project \
+            --format requirements-txt > /tmp/requirements.txt
           uvx pip-audit --requirement /tmp/requirements.txt
         working-directory: backend
 
