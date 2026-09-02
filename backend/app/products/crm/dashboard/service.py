@@ -75,6 +75,9 @@ class DashboardService:
         pipeline_value = await repository.sum_open_pipeline_value(
             organization_id, visibility=scope.opportunities
         )
+        weighted_pipeline_value = await repository.sum_weighted_pipeline_value(
+            organization_id, visibility=scope.opportunities
+        )
         currencies = await repository.open_pipeline_currencies(
             organization_id, visibility=scope.opportunities
         )
@@ -96,9 +99,14 @@ class DashboardService:
         )
         pipeline = [
             PipelineStageSummary(
-                stage_id=stage_id, name=name, sort_order=sort_order, count=count, value=value
+                stage_id=stage_id,
+                name=name,
+                sort_order=sort_order,
+                count=count,
+                value=value,
+                weighted_value=weighted_value,
             )
-            for stage_id, name, sort_order, count, value in stages
+            for stage_id, name, sort_order, count, value, weighted_value in stages
         ]
 
         tasks = [
@@ -168,6 +176,7 @@ class DashboardService:
                 qualified_leads=qualified,
                 open_opportunities=open_opportunities,
                 pipeline_value=pipeline_value,
+                weighted_pipeline_value=weighted_pipeline_value,
                 meetings_today=meetings_today,
                 tasks_due=tasks_due,
                 tasks_due_high_priority=tasks_due_high,
@@ -175,6 +184,7 @@ class DashboardService:
             ),
             pipeline=pipeline,
             pipeline_total=pipeline_value,
+            weighted_pipeline_total=weighted_pipeline_value,
             pipeline_currency=pipeline_currency,
             tasks=tasks,
             meetings=meetings,

@@ -168,6 +168,49 @@ class DashboardRepository:
         )
         return Decimal(str(result.scalar_one()))
 
+    async def sum_weighted_pipeline_value(
+        self, organization_id: uuid.UUID, *, visibility: RecordVisibility | None = None
+    ) -> Decimal:
+        """Open pipeline discounted by each deal's probability of closing.
+
+        ``sum(deal_value * win_probability / 100)`` — the number a sales
+        manager actually forecasts on, because raw pipeline counts a 10%
+        Qualification deal the same as a 90% Contract Review one.
+
+        Two deliberate choices about missing data:
+
+        * **A deal with no probability contributes nothing**, rather than
+          contributing its full value. ``win_probability`` is derived from the
+          stage on every entry path (Stage 0), so a NULL means an old row
+          nobody has touched — and counting an unknown at 100% is exactly the
+          optimism a weighted figure exists to remove.
+        * **Only open deals count.** A won deal is revenue, not pipeline, and a
+          lost one is neither.
+
+        Computed in PostgreSQL rather than by summing rows in Python: a tenant
+        with fifty thousand open deals should cost one aggregate, not fifty
+        thousand ORM objects. The division is on ``Numeric`` throughout, so the
+        result keeps the currency precision ``deal_value`` was stored with.
+        """
+        weighted = func.sum(
+            Opportunity.deal_value * Opportunity.win_probability / Decimal(100)
+        )
+        result = await self._session.execute(
+            self._scoped(
+                select(func.coalesce(weighted, 0)).where(
+                    Opportunity.organization_id == organization_id,
+                    Opportunity.deleted_at.is_(None),
+                    Opportunity.won_at.is_(None),
+                    Opportunity.lost_at.is_(None),
+                    Opportunity.deal_value.is_not(None),
+                    Opportunity.win_probability.is_not(None),
+                ),
+                visibility,
+                Opportunity,
+            )
+        )
+        return Decimal(str(result.scalar_one()))
+
     async def open_pipeline_currencies(
         self, organization_id: uuid.UUID, *, visibility: RecordVisibility | None = None
     ) -> list[str]:
@@ -265,11 +308,16 @@ class DashboardRepository:
 
     async def pipeline_by_stage(
         self, organization_id: uuid.UUID, *, visibility: RecordVisibility | None = None
-    ) -> Sequence[tuple[uuid.UUID, str, int, int, Decimal]]:
-        """Open stages with their loaded opportunity count and value.
+    ) -> Sequence[tuple[uuid.UUID, str, int, int, Decimal, Decimal]]:
+        """Open stages with their loaded opportunity count, value and weighting.
 
         A LEFT JOIN so a configured stage with no deals still appears with a
         zero — an empty column is information, not an absence.
+
+        The weighted column is the same ``value * probability`` the total uses,
+        computed per stage in the same pass. Two aggregates over one scan
+        rather than a second query, and it is what lets a Kanban column show
+        both what is in it and what it is worth after discounting.
         """
         result = await self._session.execute(
             select(
@@ -278,6 +326,14 @@ class DashboardRepository:
                 PipelineStage.sort_order,
                 func.count(Opportunity.id),
                 func.coalesce(func.sum(Opportunity.deal_value), 0),
+                func.coalesce(
+                    func.sum(
+                        Opportunity.deal_value
+                        * func.coalesce(Opportunity.win_probability, 0)
+                        / Decimal(100)
+                    ),
+                    0,
+                ),
             )
             .outerjoin(
                 Opportunity,
@@ -300,7 +356,15 @@ class DashboardRepository:
             .order_by(PipelineStage.sort_order)
         )
         return [
-            (row[0], row[1], row[2], int(row[3]), Decimal(str(row[4]))) for row in result.all()
+            (
+                row[0],
+                row[1],
+                int(row[2]),
+                int(row[3]),
+                Decimal(str(row[4])),
+                Decimal(str(row[5])),
+            )
+            for row in result.all()
         ]
 
     # --- Lists -------------------------------------------------------------

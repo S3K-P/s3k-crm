@@ -119,6 +119,10 @@ class PipelineStageResponse(BaseModel):
     default_probability: int | None
     is_won: bool
     is_lost: bool
+    #: Follow-up automation configured on this stage, if any. Exposed so the
+    #: UI can tell a user what entering the stage will do before they do it.
+    follow_up_task_title: str | None
+    follow_up_task_days: int | None
 
 
 class StageHistoryEntry(BaseModel):

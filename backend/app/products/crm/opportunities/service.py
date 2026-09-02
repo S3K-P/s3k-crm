@@ -16,7 +16,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 from collections.abc import Sequence
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 import structlog
 from sqlalchemy import ColumnElement, func, select
@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
 from app.platform.audit.service import Action as AuditAction
+from app.products.crm.common import CrmEntityType
 from app.products.crm.opportunities.models import (
     Opportunity,
     OpportunityStageHistory,
@@ -34,20 +35,38 @@ from app.products.crm.shared.pagination import PageParams
 from app.products.crm.shared.repository import TenantScopedRepository
 from app.products.crm.shared.service import TenantScopedService
 from app.products.crm.shared.visibility import RecordVisibility
+from app.products.crm.tasks.models import Task, TaskStatus
 
 logger = structlog.get_logger(__name__)
 
 #: Seeded for a new organization; mirrors the stage list the frontend shows.
 DEFAULT_PIPELINE_NAME = "Standard Sales Pipeline"
-DEFAULT_STAGES: tuple[tuple[str, int, int, bool, bool], ...] = (
-    # (name, sort_order, default_probability, is_won, is_lost)
-    ("Qualification", 1, 10, False, False),
-    ("Discovery", 2, 25, False, False),
-    ("Proposal", 3, 50, False, False),
-    ("Negotiation", 4, 75, False, False),
-    ("Contract Review", 5, 90, False, False),
-    ("Closed Won", 6, 100, True, False),
-    ("Closed Lost", 7, 0, False, True),
+
+
+class _DefaultStage(NamedTuple):
+    """One seeded stage. A tuple was fine at five fields and is not at seven."""
+
+    name: str
+    sort_order: int
+    default_probability: int
+    is_won: bool
+    is_lost: bool
+    #: Follow-up created on entry, or ``None`` for no automation. Seeded on the
+    #: open stages where a deal genuinely goes quiet; the closed ones need no
+    #: chasing, and Qualification is where the deal already has the rep's
+    #: attention.
+    follow_up_task_title: str | None = None
+    follow_up_task_days: int | None = None
+
+
+DEFAULT_STAGES: tuple[_DefaultStage, ...] = (
+    _DefaultStage("Qualification", 1, 10, False, False),
+    _DefaultStage("Discovery", 2, 25, False, False, "Send proposal", 5),
+    _DefaultStage("Proposal", 3, 50, False, False, "Follow up on proposal", 3),
+    _DefaultStage("Negotiation", 4, 75, False, False, "Confirm terms", 2),
+    _DefaultStage("Contract Review", 5, 90, False, False, "Chase signature", 3),
+    _DefaultStage("Closed Won", 6, 100, True, False),
+    _DefaultStage("Closed Lost", 7, 0, False, True),
 )
 
 
@@ -183,16 +202,18 @@ class OpportunityService(TenantScopedService[Opportunity]):
         self._session.add(pipeline)
         await self._session.flush()
 
-        for name, order, probability, is_won, is_lost in DEFAULT_STAGES:
+        for default in DEFAULT_STAGES:
             self._session.add(
                 PipelineStage(
                     organization_id=organization_id,
                     pipeline_id=pipeline.id,
-                    name=name,
-                    sort_order=order,
-                    default_probability=probability,
-                    is_won=is_won,
-                    is_lost=is_lost,
+                    name=default.name,
+                    sort_order=default.sort_order,
+                    default_probability=default.default_probability,
+                    is_won=default.is_won,
+                    is_lost=default.is_lost,
+                    follow_up_task_title=default.follow_up_task_title,
+                    follow_up_task_days=default.follow_up_task_days,
                     created_by_id=actor_id,
                     updated_by_id=actor_id,
                 )
@@ -271,7 +292,84 @@ class OpportunityService(TenantScopedService[Opportunity]):
             )
         )
         await self._session.flush()
+
+        await self._create_stage_follow_up(opportunity, resolved, actor_id=actor_id)
         return opportunity
+
+    # --- Stage automation --------------------------------------------------
+
+    async def _create_stage_follow_up(
+        self,
+        opportunity: Opportunity,
+        stage: PipelineStage,
+        *,
+        actor_id: uuid.UUID | None,
+    ) -> Task | None:
+        """Create the stage's configured follow-up task, if it has one.
+
+        Declarative rather than a workflow engine: the stage row names a title
+        and a due-date offset, and entering the stage creates that task. There
+        is no condition language and no action registry to learn — the analysis
+        (§4.4) rules a Zoho-style designer out of scope, and a nullable column
+        expresses "chase this in three days" exactly.
+
+        **Duplicate protection.** A deal can revisit a stage — a rep moves it
+        forward, discovers a problem, moves it back, moves it forward again —
+        and each entry would otherwise mint another identical task. An *open*
+        task with the same title on the same opportunity means the previous one
+        is still outstanding, so a second adds nothing but noise. A completed
+        one does not block a new task, because the follow-up genuinely is due
+        again.
+
+        The task belongs to the deal's owner rather than to whoever moved the
+        stage: a manager advancing a rep's deal is not volunteering to do the
+        chasing. ``organization_id`` comes from the opportunity, so the task
+        cannot land in another tenant.
+        """
+        title = (stage.follow_up_task_title or "").strip()
+        if not title:
+            return None
+
+        already_open = await self._session.execute(
+            select(Task.id)
+            .where(
+                Task.organization_id == opportunity.organization_id,
+                Task.deleted_at.is_(None),
+                Task.related_entity_type == CrmEntityType.OPPORTUNITY,
+                Task.related_entity_id == opportunity.id,
+                Task.title == title,
+                Task.status.notin_((TaskStatus.COMPLETED, TaskStatus.CANCELLED)),
+            )
+            .limit(1)
+        )
+        if already_open.scalar_one_or_none() is not None:
+            return None
+
+        due_date: dt.datetime | None = None
+        if stage.follow_up_task_days is not None:
+            due_date = dt.datetime.now(dt.UTC) + dt.timedelta(days=stage.follow_up_task_days)
+
+        task = Task(
+            organization_id=opportunity.organization_id,
+            title=title,
+            description=f"Automatic follow-up for stage “{stage.name}”.",
+            owner_id=opportunity.owner_id,
+            assigned_to_id=opportunity.owner_id,
+            due_date=due_date,
+            related_entity_type=CrmEntityType.OPPORTUNITY,
+            related_entity_id=opportunity.id,
+            created_by_id=actor_id,
+            updated_by_id=actor_id,
+        )
+        self._session.add(task)
+        await self._session.flush()
+        logger.info(
+            "stage_follow_up_task_created",
+            opportunity_id=str(opportunity.id),
+            stage=stage.name,
+            task_id=str(task.id),
+        )
+        return task
 
     # --- Lifecycle ---------------------------------------------------------
 
@@ -332,6 +430,8 @@ class OpportunityService(TenantScopedService[Opportunity]):
             )
         )
         await self._session.flush()
+
+        await self._create_stage_follow_up(opportunity, stage, actor_id=actor_id)
 
         logger.info(
             "opportunity_stage_changed",

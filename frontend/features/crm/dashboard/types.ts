@@ -15,6 +15,8 @@ export interface DashboardKpis {
   qualified_leads: number;
   open_opportunities: number;
   pipeline_value: string;
+  /** Pipeline discounted by each deal's win probability - the forecast number. */
+  weighted_pipeline_value: string;
   meetings_today: number;
   tasks_due: number;
   tasks_due_high_priority: number;
@@ -27,6 +29,8 @@ export interface PipelineStageSummary {
   sort_order: number;
   count: number;
   value: string;
+  /** `value` discounted by each deal's win probability. */
+  weighted_value: string;
 }
 
 export type DashboardTaskPriority = 'HIGH' | 'MEDIUM' | 'LOW';
@@ -64,6 +68,7 @@ export interface DashboardSummary {
   kpis: DashboardKpis;
   pipeline: PipelineStageSummary[];
   pipeline_total: string;
+  weighted_pipeline_total: string;
   /** `null` when open deals span several currencies — see the backend schema. */
   pipeline_currency: string | null;
   tasks: DashboardTask[];

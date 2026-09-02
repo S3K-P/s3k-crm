@@ -16,17 +16,19 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Any, cast
 
 import structlog
-from sqlalchemy import ColumnElement, func, or_, select
+from sqlalchemy import ColumnElement, CursorResult, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
 from app.platform.audit.service import Action as AuditAction
 from app.products.crm.accounts.models import Account
-from app.products.crm.common import PHONE_MATCH_MIN_DIGITS
+from app.products.crm.common import PHONE_MATCH_MIN_DIGITS, CrmEntityType
 from app.products.crm.contacts.models import Contact
 from app.products.crm.leads.models import Lead, LeadStatus
+from app.products.crm.notes.models import Note
 from app.products.crm.opportunities.models import (
     Opportunity,
     OpportunityStageHistory,
@@ -353,6 +355,10 @@ class LeadService(TenantScopedService[Lead]):
                 expected_close_date=expected_close_date,
             )
 
+        carried_notes = await self._carry_over_notes(
+            lead, contact=contact, opportunity=opportunity, actor_id=actor_id
+        )
+
         lead.status = LeadStatus.CONVERTED
         lead.converted_at = now
         lead.converted_account_id = account.id
@@ -385,11 +391,74 @@ class LeadService(TenantScopedService[Lead]):
                 "account_id": account.id,
                 "contact_id": contact.id,
                 "opportunity_id": opportunity.id if opportunity else None,
+                "notes_carried_over": carried_notes,
             },
         )
         return ConversionResult(
             lead=lead, account=account, contact=contact, opportunity=opportunity
         )
+
+    async def _carry_over_notes(
+        self,
+        lead: Lead,
+        *,
+        contact: Contact,
+        opportunity: Opportunity | None,
+        actor_id: uuid.UUID | None,
+    ) -> int:
+        """Move the lead's notes onto what the lead became.
+
+        **Moved, not copied.** Zoho copies a lead's notes to the deal, the
+        account and the contact. Three copies of one paragraph start to drift
+        the moment anybody edits one, and nothing then says which is right.
+        Re-pointing keeps a single authority, and ``origin_entity_*`` records
+        that the note was written against the lead so provenance is not the
+        thing that gets lost instead.
+
+        The destination is the Opportunity when one was created — that is where
+        the work continues — and the Contact otherwise. The relationship is
+        reachable either way: a converted lead keeps ``converted_contact_id``
+        and ``converted_opportunity_id``.
+
+        Idempotent by construction. It selects only notes still pointing at the
+        lead, and conversion cannot run twice
+        (:class:`LeadAlreadyConvertedError`), so a note cannot be moved twice or
+        arrive at its destination in duplicate.
+
+        Returns:
+            How many notes were moved, for the audit entry.
+        """
+        target_type = CrmEntityType.OPPORTUNITY if opportunity else CrmEntityType.CONTACT
+        target_id = opportunity.id if opportunity else contact.id
+
+        result = await self._session.execute(
+            update(Note)
+            .where(
+                Note.organization_id == lead.organization_id,
+                Note.related_entity_type == CrmEntityType.LEAD,
+                Note.related_entity_id == lead.id,
+                Note.deleted_at.is_(None),
+            )
+            .values(
+                related_entity_type=target_type,
+                related_entity_id=target_id,
+                origin_entity_type=CrmEntityType.LEAD,
+                origin_entity_id=lead.id,
+                updated_by_id=actor_id,
+            )
+        )
+        # ``execute`` is typed as returning ``Result``; an UPDATE always yields
+        # a ``CursorResult``, which is the variant carrying ``rowcount``.
+        moved = int(cast("CursorResult[Any]", result).rowcount or 0)
+        if moved:
+            logger.info(
+                "lead_notes_carried_over",
+                lead_id=str(lead.id),
+                target_type=target_type.value,
+                target_id=str(target_id),
+                count=moved,
+            )
+        return moved
 
     async def _resolve_account(
         self,

@@ -35,6 +35,7 @@ from app.platform.authorization.repository import AuthorizationRepository
 from app.platform.authorization.service import AuthorizationService
 from app.platform.organizations.repository import OrganizationRepository
 from app.platform.organizations.service import OrganizationService, slugify
+from app.products.crm.leads.source_service import LeadSourceService
 from app.products.crm.opportunities.service import OpportunityService
 
 logger = structlog.get_logger(__name__)
@@ -111,8 +112,15 @@ async def bootstrap(
                 organization_id=organization.id,
             )
 
-            # A pipeline must exist before any opportunity can be created.
+            # A pipeline must exist before any opportunity can be created —
+            # without one, converting the first lead fails outright.
             await OpportunityService(session).ensure_default_pipeline(
+                organization.id, actor_id=user.id
+            )
+            # Lead sources are seeded for a softer reason: an empty dropdown on
+            # the first lead form teaches people to leave the field blank, and
+            # a lead with no source can never be attributed to anything.
+            await LeadSourceService(session).ensure_default_sources(
                 organization.id, actor_id=user.id
             )
 

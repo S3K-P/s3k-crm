@@ -37,6 +37,7 @@ from app.platform.authorization.repository import AuthorizationRepository
 from app.platform.authorization.service import AuthorizationService
 from app.platform.organizations.repository import OrganizationRepository
 from app.platform.organizations.service import OrganizationService
+from app.products.crm.leads.source_service import LeadSourceService
 from app.products.crm.opportunities.service import OpportunityService
 
 pytestmark = pytest.mark.integration
@@ -197,6 +198,10 @@ async def _seed_tenant(
 
     if seed_pipeline:
         await OpportunityService(session).ensure_default_pipeline(organization.id)
+        # Seeded here for the same reason bootstrap does it: a tenant with no
+        # lead sources cannot exercise attribution, and the tests should meet
+        # the product in the state a real organization starts in.
+        await LeadSourceService(session).ensure_default_sources(organization.id)
 
     return Tenant(
         organization_id=organization.id,

@@ -284,6 +284,20 @@ export default function DashboardPage() {
                         {formatMoney(data.pipeline_total, data.pipeline_currency)}
                       </span>
                     </div>
+                    {/* The weighted figure sits under the raw one rather than
+                        replacing it: a manager wants both, and showing only the
+                        discounted number hides how much is actually in play. */}
+                    <div className="mt-1 flex items-center justify-between">
+                      <span className="txt-muted text-[12.5px]">
+                        Weighted (× probability)
+                      </span>
+                      <span className="txt-muted text-[14px] font-semibold">
+                        {formatMoney(
+                          data.weighted_pipeline_total,
+                          data.pipeline_currency,
+                        )}
+                      </span>
+                    </div>
                   </>
                 )}
               </Panel>

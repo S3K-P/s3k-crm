@@ -53,5 +53,21 @@ class Note(Base, CrmEntityMixin):
     )
     related_entity_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
 
+    # --- Provenance --------------------------------------------------------
+    #: Where this note was originally written, when it has since been moved.
+    #:
+    #: Lead conversion re-points a lead's notes onto the records the lead
+    #: became. Copying them to all three (Zoho's behaviour) would triple the
+    #: text and leave three copies to drift; moving them keeps one authority.
+    #: But a moved note otherwise loses the fact that it was written while the
+    #: record was still a lead, so these two columns record it.
+    #:
+    #: NULL on a note that has never moved, which is almost all of them.
+    origin_entity_type: Mapped[CrmEntityType | None] = mapped_column(
+        Enum(CrmEntityType, name="crm_entity_type", schema=CRM_SCHEMA, native_enum=True),
+        nullable=True,
+    )
+    origin_entity_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+
 
 __all__ = ["Note", "NoteVisibility"]

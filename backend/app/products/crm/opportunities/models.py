@@ -82,6 +82,10 @@ class PipelineStage(Base, CrmEntityMixin):
             name="default_probability_range",
         ),
         CheckConstraint("NOT (is_won AND is_lost)", name="not_both_won_and_lost"),
+        CheckConstraint(
+            "follow_up_task_days IS NULL OR follow_up_task_days >= 0",
+            name="follow_up_task_days_non_negative",
+        ),
         {"schema": CRM_SCHEMA},
     )
 
@@ -99,6 +103,16 @@ class PipelineStage(Base, CrmEntityMixin):
     is_lost: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+
+    # --- Stage automation --------------------------------------------------
+    #: Title of the task to create when a deal enters this stage, or NULL for
+    #: no automation. Declarative on the stage row rather than encoded in a
+    #: workflow designer: "what happens next in Proposal" is configuration a
+    #: sales manager owns, and one nullable column expresses it exactly.
+    follow_up_task_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    #: How many days after entering the stage that task is due. NULL means the
+    #: task is created with no due date rather than one due immediately.
+    follow_up_task_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     @property
     def is_closed(self) -> bool:

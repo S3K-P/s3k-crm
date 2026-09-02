@@ -37,6 +37,11 @@ class NoteResponse(BaseModel):
     author_id: uuid.UUID | None
     related_entity_type: CrmEntityType
     related_entity_id: uuid.UUID
+    #: Set when the note was moved by lead conversion, so the UI can say
+    #: "written while this was a lead" rather than presenting it as if it had
+    #: always belonged to the record it now hangs off.
+    origin_entity_type: CrmEntityType | None = None
+    origin_entity_id: uuid.UUID | None = None
     created_at: dt.datetime
     updated_at: dt.datetime
     created_by_id: uuid.UUID | None

@@ -30,6 +30,10 @@ class DashboardKpis(BaseModel):
     open_opportunities: int
     #: Summed ``deal_value`` of those open opportunities.
     pipeline_value: Decimal
+    #: The same pipeline discounted by each deal's probability of closing —
+    #: ``sum(deal_value * win_probability / 100)``. The number a forecast is
+    #: built on, because raw pipeline treats a 10% deal like a 90% one.
+    weighted_pipeline_value: Decimal
     #: Activities of type MEETING scheduled for today.
     meetings_today: int
     #: Incomplete tasks due today or earlier.
@@ -48,6 +52,8 @@ class PipelineStageSummary(BaseModel):
     sort_order: int
     count: int
     value: Decimal
+    #: ``value`` discounted by each deal's win probability.
+    weighted_value: Decimal
 
 
 class DashboardTask(BaseModel):
@@ -89,6 +95,7 @@ class DashboardSummary(BaseModel):
     kpis: DashboardKpis
     pipeline: list[PipelineStageSummary]
     pipeline_total: Decimal
+    weighted_pipeline_total: Decimal
     #: ISO code the totals are denominated in, or ``None`` when the open deals
     #: use more than one currency and no single symbol would be truthful.
     pipeline_currency: str | None

@@ -18,6 +18,7 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
+import structlog
 from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +27,22 @@ from app.products.crm.leads.models import Lead, LeadSource, LeadSourceStatus
 from app.products.crm.shared.pagination import PageParams
 from app.products.crm.shared.repository import TenantScopedRepository
 from app.products.crm.shared.service import TenantScopedService
+
+logger = structlog.get_logger(__name__)
+
+#: Starter sources seeded at provisioning so attribution works on day one.
+#: Broad enough to cover the common channels without pretending to know a
+#: particular tenant's marketing mix — they are ordinary rows, renameable
+#: and deletable like any other.
+DEFAULT_LEAD_SOURCES: tuple[tuple[str, str], ...] = (
+    # (name, category)
+    ("Website", "Inbound"),
+    ("Referral", "Inbound"),
+    ("Email Campaign", "Outbound"),
+    ("Cold Outreach", "Outbound"),
+    ("Event", "Marketing"),
+    ("Partner", "Channel"),
+)
 
 
 class DuplicateLeadSourceError(ConflictError):
@@ -50,6 +67,66 @@ class LeadSourceService(TenantScopedService[LeadSource]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(TenantScopedRepository(session, LeadSource), LeadSource)
         self._session = session
+
+    # --- Provisioning ------------------------------------------------------
+
+    async def ensure_default_sources(
+        self, organization_id: uuid.UUID, *, actor_id: uuid.UUID | None = None
+    ) -> Sequence[LeadSource]:
+        """Seed the starter lead sources, skipping any that already exist.
+
+        Attribution is the reason lead sources are an entity in S3K rather than
+        a picklist (analysis §4.6): cost-per-lead and source ROI are only
+        answerable because a source is a row that can carry its own data. None
+        of that works if the first lead form shows an empty dropdown, which
+        teaches people to leave the field blank — and a blank source is a lead
+        that can never be attributed to anything.
+
+        **Idempotent per source, not per organization.** Checking "does this
+        organization have any sources" and bailing out would mean an
+        organization that deleted one of them never gets it back, and a later
+        addition to the defaults would never reach an existing tenant. Each
+        name is checked on its own instead.
+
+        Matching is case-insensitive and ignores archived rows, mirroring
+        ``_name_exists`` and the partial unique index behind it — otherwise the
+        pre-check passes, the INSERT collides, and provisioning fails with a
+        500 on its second run.
+
+        Returns:
+            The sources this call created, which is empty on a repeat run.
+        """
+        existing = await self._session.execute(
+            select(func.lower(LeadSource.name)).where(
+                LeadSource.organization_id == organization_id,
+                LeadSource.deleted_at.is_(None),
+            )
+        )
+        present = {str(name) for name in existing.scalars().all()}
+
+        created: list[LeadSource] = []
+        for name, category in DEFAULT_LEAD_SOURCES:
+            if name.lower() in present:
+                continue
+            source = LeadSource(
+                organization_id=organization_id,
+                name=name,
+                category=category,
+                status=LeadSourceStatus.ACTIVE,
+                created_by_id=actor_id,
+                updated_by_id=actor_id,
+            )
+            self._session.add(source)
+            created.append(source)
+
+        if created:
+            await self._session.flush()
+            logger.info(
+                "default_lead_sources_created",
+                organization_id=str(organization_id),
+                count=len(created),
+            )
+        return created
 
     # --- Queries -----------------------------------------------------------
 
@@ -179,4 +256,9 @@ class LeadSourceService(TenantScopedService[LeadSource]):
         return int(result.scalar_one())
 
 
-__all__ = ["DuplicateLeadSourceError", "LeadSourceInUseError", "LeadSourceService"]
+__all__ = [
+    "DEFAULT_LEAD_SOURCES",
+    "DuplicateLeadSourceError",
+    "LeadSourceInUseError",
+    "LeadSourceService",
+]
