@@ -218,8 +218,18 @@ class TenantScopedService[ModelT: TenantOwnedModel]:
         # owner would produce an unowned row — and under record-level
         # visibility "unowned" means "visible to the whole organization", the
         # opposite of what creating your own lead should do.
+        #
+        # Assignment rules get first refusal. Running them *here* — in the base
+        # every CRM service creates through — is what makes them apply on every
+        # path: manual create, conversion, import, and anything added later.
+        # Zoho runs assignment on import, web forms and the API but not on
+        # manual creation, which is the most common path of all (analysis §2.7);
+        # putting the hook at the single choke point is how S3K avoids
+        # inheriting that gap by construction rather than by remembering.
         if hasattr(self._model, "owner_id") and payload.get("owner_id") is None:
-            payload["owner_id"] = actor_id
+            payload["owner_id"] = await self._assign_owner(
+                organization_id=organization_id, actor_id=actor_id, values=payload
+            )
 
         entity = self._model(  # type: ignore[call-arg]
             **payload,
@@ -302,6 +312,31 @@ class TenantScopedService[ModelT: TenantOwnedModel]:
             details={"deleted_at": deleted.deleted_at, "soft": True},
         )
         return deleted
+
+    async def _assign_owner(
+        self,
+        *,
+        organization_id: uuid.UUID,
+        actor_id: uuid.UUID | None,
+        values: dict[str, Any],
+    ) -> uuid.UUID | None:
+        """Who should own a record this service is about to create.
+
+        Delegates to the assignment rules and falls back to the creating user,
+        which is the behaviour that existed before rules did — so an
+        organization with no rules configured sees no change at all.
+
+        Imported here rather than at module scope: ``automation`` imports the
+        entity models, and those import this base class, so a top-level import
+        is a cycle.
+        """
+        from app.products.crm.automation.assignment import Assigner, AssignmentContext
+
+        return await Assigner(self._repository.session).resolve(
+            organization_id,
+            AssignmentContext.from_values(self.audit_module, values),
+            fallback=actor_id,
+        )
 
     # --- Audit internals ---------------------------------------------------
 

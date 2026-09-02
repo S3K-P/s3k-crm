@@ -88,6 +88,7 @@ ignore = [
 "app/api/router.py" = ["TID251"]  # composition root: mounts product routers
 "app/schema.py" = ["TID251"]  # composition root: registers every models module
 "app/bootstrap.py" = ["TID251"]  # operator entrypoint: provisions Platform + CRM
+"app/worker.py" = ["TID251"]  # composition root: registers CRM job handlers
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"

@@ -26,6 +26,7 @@ from app.platform.audit import models as audit_models
 from app.platform.auth import models as auth_models
 from app.platform.authorization import models as authorization_models
 from app.platform.documents import models as document_models
+from app.platform.jobs import models as job_models
 from app.platform.organizations import models as organization_models
 from app.platform.products import models as product_models
 from app.platform.teams import models as team_models
@@ -33,6 +34,7 @@ from app.platform.teams import models as team_models
 # --- S3K CRM models ---------------------------------------------------------
 from app.products.crm.accounts import models as account_models
 from app.products.crm.activities import models as activity_models
+from app.products.crm.automation import models as automation_models
 from app.products.crm.campaigns import models as campaign_models
 from app.products.crm.contacts import models as contact_models
 from app.products.crm.datatransfer import models as datatransfer_models
@@ -51,10 +53,12 @@ __all__ = [
     "audit_models",
     "auth_models",
     "authorization_models",
+    "automation_models",
     "campaign_models",
     "contact_models",
     "datatransfer_models",
     "document_models",
+    "job_models",
     "lead_models",
     "metadata",
     "note_models",

@@ -24,7 +24,7 @@ from collections.abc import Sequence
 from typing import Any, cast
 
 import structlog
-from sqlalchemy import ColumnElement, CursorResult, delete, func, select
+from sqlalchemy import ColumnElement, CursorResult, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError, ValidationFailedError
@@ -309,7 +309,7 @@ class DataTransferService:
             # the organization so a tampered tracking row could not reach
             # another tenant's data.
             update_result = await self._session.execute(
-                model.__table__.update()
+                update(model)
                 .where(
                     model.id.in_(record_ids),
                     model.organization_id == job.organization_id,
@@ -488,7 +488,7 @@ class DataTransferService:
 
         model = module.model
         result = await self._session.execute(
-            model.__table__.update()
+            update(model)
             .where(model.id.in_(visible), model.organization_id == organization_id)
             .values(**coerced, updated_by_id=actor_id)
         )
@@ -578,7 +578,7 @@ class DataTransferService:
 
         model = module.model
         result = await self._session.execute(
-            model.__table__.update()
+            update(model)
             .where(model.id.in_(visible), model.organization_id == organization_id)
             .values(
                 deleted_at=dt.datetime.now(dt.UTC) if archive else None,
@@ -630,7 +630,7 @@ class DataTransferService:
 
         model = module.model
         result = await self._session.execute(
-            model.__table__.update()
+            update(model)
             .where(model.id.in_(visible), model.organization_id == organization_id)
             .values(owner_id=owner_id, updated_by_id=actor_id)
         )

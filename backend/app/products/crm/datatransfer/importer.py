@@ -485,7 +485,21 @@ class Importer:
         payload = {k: v for k, v in values.items() if v is not None}
         payload.pop("id", None)
         if hasattr(self._module.model, "owner_id") and payload.get("owner_id") is None:
-            payload["owner_id"] = actor_id
+            # Assignment rules run on import too. This path writes rows
+            # directly rather than through ``TenantScopedService.create``, so
+            # the hook has to be repeated here — the alternative is import
+            # being the one entry point where routing silently does not apply,
+            # which is the Zoho gap the analysis says not to inherit.
+            from app.products.crm.automation.assignment import (
+                Assigner,
+                AssignmentContext,
+            )
+
+            payload["owner_id"] = await Assigner(self._session).resolve(
+                organization_id,
+                AssignmentContext.from_values(self._module.permission_module, payload),
+                fallback=actor_id,
+            )
         entity = self._module.model(
             **payload,
             organization_id=organization_id,
