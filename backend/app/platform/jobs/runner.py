@@ -49,6 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.database import apply_tenant_context
 from app.core.tenant import TenantContext, reset_tenant_context, set_tenant_context
+from app.platform.jobs.contracts import JobContext
 from app.platform.jobs.models import (
     CLAIM_TIMEOUT_SECONDS,
     Job,
@@ -57,10 +58,14 @@ from app.platform.jobs.models import (
 
 logger = structlog.get_logger(__name__)
 
-#: A handler receives a tenant-scoped session and the job, and returns a
-#: summary stored on the row. Returning ``None`` is fine; it means "nothing
+#: A handler receives a tenant-scoped session and the job's data, and returns
+#: a summary stored on the row. Returning ``None`` is fine; it means "nothing
 #: worth recording".
-JobHandler = Callable[[AsyncSession, Job], Awaitable[dict[str, Any] | None]]
+#:
+#: :class:`JobContext` rather than the ``Job`` row: products may not import
+#: Platform models (ADR-003), and a handler has no business touching retry
+#: bookkeeping or lock state anyway.
+JobHandler = Callable[[AsyncSession, JobContext], Awaitable[dict[str, Any] | None]]
 
 
 class UnknownJobTypeError(RuntimeError):
@@ -107,6 +112,17 @@ class JobOutcome:
     attempts: int
     error: str | None = None
     result: dict[str, Any] | None = None
+
+
+def _context_for(job: Job) -> JobContext:
+    """The handler's view of a claimed job."""
+    return JobContext(
+        job_id=job.id,
+        organization_id=job.organization_id,
+        job_type=job.job_type,
+        payload=dict(job.payload or {}),
+        attempt=job.attempts,
+    )
 
 
 def worker_name() -> str:
@@ -223,7 +239,7 @@ class JobRunner:
                 # The whole point of the runner: the handler cannot see another
                 # tenant's rows even if its own query forgets to filter.
                 await apply_tenant_context(session, context)
-                result = await handler(session, job)
+                result = await handler(session, _context_for(job))
             await self._finish(job, status=JobStatus.SUCCEEDED, result=result)
             log.info("job_succeeded")
             return JobOutcome(
@@ -318,6 +334,7 @@ class JobRunner:
 
 
 __all__ = [
+    "JobContext",
     "JobHandler",
     "JobOutcome",
     "JobRegistry",

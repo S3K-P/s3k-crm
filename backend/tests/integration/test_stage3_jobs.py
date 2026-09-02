@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import (
 
 from app.core.config import Settings
 from app.core.database import create_session_factory
+from app.platform.jobs.contracts import JobContext
 from app.platform.jobs.models import Job, JobStatus
 from app.platform.jobs.runner import JobRegistry, JobRunner
 from app.platform.jobs.service import Cadence, JobService, Schedule, enqueue_due_schedules
@@ -117,7 +118,7 @@ async def test_a_job_is_queued_and_claimed_once(
     """The basic contract: enqueue, claim, run, record."""
     seen: list[uuid.UUID] = []
 
-    async def handler(session: AsyncSession, job: Job) -> dict[str, Any]:
+    async def handler(session: AsyncSession, job: JobContext) -> dict[str, Any]:
         del session
         seen.append(job.organization_id)
         return {"ok": True}
@@ -166,7 +167,7 @@ async def test_the_same_key_may_be_queued_again_once_the_first_finished(
     Without that predicate a nightly job could be queued once and never again.
     """
 
-    async def handler(session: AsyncSession, job: Job) -> None:
+    async def handler(session: AsyncSession, job: JobContext) -> None:
         del session, job
         return None
 
@@ -225,7 +226,7 @@ async def test_a_failing_job_is_retried_with_its_error_recorded(
     job would retry forever having never counted an attempt.
     """
 
-    async def broken(session: AsyncSession, job: Job) -> None:
+    async def broken(session: AsyncSession, job: JobContext) -> None:
         del job
         await session.execute(text("SELECT 1 FROM does_not_exist"))
 
@@ -255,7 +256,7 @@ async def test_retries_are_exhausted_into_a_failed_job(
 ) -> None:
     """A permanently broken handler must stop, and stay visible."""
 
-    async def broken(session: AsyncSession, job: Job) -> None:
+    async def broken(session: AsyncSession, job: JobContext) -> None:
         del session, job
         raise RuntimeError("nope")
 
@@ -297,7 +298,7 @@ async def test_a_job_orphaned_by_a_dead_worker_is_reclaimed(
     """A worker killed mid-job leaves RUNNING behind; the claim must time out."""
     ran: list[str] = []
 
-    async def handler(session: AsyncSession, job: Job) -> None:
+    async def handler(session: AsyncSession, job: JobContext) -> None:
         del session, job
         ran.append("yes")
 
@@ -321,7 +322,7 @@ async def test_a_job_orphaned_by_a_dead_worker_is_reclaimed(
 async def test_a_job_scheduled_for_later_is_not_claimed_yet(
     session_factory: async_sessionmaker[AsyncSession], alpha: Tenant, clean_jobs: None
 ) -> None:
-    async def handler(session: AsyncSession, job: Job) -> None:
+    async def handler(session: AsyncSession, job: JobContext) -> None:
         del session, job
 
     async with session_factory() as session, session.begin():
@@ -363,7 +364,7 @@ async def test_a_handler_runs_inside_its_own_tenants_scope(
 
     seen: dict[str, list[str]] = {}
 
-    async def unfiltered(session: AsyncSession, job: Job) -> None:
+    async def unfiltered(session: AsyncSession, job: JobContext) -> None:
         # No organization_id predicate anywhere. RLS is the only thing
         # standing between this and the other tenant's data.
         result = await session.execute(select(Lead.last_name, Lead.first_name))
@@ -770,11 +771,17 @@ async def test_a_terminal_stage_is_never_gated(
 def test_source_performance_reports_the_funnel_per_source(
     as_alpha_admin: ApiSession,
 ) -> None:
-    """Answerable because lead_sources is an entity, not a picklist."""
-    sources = as_alpha_admin.get(
-        "/crm/lead-sources", params={"page_size": 100}
-    ).json()["data"]
-    website = next(s for s in sources if s["name"] == "Website")
+    """Answerable because lead_sources is an entity, not a picklist.
+
+    The source is created here rather than relied on from a fixture: seeding
+    defaults into every tenant perturbed unrelated tests, so the shared fixture
+    no longer does it.
+    """
+    created_source = as_alpha_admin.post(
+        "/crm/lead-sources", json={"name": "Website", "category": "Inbound"}
+    )
+    assert created_source.status_code == 201, created_source.text
+    website = created_source.json()
 
     for index in range(2):
         created = as_alpha_admin.post(

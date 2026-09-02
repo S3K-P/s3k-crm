@@ -221,31 +221,8 @@ async def reassign_orphaned_records(
     return moved
 
 
-async def team_member_ids(
-    session: AsyncSession, organization_id: uuid.UUID
-) -> list[uuid.UUID]:
-    """Active members of the organization, as assignment candidates.
-
-    Queried through the memberships table rather than imported from the teams
-    module, because this is a product module reading Platform data — allowed
-    for reads, and cheaper than an import that would breach the boundary.
-    """
-    from app.platform.organizations.models import MembershipStatus, OrganizationMembership
-
-    result = await session.execute(
-        select(OrganizationMembership.user_id)
-        .where(
-            OrganizationMembership.organization_id == organization_id,
-            OrganizationMembership.status == MembershipStatus.ACTIVE,
-        )
-        .order_by(OrganizationMembership.user_id)
-    )
-    return [uuid.UUID(str(value)) for value in result.scalars().all()]
-
-
 __all__ = [
     "Assigner",
     "AssignmentContext",
     "reassign_orphaned_records",
-    "team_member_ids",
 ]

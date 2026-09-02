@@ -12,8 +12,13 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
+from app.products.crm.leads.source_service import (
+    DEFAULT_LEAD_SOURCES,
+    LeadSourceService,
+)
 from tests.integration.conftest import ApiSession, Tenant
 
 pytestmark = pytest.mark.integration
@@ -304,14 +309,38 @@ def test_weighted_pipeline_does_not_leak_across_tenants(
 # --- Lead source seeding -----------------------------------------------------
 
 
-def test_a_new_organization_starts_with_lead_sources(
+async def test_provisioning_seeds_lead_sources_idempotently(
+    session_factory: async_sessionmaker[AsyncSession],
     as_alpha_admin: ApiSession,
+    alpha: Tenant,
 ) -> None:
-    """An empty dropdown on the first lead form teaches people to skip the field."""
-    sources = as_alpha_admin.get("/crm/lead-sources", params={"page_size": 100}).json()
+    """An empty dropdown on the first lead form teaches people to skip the field.
 
-    names = {source["name"] for source in sources["data"]}
+    Seeded here rather than in the shared fixture: putting six sources into
+    every tenant changes name availability for tests that are not about
+    attribution at all.
+    """
+    async with session_factory() as session, session.begin():
+        first = await LeadSourceService(session).ensure_default_sources(
+            alpha.organization_id
+        )
+    assert len(first) == len(DEFAULT_LEAD_SOURCES)
+
+    names = {
+        source["name"]
+        for source in as_alpha_admin.get(
+            "/crm/lead-sources", params={"page_size": 100}
+        ).json()["data"]
+    }
     assert {"Website", "Referral", "Email Campaign"} <= names
+
+    # Idempotent per source: a second run creates nothing and does not collide
+    # with the partial unique index.
+    async with session_factory() as session, session.begin():
+        second = await LeadSourceService(session).ensure_default_sources(
+            alpha.organization_id
+        )
+    assert second == []
 
 
 # --- Stage follow-up tasks ---------------------------------------------------

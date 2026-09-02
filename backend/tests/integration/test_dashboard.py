@@ -231,6 +231,7 @@ def test_an_organization_with_no_records_returns_a_real_empty_state(
         "qualified_leads": 0,
         "open_opportunities": 0,
         "pipeline_value": "0",
+        "weighted_pipeline_value": "0",
         "meetings_today": 0,
         "tasks_due": 0,
         "tasks_due_high_priority": 0,

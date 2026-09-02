@@ -23,7 +23,7 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.platform.jobs.models import Job
+from app.platform.jobs.contracts import JobContext
 from app.platform.jobs.service import Cadence, Schedule
 from app.products.crm.accounts.models import Account
 from app.products.crm.automation.models import AutomationSettings
@@ -87,7 +87,7 @@ async def get_settings(session: AsyncSession, organization_id: uuid.UUID) -> Aut
 # --- Scoring -----------------------------------------------------------------
 
 
-async def score_leads(session: AsyncSession, job: Job) -> dict[str, Any]:
+async def score_leads(session: AsyncSession, job: JobContext) -> dict[str, Any]:
     """Recompute ``ai_score`` for a batch of leads."""
     settings = await get_settings(session, job.organization_id)
     if not settings.lead_scoring_enabled:
@@ -117,7 +117,7 @@ async def score_leads(session: AsyncSession, job: Job) -> dict[str, Any]:
     return {"scored": len(leads), "changed": changed}
 
 
-async def score_contacts(session: AsyncSession, job: Job) -> dict[str, Any]:
+async def score_contacts(session: AsyncSession, job: JobContext) -> dict[str, Any]:
     """Recompute ``ai_score`` for a batch of contacts."""
     settings = await get_settings(session, job.organization_id)
     if not settings.contact_scoring_enabled:
@@ -144,7 +144,7 @@ async def score_contacts(session: AsyncSession, job: Job) -> dict[str, Any]:
     return {"scored": len(contacts), "changed": changed}
 
 
-async def score_account_health_job(session: AsyncSession, job: Job) -> dict[str, Any]:
+async def score_account_health_job(session: AsyncSession, job: JobContext) -> dict[str, Any]:
     """Recompute account health, and optionally act on it.
 
     Computing the score and letting it relabel a customer are separately
@@ -186,7 +186,7 @@ async def score_account_health_job(session: AsyncSession, job: Job) -> dict[str,
 # --- Rollups -----------------------------------------------------------------
 
 
-async def recompute_campaign_metrics(session: AsyncSession, job: Job) -> dict[str, Any]:
+async def recompute_campaign_metrics(session: AsyncSession, job: JobContext) -> dict[str, Any]:
     """Refresh every campaign's cached counts and ROI.
 
     ``CampaignService.recompute_metrics`` already existed and already derived
@@ -239,7 +239,7 @@ async def _open_task_titles(
     return {(uuid.UUID(str(row[0])), str(row[1])) for row in result.all()}
 
 
-async def stale_opportunity_nudge(session: AsyncSession, job: Job) -> dict[str, Any]:
+async def stale_opportunity_nudge(session: AsyncSession, job: JobContext) -> dict[str, Any]:
     """Create a follow-up task for open deals nobody has touched.
 
     The most-requested feature in every sales team, and the one that most
@@ -298,7 +298,7 @@ async def stale_opportunity_nudge(session: AsyncSession, job: Job) -> dict[str, 
     return {"stale": len(stale), "tasks_created": created}
 
 
-async def stale_lead_nudge(session: AsyncSession, job: Job) -> dict[str, Any]:
+async def stale_lead_nudge(session: AsyncSession, job: JobContext) -> dict[str, Any]:
     """Nudge the owner of a lead that has gone quiet before qualification."""
     settings = await get_settings(session, job.organization_id)
     if not settings.stale_reminders_enabled:
@@ -347,7 +347,7 @@ async def stale_lead_nudge(session: AsyncSession, job: Job) -> dict[str, Any]:
     return {"stale": len(stale), "tasks_created": created}
 
 
-async def closing_soon_reminder(session: AsyncSession, job: Job) -> dict[str, Any]:
+async def closing_soon_reminder(session: AsyncSession, job: JobContext) -> dict[str, Any]:
     """Remind owners of deals whose close date is nearly here."""
     settings = await get_settings(session, job.organization_id)
     if not settings.stale_reminders_enabled:
