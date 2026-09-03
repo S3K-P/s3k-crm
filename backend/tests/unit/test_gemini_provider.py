@@ -20,12 +20,16 @@ from typing import Any
 
 import httpx
 import pytest
+from google.genai import errors as genai_errors
 
 from app.platform.ai.provider import (
+    AiTemporarilyUnavailableError,
     GeminiResearchProvider,
     ResearchSource,
+    grounding_tools,
     harvest_gemini_response,
     is_credential_error,
+    strip_unverified_links,
     to_gemini_contents,
 )
 
@@ -143,6 +147,75 @@ def test_an_enum_finish_reason_is_reported_by_name() -> None:
     )
 
     assert finish == "MAX_TOKENS"
+
+
+# ------------------------------------------------------------------
+# Stripping links nobody fetched
+# ------------------------------------------------------------------
+#
+# An ungrounded Gemini call still tries to comply with the brief's "hyperlink
+# every claim" instruction — from training-data recall, not a retrieved page.
+# The result reads exactly like a cited source and is not one. These pin that
+# every link loses its href and keeps its label, which is the one property
+# that actually matters for a reader.
+
+
+def test_a_confident_looking_link_loses_its_href() -> None:
+    text = "Revenue grew 12% [FY25 results](https://example.com/results.pdf)."
+
+    assert strip_unverified_links(text) == "Revenue grew 12% FY25 results."
+
+
+def test_several_links_in_one_report_are_all_stripped() -> None:
+    text = "[A](https://a.example) and [B](https://b.example) and [C](https://c.example)"
+
+    assert strip_unverified_links(text) == "A and B and C"
+
+
+def test_a_link_with_an_empty_label_leaves_no_stray_brackets() -> None:
+    assert strip_unverified_links("See [](https://example.com) for more.") == "See  for more."
+
+
+def test_prose_with_no_links_is_returned_unchanged() -> None:
+    text = "Ordinary prose with no markup at all."
+
+    assert strip_unverified_links(text) == text
+
+
+def test_a_non_http_scheme_is_left_alone() -> None:
+    # Not a case this feature can produce, but the pattern should not widen
+    # to match schemes it was never written to filter.
+    text = "[local file](file:///etc/passwd)"
+
+    assert strip_unverified_links(text) == text
+
+
+# ------------------------------------------------------------------
+# Whether grounding is even offered
+# ------------------------------------------------------------------
+#
+# `enabled` gates this independently of `web_search`, because on a project
+# with no billing account grounding does not degrade — it is a flat 429 on
+# every call. These pin the truth table so a future "just always pass
+# web_search through" refactor cannot quietly re-enable that failure mode.
+
+
+def test_grounding_is_offered_only_when_both_flags_agree() -> None:
+    assert grounding_tools(web_search=True, enabled=True) is not None
+
+
+def test_grounding_is_withheld_when_disabled_even_if_requested() -> None:
+    assert grounding_tools(web_search=True, enabled=False) is None
+
+
+def test_grounding_is_withheld_when_not_requested_even_if_enabled() -> None:
+    assert grounding_tools(web_search=False, enabled=True) is None
+
+
+def test_the_tool_offered_is_google_search() -> None:
+    tools = grounding_tools(web_search=True, enabled=True)
+    assert tools is not None
+    assert tools[0].google_search is not None
 
 
 # ------------------------------------------------------------------
@@ -291,3 +364,75 @@ async def test_two_redirects_to_one_page_collapse_and_keep_the_citation(
 
     assert len(resolved) == 1
     assert resolved[0].cited is True
+
+
+# ------------------------------------------------------------------
+# Retrying a transient capacity error
+# ------------------------------------------------------------------
+#
+# Every Flash model tried while building this provider recovered from a
+# `ServerError` ("currently experiencing high demand … usually temporary")
+# on a second attempt seconds later, with nothing changed on this end — the
+# definition of worth one retry. A `ClientError` (quota, a bad credential)
+# gets none: those are real states, not transients.
+
+
+def server_error(code: int = 503, message: str = "busy") -> genai_errors.ServerError:
+    return genai_errors.ServerError(code, {"error": {"code": code, "message": message}})
+
+
+class _ScriptedModels:
+    """Stands in for ``client.aio.models``, replaying outcomes in order."""
+
+    def __init__(self, outcomes: list[object]) -> None:
+        self._outcomes = list(outcomes)
+        self.calls = 0
+
+    async def generate_content(self, **_: Any) -> Any:
+        self.calls += 1
+        outcome = self._outcomes.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+
+def sender(outcomes: list[object]) -> tuple[StubProvider, _ScriptedModels]:
+    provider = StubProvider()
+    provider._model = "gemini-test"
+    provider.CAPACITY_RETRY_DELAY_SECONDS = 0  # instance override: keep the test fast
+    models = _ScriptedModels(outcomes)
+    provider._client = SimpleNamespace(aio=SimpleNamespace(models=models))
+    return provider, models
+
+
+@pytest.mark.asyncio
+async def test_a_capacity_error_is_retried_and_then_succeeds() -> None:
+    ok = SimpleNamespace(text="the report")
+    provider, models = sender([server_error(), ok])
+
+    result = await provider._send(contents=[], config=SimpleNamespace())
+
+    assert result is ok
+    assert models.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_capacity_errors_beyond_the_retry_budget_still_surface() -> None:
+    provider, models = sender([server_error(), server_error(), server_error()])
+
+    with pytest.raises(AiTemporarilyUnavailableError):
+        await provider._send(contents=[], config=SimpleNamespace())
+
+    # CAPACITY_RETRIES=2 -> three attempts total, then it gives up.
+    assert models.calls == provider.CAPACITY_RETRIES + 1
+
+
+@pytest.mark.asyncio
+async def test_a_quota_error_is_not_retried() -> None:
+    quota = genai_errors.ClientError(429, {"error": {"code": 429, "message": "quota"}})
+    provider, models = sender([quota, SimpleNamespace()])
+
+    with pytest.raises(AiTemporarilyUnavailableError):
+        await provider._send(contents=[], config=SimpleNamespace())
+
+    assert models.calls == 1

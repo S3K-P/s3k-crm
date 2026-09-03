@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -246,9 +247,7 @@ class AnthropicResearchProvider:
                 )
                 raise AiRefusedError
 
-            block_text, block_sources, block_cited, block_searches = harvest_blocks(
-                message.content
-            )
+            block_text, block_sources, block_cited, block_searches = harvest_blocks(message.content)
             texts.extend(block_text)
             searches += block_searches
             cited_urls |= block_cited
@@ -338,15 +337,27 @@ class AnthropicResearchProvider:
 
 
 class GeminiResearchProvider:
-    """A :class:`ResearchProvider` backed by Gemini with Google Search grounding.
+    """A :class:`ResearchProvider` backed by Gemini, the free option.
 
-    The free option. Flash models carry a free token allowance and the 3.x
-    generation includes a monthly allowance of grounded searches, so a
-    deployment can run Market Insights without a paid account.
+    Flash models carry a free token allowance, so a deployment can write
+    Market Insights reports without a paid account.
 
-    **What it gives up, stated plainly.** Grounding returns its sources as
-    ``vertexaisearch.cloud.google.com`` redirect links rather than publisher
-    URLs, and the ``domain`` field comes back empty
+    **Grounding is off by default — read this before turning it on.** Google
+    Search grounding needs a Google Cloud project with billing *enabled*, not
+    merely a valid API key; without it, a grounded request does not degrade,
+    it returns a flat 429 on every model, every time
+    (ai.google.dev/gemini-api/docs/rate-limits). ``settings.
+    gemini_grounding_enabled`` gates whether this provider ever asks for it,
+    so a deployment without billing configured gets a Gemini that always
+    answers — from its own training data — rather than one that always fails.
+    :class:`ResearchResult` then carries no sources, and the existing
+    "No external sources" panel already tells the reader plainly to treat the
+    report as less firmly grounded; nothing here needs a second disclosure
+    mechanism for the same fact.
+
+    **What grounding gives up, once billing is enabled and it is turned on.**
+    It returns sources as ``vertexaisearch.cloud.google.com`` redirect links
+    rather than publisher URLs, and the ``domain`` field comes back empty
     (googleapis/python-genai#1512). A Sources panel listing a dozen identical
     Google hostnames is not evidence, so this provider resolves each redirect
     to its destination before returning it — that is what
@@ -367,6 +378,12 @@ class GeminiResearchProvider:
     RESOLVE_TIMEOUT_SECONDS = 8.0
     RESOLVE_CONCURRENCY = 8
 
+    #: Extra attempts on a transient capacity error, beyond the first. Google's
+    #: own message calls these "usually temporary" (see `_send`), and one short
+    #: retry clears most of them without the caller ever seeing a failure.
+    CAPACITY_RETRIES = 2
+    CAPACITY_RETRY_DELAY_SECONDS = 2.0
+
     def __init__(self, settings: Settings) -> None:
         if not settings.ai_configured:
             raise AiNotConfiguredError
@@ -382,6 +399,7 @@ class GeminiResearchProvider:
         )
         self._model = settings.gemini_model
         self._max_tokens = settings.ai_max_output_tokens
+        self._grounding_enabled = settings.gemini_grounding_enabled
 
     async def run(
         self,
@@ -405,12 +423,11 @@ class GeminiResearchProvider:
             AiTemporarilyUnavailableError: rate limited, overloaded, timed out.
             AiProviderError: any other provider failure, or an empty answer.
         """
+        tools = grounding_tools(web_search=web_search, enabled=self._grounding_enabled)
         config = genai_types.GenerateContentConfig(
             system_instruction=system,
             max_output_tokens=self._max_tokens,
-            tools=(
-                [genai_types.Tool(google_search=genai_types.GoogleSearch())] if web_search else None
-            ),
+            tools=tools,
             # Grounding runs on Google's side and calls nothing of ours, so
             # the SDK's automatic function-calling loop has no work to do here.
             # Declared off rather than left to default: with `tools` set, the
@@ -419,36 +436,15 @@ class GeminiResearchProvider:
             automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
         )
 
-        try:
-            response = await self._client.aio.models.generate_content(
-                model=self._model,
-                contents=to_gemini_contents(messages),
-                config=config,
-            )
-        except genai_errors.ClientError as exc:
-            # 429 is the free tier's quota, which is "come back later", not a
-            # fault. A rejected credential is a deployment fault, reported as
-            # "not configured" for the same reason the Anthropic path does so:
-            # that is the message whose advice actually helps.
-            if exc.code == 429:
-                logger.warning("ai_provider_unavailable", error="ClientError", code=exc.code)
-                raise AiTemporarilyUnavailableError from exc
-            if is_credential_error(exc):
-                logger.error("ai_provider_rejected_credential", status_code=exc.code)
-                raise AiNotConfiguredError from exc
-            logger.warning("ai_provider_error", status_code=exc.code)
-            raise AiProviderError from exc
-        except genai_errors.ServerError as exc:
-            logger.warning("ai_provider_unavailable", error="ServerError", code=exc.code)
-            raise AiTemporarilyUnavailableError from exc
-        except (TimeoutError, httpx.TimeoutException) as exc:
-            logger.warning("ai_provider_unavailable", error=type(exc).__name__)
-            raise AiTemporarilyUnavailableError from exc
-        except genai_errors.APIError as exc:
-            logger.warning("ai_provider_error", status_code=getattr(exc, "code", None))
-            raise AiProviderError from exc
-
+        response = await self._send(contents=to_gemini_contents(messages), config=config)
         text, sources, searches, finish_reason = harvest_gemini_response(response)
+
+        if tools is None:
+            # No search tool ran, so no URL in this text was ever fetched —
+            # see `strip_unverified_links`. The configured prompt still asks
+            # for inline citations regardless of grounding, and Gemini
+            # complies by recalling plausible-looking ones from training data.
+            text = strip_unverified_links(text)
 
         if not text:
             # A safety block returns 200 with no text and a finish reason
@@ -472,6 +468,54 @@ class GeminiResearchProvider:
             output_tokens=getattr(usage, "candidates_token_count", 0) or 0,
             truncated=finish_reason == "MAX_TOKENS",
         )
+
+    async def _send(
+        self, *, contents: list[genai_types.Content], config: genai_types.GenerateContentConfig
+    ) -> Any:
+        """One ``generate_content`` call, with a short retry on capacity errors.
+
+        A ``ServerError`` ("this model is currently experiencing high demand
+        … usually temporary") cleared on a second attempt for every Flash
+        model tried while building this provider, seconds later with no
+        change on this end — the definition of worth one retry before telling
+        the caller the service is busy. A ``ClientError`` gets none: 429 and a
+        rejected credential are real states the caller needs to see, not
+        transients that time fixes.
+        """
+        attempts = self.CAPACITY_RETRIES + 1
+        for attempt in range(attempts):
+            try:
+                return await self._client.aio.models.generate_content(
+                    model=self._model, contents=contents, config=config
+                )
+            except genai_errors.ClientError as exc:
+                # 429 is the free tier's quota, which is "come back later", not
+                # a fault. A rejected credential is a deployment fault,
+                # reported as "not configured" for the same reason the
+                # Anthropic path does so: that is the message whose advice
+                # actually helps.
+                if exc.code == 429:
+                    logger.warning("ai_provider_unavailable", error="ClientError", code=exc.code)
+                    raise AiTemporarilyUnavailableError from exc
+                if is_credential_error(exc):
+                    logger.error("ai_provider_rejected_credential", status_code=exc.code)
+                    raise AiNotConfiguredError from exc
+                logger.warning("ai_provider_error", status_code=exc.code)
+                raise AiProviderError from exc
+            except genai_errors.ServerError as exc:
+                if attempt < attempts - 1:
+                    logger.info("ai_provider_capacity_retry", attempt=attempt + 1, code=exc.code)
+                    await asyncio.sleep(self.CAPACITY_RETRY_DELAY_SECONDS)
+                    continue
+                logger.warning("ai_provider_unavailable", error="ServerError", code=exc.code)
+                raise AiTemporarilyUnavailableError from exc
+            except (TimeoutError, httpx.TimeoutException) as exc:
+                logger.warning("ai_provider_unavailable", error=type(exc).__name__)
+                raise AiTemporarilyUnavailableError from exc
+            except genai_errors.APIError as exc:
+                logger.warning("ai_provider_error", status_code=getattr(exc, "code", None))
+                raise AiProviderError from exc
+        raise AssertionError("unreachable: the loop above always returns or raises")
 
     async def _resolve_sources(
         self, sources: Sequence[ResearchSource]
@@ -562,6 +606,44 @@ def is_credential_error(exc: genai_errors.ClientError) -> bool:
         isinstance(item, dict) and item.get("reason") in _CREDENTIAL_REASONS
         for item in error.get("details") or ()
     )
+
+
+def grounding_tools(*, web_search: bool, enabled: bool) -> list[genai_types.Tool] | None:
+    """The ``tools`` list to offer Gemini for one turn, or ``None`` for a plain call.
+
+    ``enabled`` gates this independently of ``web_search``: a deployment
+    without billing on its Google Cloud project cannot use grounding no
+    matter how badly the caller wants it, and asking anyway would not
+    degrade — it would turn every research turn into a guaranteed 429. A
+    plain function rather than inline in :meth:`GeminiResearchProvider.run`
+    so the decision is unit-testable without a client or a network call.
+    """
+    if not (web_search and enabled):
+        return None
+    return [genai_types.Tool(google_search=genai_types.GoogleSearch())]
+
+
+#: `[label](url)` — and, harmlessly, the bracket/paren part of an image
+#: `![alt](url)` too, which loses only its leading `!`. Reports do not embed
+#: images, so that overlap costs nothing here.
+_MARKDOWN_LINK = re.compile(r"\[([^\]]*)\]\(https?://[^)\s]+\)")
+
+
+def strip_unverified_links(text: str) -> str:
+    """Turn every ``[label](url)`` in ungrounded output into plain ``label``.
+
+    An ungrounded call has no search tool behind it, so any URL the model
+    writes came from its own recall rather than a page it actually fetched —
+    it can be right, stale, or entirely invented, and there is no way to tell
+    which from here. A confident, real-looking link nobody retrieved is worse
+    than no link at all, which is exactly the standard :class:`ResearchSource`
+    is already held to (see the module docstring's "sources are observed,
+    never invented"); this closes the same gap for links embedded in the
+    prose itself, which that standard does not otherwise reach. The label
+    survives because the claim it names may well be true — only the
+    unverifiable citation is removed.
+    """
+    return _MARKDOWN_LINK.sub(lambda match: match.group(1), text)
 
 
 def to_gemini_contents(messages: Sequence[dict[str, Any]]) -> list[genai_types.Content]:
@@ -709,8 +791,10 @@ __all__ = [
     "ResearchProvider",
     "ResearchResult",
     "ResearchSource",
+    "grounding_tools",
     "harvest_blocks",
     "harvest_gemini_response",
     "is_credential_error",
+    "strip_unverified_links",
     "to_gemini_contents",
 ]

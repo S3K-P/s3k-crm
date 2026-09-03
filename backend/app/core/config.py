@@ -185,10 +185,36 @@ class Settings(BaseSettings):
     #: Pinned rather than 'latest': a model change alters what every stored
     #: research session would say if re-run, so it is a deliberate act.
     ai_model: str = "claude-opus-5"
-    #: The Gemini counterpart of ``ai_model``. A Flash model by default: those
-    #: are the tier with a free allowance, and Google Search grounding carries
-    #: its own monthly free quota on the 3.x generation.
-    gemini_model: str = "gemini-3.8-flash"
+    #: The Gemini counterpart of ``ai_model``. A moving alias rather than a
+    #: pinned dated version, unlike ``ai_model`` above — a deliberate
+    #: exception to that pinning policy, not an oversight. Dated Gemini Flash
+    #: IDs have already gone stale twice in the time this integration has
+    #: existed: the 2.5 generation closed to new API keys within weeks of
+    #: general availability, and several 3.x releases return transient 503s
+    #: under load that others in the same generation do not.
+    #:
+    #: The *lite* alias specifically, not ``gemini-flash-latest``: measured
+    #: against the free tier while building this, the full Flash tier's
+    #: "latest" alias was the one returning 503 "high demand" when tried, and
+    #: Flash-Lite answered cleanly at the same moment — a smaller model is
+    #: plausibly under lighter load on a capacity-constrained free tier.
+    #: ``model_version`` on every response still records which concrete model
+    #: actually wrote a given report, so reproducibility is not lost — only
+    #: the choice of which model that is moves without a code change.
+    gemini_model: str = "gemini-flash-lite-latest"
+    #: Whether the Gemini provider offers Google Search grounding at all.
+    #:
+    #: Off by default. On a project with no billing account attached,
+    #: grounding does not degrade gracefully — it returns a flat 429
+    #: ("exceeded your current quota") on every model, every time, and
+    #: enabling billing is the only fix (ai.google.dev/gemini-api/docs/rate-
+    #: limits). Requesting it anyway would not buy partial results; it would
+    #: only turn every research turn into a guaranteed failure. With this off,
+    #: Gemini still answers, from its own training data rather than the live
+    #: web — :class:`ResearchResult` then carries no sources, which the
+    #: existing "No external sources" panel already tells the reader plainly,
+    #: so nothing here needs to invent a second way of saying the same thing.
+    gemini_grounding_enabled: bool = False
     #: Streaming is used for every call, so this can be generous without
     #: risking an HTTP timeout mid-report.
     ai_max_output_tokens: int = Field(default=64_000, ge=1_024, le=128_000)
@@ -242,9 +268,7 @@ class Settings(BaseSettings):
         validator below makes the false case unreachable.
         """
         return bool(
-            self.storage_bucket
-            and self.storage_access_key_id
-            and self.storage_secret_access_key
+            self.storage_bucket and self.storage_access_key_id and self.storage_secret_access_key
         )
 
     @property
