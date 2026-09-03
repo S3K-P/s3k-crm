@@ -164,3 +164,42 @@ export function suggestMapping(
   }
   return mapping;
 }
+
+/* ------------------------------------------------------------------
+   Blank import template
+   ------------------------------------------------------------------ */
+
+/** Quote a CSV field only when it has to be — a comma, quote or newline. */
+function csvField(value: string): string {
+  return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+}
+
+/**
+ * A blank CSV whose only row is the entity's importable column names, in
+ * the order the API lists them. The headers are the exact field names, so
+ * a user who fills this in and uploads it lands on the mapping step with
+ * every column already paired up by `suggestMapping` and nothing to do
+ * but confirm. Which columns are required is shown by the wizard itself.
+ */
+export function buildImportTemplateCsv(entity: ImportEntityInfo): string {
+  const header = entity.fields.map((field) => csvField(field.name)).join(',');
+  // Leading BOM so Excel opens it as UTF-8; `readCsvHeaders` strips it back off.
+  return `﻿${header}\r\n`;
+}
+
+/** Build the blank template for an entity and save it to the user's disk. */
+export function downloadImportTemplate(entity: ImportEntityInfo): string {
+  const fileName = `${entity.slug}-import-template.csv`;
+  const blob = new Blob([buildImportTemplateCsv(entity)], {
+    type: 'text/csv;charset=utf-8',
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1_000);
+  return fileName;
+}

@@ -11,8 +11,13 @@ import {
 } from 'lucide-react';
 
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
-import { notifyError, notifyErrorMessage } from '@/components/crm/feedback/notify';
 import {
+  notifyError,
+  notifyErrorMessage,
+  notifySuccess,
+} from '@/components/crm/feedback/notify';
+import {
+  downloadImportTemplate,
   listImportableEntities,
   readCsvHeaders,
   runImport,
@@ -151,6 +156,12 @@ export default function ImportWizard({ open, onClose, slug, onImported }: Import
     }
   };
 
+  const downloadTemplate = () => {
+    if (!entity) return;
+    const fileName = downloadImportTemplate(entity);
+    notifySuccess('Template downloaded', fileName);
+  };
+
   const run = async (dryRun: boolean) => {
     if (!file) return;
     setBusy(true);
@@ -284,6 +295,18 @@ export default function ImportWizard({ open, onClose, slug, onImported }: Import
                 }}
               />
             </label>
+            <p className="txt-faint text-[12px]">
+              Not sure of the format?{' '}
+              <button
+                type="button"
+                onClick={downloadTemplate}
+                disabled={!entity}
+                className="txt font-semibold underline underline-offset-2 transition hover:opacity-80 disabled:opacity-50"
+              >
+                Download a blank CSV template
+              </button>{' '}
+              with a column for every {label} field.
+            </p>
           </>
         )}
 
