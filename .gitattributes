@@ -1,0 +1,8 @@
+# Shell scripts must keep LF endings. A CRLF script copied into a Linux
+# container fails at exec time with a `\r: not found` that names no cause —
+# and backend/scripts/start.sh is the container entrypoint.
+*.sh text eol=lf
+
+# Same reasoning for the container build and its ignore list.
+Dockerfile text eol=lf
+.dockerignore text eol=lf
