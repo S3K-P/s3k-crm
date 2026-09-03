@@ -101,6 +101,40 @@ The script is idempotent and prints the role's `rolsuper` / `rolbypassrls`
 flags at the end; both must read `f`. `DATABASE_URL` then points the backend at
 `s3k_app`, not at `postgres` — see the table below.
 
+### Without a local psql
+
+`railway connect` needs either a registered SSH key or a public TCP proxy, and
+`scripts/provision-app-role.sql` uses psql meta-commands (`\set`, `\gexec`)
+that a web query console cannot run. Paste this equivalent into the Postgres
+service's **Data → Query** tab instead, substituting the password. Run the
+three statements one at a time: `CREATE DATABASE` cannot share a transaction
+with anything else, which is the whole reason the psql version needs `\gexec`.
+
+```sql
+-- 1. The role, idempotently.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 's3k_app') THEN
+    CREATE ROLE s3k_app LOGIN NOSUPERUSER NOCREATEDB CREATEROLE NOBYPASSRLS;
+  END IF;
+END
+$$;
+
+-- 2. Its password and privilege bits (re-running rotates the password).
+ALTER ROLE s3k_app LOGIN PASSWORD 'PASTE_APP_DB_PASSWORD_HERE'
+    NOSUPERUSER NOBYPASSRLS;
+
+-- 3. The database it owns. Must run on its own.
+CREATE DATABASE s3k_app OWNER s3k_app;
+```
+
+Then confirm the guarantee holds — both columns must read `f`, or the backend
+will refuse to start:
+
+```sql
+SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = 's3k_app';
+```
+
 Schema migrations run automatically on every boot (`alembic upgrade head` in
 `scripts/start.sh`). If this service is ever scaled past one replica, move that
 to Railway's pre-deploy command so replicas cannot race.
