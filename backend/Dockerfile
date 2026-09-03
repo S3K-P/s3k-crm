@@ -3,8 +3,16 @@
 # S3K CRM backend — stateless FastAPI container.
 #
 # Multi-stage build with uv: dependencies resolve from uv.lock only, so image
-# builds are reproducible and cache well. Portable to Railway and Kubernetes —
-# no host paths, no baked secrets, config comes entirely from the environment.
+# builds are reproducible. Portable to Railway and Kubernetes — no host paths,
+# no baked secrets, config comes entirely from the environment.
+#
+# Deliberately free of BuildKit `--mount` flags. Railway's builder rejects a
+# `--mount=type=cache` that carries no `id=`, which is what made every build
+# here fail to parse before the first layer ran. Ordinary COPY + RUN needs no
+# BuildKit extension at all, so the same file builds on Railway, on plain
+# Docker and in CI, and Docker's own layer cache still skips the dependency
+# install whenever uv.lock is unchanged — which is what actually makes
+# rebuilds fast.
 # ---------------------------------------------------------------------------
 
 FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS builder
@@ -15,16 +23,15 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
-# Install dependencies first (cached until the lockfile changes).
-RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --locked --no-install-project --no-dev
+# Dependency layer, kept separate from the source so it is rebuilt only when
+# the lockfile moves. `--no-install-project` means the application itself is
+# not built here, so its README is not needed yet.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --no-install-project --no-dev
 
 COPY . /app
 
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev
+RUN uv sync --locked --no-dev
 
 
 FROM python:3.13-slim-bookworm AS runtime
@@ -43,8 +50,14 @@ COPY --from=builder --chown=app:app /app /app
 
 USER app
 
+# Documentation only. The port actually bound is $PORT, which the platform
+# assigns at run time; see scripts/start.sh.
 EXPOSE 8000
 
 # No secrets and no defaults for DATABASE_URL / REDIS_URL: the container must
 # be given them by the orchestrator or it will fail fast at startup.
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+#
+# Invoked through `sh` rather than as an executable, so the image does not
+# depend on the script's mode bit surviving a checkout on a filesystem that
+# does not carry one.
+CMD ["sh", "/app/scripts/start.sh"]
