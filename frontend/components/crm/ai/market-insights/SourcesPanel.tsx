@@ -1,8 +1,7 @@
 'use client';
 
-import { ExternalLink, Link2, Quote, ShieldQuestion } from 'lucide-react';
+import { ExternalLink, Link2, Quote } from 'lucide-react';
 
-import AiEmptyState from '@/components/crm/ai/shared/AiEmptyState';
 import {
   sourceHost,
   type ResearchSource,
@@ -22,6 +21,10 @@ import {
    opposed to one that was read on the way to the answer. Both
    are shown, because hiding the second kind would overstate how
    narrowly the conclusions were drawn.
+
+   When the turn retrieved no external pages there is nothing to
+   show as evidence, so the panel renders nothing at all and the
+   caller drops the column rather than leaving a placeholder card.
    ============================================================ */
 
 function formatRetrieved(iso: string): string {
@@ -36,27 +39,11 @@ function formatRetrieved(iso: string): string {
 
 export default function SourcesPanel({
   sources,
-  /** Shown when the turn completed but returned nothing (§15). */
-  partial = false,
 }: {
   sources: ResearchSource[];
-  partial?: boolean;
 }) {
   if (sources.length === 0) {
-    return (
-      <div className="surface bd rounded-2xl border p-4">
-        <AiEmptyState
-          icon={ShieldQuestion}
-          size="inline"
-          title="No external sources"
-          description={
-            partial
-              ? 'External search returned nothing usable for this company, so the report draws only on the model and any CRM context. Treat it as less firmly grounded.'
-              : 'This answer did not retrieve any new pages.'
-          }
-        />
-      </div>
-    );
+    return null;
   }
 
   const cited = sources.filter((source) => source.cited).length;
