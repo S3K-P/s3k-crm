@@ -443,7 +443,13 @@ export default function MarketInsightsPage() {
                 </p>
               )}
 
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+              <div
+                className={
+                  session.sources.length > 0
+                    ? 'grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]'
+                    : 'space-y-4'
+                }
+              >
                 <div className="min-w-0 space-y-4">
                   <ReportView markdown={report.content} companyName={session.company_name} />
 
@@ -456,12 +462,11 @@ export default function MarketInsightsPage() {
                   />
                 </div>
 
-                <div className="space-y-4 xl:sticky xl:top-4 xl:self-start">
-                  <SourcesPanel
-                    sources={session.sources}
-                    partial={session.sources.length === 0}
-                  />
-                </div>
+                {session.sources.length > 0 && (
+                  <div className="space-y-4 xl:sticky xl:top-4 xl:self-start">
+                    <SourcesPanel sources={session.sources} />
+                  </div>
+                )}
               </div>
             </>
           )}
