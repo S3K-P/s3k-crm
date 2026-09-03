@@ -14,11 +14,22 @@ import sys
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    Field,
+    SecretStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["development", "test", "staging", "production"]
 LogLevel = Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]
+#: Which vendor the AI gateway calls. Both reach a model that can search the
+#: web while it answers, which is the one capability Market Insights cannot do
+#: without; they differ in cost, and in how faithfully sources come back.
+AiProvider = Literal["anthropic", "gemini"]
 
 
 class ConfigurationError(RuntimeError):
@@ -155,9 +166,29 @@ class Settings(BaseSettings):
         default=None,
         description="Anthropic API key. Unset disables AI features rather than faking them.",
     )
+    #: Google AI Studio key, for ``ai_provider="gemini"``. Kept in its own
+    #: field rather than a shared ``ai_api_key`` so switching providers cannot
+    #: silently send one vendor's credential to the other.
+    #:
+    #: Both spellings are accepted because both are in circulation: Google's
+    #: own SDK reads ``GEMINI_API_KEY`` or ``GOOGLE_API_KEY``, and AI Studio
+    #: labels the value the former. Accepting one only would reject a key that
+    #: is sitting right there in the environment, correctly named.
+    gemini_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+        description="Google AI Studio API key. Used only when ai_provider is 'gemini'.",
+    )
+    #: Which vendor to call. Anthropic is the default because its search tool
+    #: returns real publisher URLs; Gemini is the option with a free tier.
+    ai_provider: AiProvider = "anthropic"
     #: Pinned rather than 'latest': a model change alters what every stored
     #: research session would say if re-run, so it is a deliberate act.
     ai_model: str = "claude-opus-5"
+    #: The Gemini counterpart of ``ai_model``. A Flash model by default: those
+    #: are the tier with a free allowance, and Google Search grounding carries
+    #: its own monthly free quota on the 3.x generation.
+    gemini_model: str = "gemini-3.8-flash"
     #: Streaming is used for every call, so this can be generous without
     #: risking an HTTP timeout mid-report.
     ai_max_output_tokens: int = Field(default=64_000, ge=1_024, le=128_000)
@@ -175,6 +206,23 @@ class Settings(BaseSettings):
     log_json: bool = True
 
     @property
+    def ai_credential(self) -> SecretStr | None:
+        """The key for the *selected* provider, and only that one.
+
+        Resolved by ``ai_provider`` rather than by "whichever key is set", so a
+        deployment holding both credentials calls the vendor it was configured
+        to call. A key for the other vendor is not a fallback.
+        """
+        if self.ai_provider == "gemini":
+            return self.gemini_api_key
+        return self.anthropic_api_key
+
+    @property
+    def ai_active_model(self) -> str:
+        """The model id the selected provider will actually call."""
+        return self.gemini_model if self.ai_provider == "gemini" else self.ai_model
+
+    @property
     def ai_configured(self) -> bool:
         """Whether the AI gateway has a credential to call a model with.
 
@@ -182,7 +230,7 @@ class Settings(BaseSettings):
         ``ai_not_configured`` and the frontend renders its existing
         "AI is not connected" surface. Nothing degrades to canned output.
         """
-        key = self.anthropic_api_key
+        key = self.ai_credential
         return bool(key and key.get_secret_value().strip())
 
     @property

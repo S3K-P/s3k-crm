@@ -81,7 +81,7 @@ async def ai_status(_principal: CurrentPrincipal, settings: SettingsDep) -> AiSt
     configured = settings.ai_configured
     return AiStatusResponse(
         configured=configured,
-        model=settings.ai_model if configured else None,
+        model=settings.ai_active_model if configured else None,
     )
 
 

@@ -27,7 +27,11 @@ from app.core.config import Settings
 from app.core.database import DbSession
 from app.core.exceptions import AppError
 from app.platform.ai.provider import ResearchResult, ResearchSource
-from app.platform.ai.service import AiGatewayService, AiPromptService
+from app.platform.ai.service import (
+    DEFAULT_MARKET_INSIGHTS_PROMPT,
+    AiGatewayService,
+    AiPromptService,
+)
 from app.products.crm.market_insights import router as market_insights_router
 from app.products.crm.market_insights.service import MarketInsightService
 from tests.integration.conftest import ApiSession, Tenant
@@ -575,7 +579,11 @@ def test_the_default_prompt_is_published_on_first_read(alpha_admin: ApiSession) 
     body = alpha_admin.get("/ai/prompts/market_insights").json()
 
     assert body["active"]["version"] == 1
-    assert "Company Overview" in body["active"]["prompt"]
+    # Compared against the constant rather than against a phrase inside it: the
+    # brief's wording is meant to be edited, and a test that names one of its
+    # section headings fails on every rewrite while proving nothing about the
+    # seeding this test is actually for.
+    assert body["active"]["prompt"] == DEFAULT_MARKET_INSIGHTS_PROMPT.strip()
 
 
 def test_an_unknown_prompt_key_is_a_404(alpha_admin: ApiSession) -> None:

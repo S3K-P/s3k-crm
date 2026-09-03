@@ -80,11 +80,14 @@ export function parseInline(source: string): InlineNode[] {
    Blocks
    ------------------------------------------------------------------ */
 
+export type ColumnAlign = 'left' | 'center' | 'right';
+
 export type Block =
   | { kind: 'paragraph'; content: InlineNode[] }
   | { kind: 'heading'; level: 3 | 4; content: InlineNode[] }
   | { kind: 'list'; ordered: boolean; items: InlineNode[][] }
-  | { kind: 'quote'; content: InlineNode[] };
+  | { kind: 'quote'; content: InlineNode[] }
+  | { kind: 'table'; headers: InlineNode[][]; align: ColumnAlign[]; rows: InlineNode[][][] };
 
 /** One `## Section` of the report, with the blocks beneath it. */
 export interface ReportSection {
@@ -95,6 +98,30 @@ export interface ReportSection {
 
 const BULLET = /^\s*[-*•]\s+/;
 const ORDERED = /^\s*\d+[.)]\s+/;
+
+/**
+ * The `| --- | :---: |` row that turns the line above it into a table header.
+ *
+ * A pipe on its own means nothing — prose says "revenue | margin" often
+ * enough. It is this row underneath that declares a table, which is also how
+ * a reader tells the difference, so the parser uses the same signal.
+ */
+const TABLE_DELIMITER = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+
+/** Split one `| a | b |` row, tolerating missing outer pipes and `\|` cells. */
+function splitRow(line: string): string[] {
+  let text = line.trim();
+  if (text.startsWith('|')) text = text.slice(1);
+  if (text.endsWith('|') && !text.endsWith('\\|')) text = text.slice(0, -1);
+  return text.split(/(?<!\\)\|/).map((cell) => cell.replace(/\\\|/g, '|').trim());
+}
+
+function alignOf(spec: string): ColumnAlign {
+  const trimmed = spec.trim();
+  if (trimmed.startsWith(':') && trimmed.endsWith(':')) return 'center';
+  if (trimmed.endsWith(':')) return 'right';
+  return 'left';
+}
 
 /**
  * Split Markdown into sections keyed by its level-two headings.
@@ -137,8 +164,12 @@ export function parseReport(markdown: string): ReportSection[] {
   // headings and lists.
   let inFence = false;
 
-  for (const rawLine of markdown.replace(/\r\n/g, '\n').split('\n')) {
-    const line = rawLine.trimEnd();
+  // Indexed rather than for-of because a table is only recognisable from the
+  // line *after* its header row, so the loop needs one line of lookahead.
+  const lines = markdown.replace(/\r\n/g, '\n').split('\n').map((line) => line.trimEnd());
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
 
     if (line.trimStart().startsWith('```')) {
       inFence = !inFence;
@@ -185,6 +216,39 @@ export function parseReport(markdown: string): ReportSection[] {
       continue;
     }
 
+    if (
+      line.includes('|') &&
+      index + 1 < lines.length &&
+      TABLE_DELIMITER.test(lines[index + 1])
+    ) {
+      flushAll();
+
+      const headers = splitRow(line);
+      const align = splitRow(lines[index + 1]).map(alignOf);
+
+      // Body rows run until the first line that is not one — a blank line, a
+      // heading, or ordinary prose. A ragged row is padded or trimmed to the
+      // header width so the rendered table stays a rectangle.
+      const rows: string[][] = [];
+      let cursor = index + 2;
+      while (cursor < lines.length && lines[cursor].trim() !== '' && lines[cursor].includes('|')) {
+        const cells = splitRow(lines[cursor]);
+        rows.push(
+          Array.from({ length: headers.length }, (_, column) => cells[column] ?? ''),
+        );
+        cursor += 1;
+      }
+
+      current.blocks.push({
+        kind: 'table',
+        headers: headers.map(parseInline),
+        align: headers.map((_, column) => align[column] ?? 'left'),
+        rows: rows.map((row) => row.map(parseInline)),
+      });
+      index = cursor - 1;
+      continue;
+    }
+
     const bullet = BULLET.exec(line);
     const ordered = ORDERED.exec(line);
     if (bullet || ordered) {
@@ -195,6 +259,15 @@ export function parseReport(markdown: string): ReportSection[] {
         list = { ordered: isOrdered, items: [] };
       }
       list.items.push(line.replace(bullet ? BULLET : ORDERED, '').trim());
+      continue;
+    }
+
+    // A wrapped bullet. An indented line directly under a list item continues
+    // that item rather than opening a paragraph: models wrap long bullets, and
+    // reading the tail as prose turns one point into three blocks — a list, a
+    // stray paragraph, then a second list.
+    if (list !== null && list.items.length > 0 && /^\s+\S/.test(line)) {
+      list.items[list.items.length - 1] += ` ${line.trim()}`;
       continue;
     }
 

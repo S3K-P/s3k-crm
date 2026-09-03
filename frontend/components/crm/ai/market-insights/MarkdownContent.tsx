@@ -68,12 +68,22 @@ function Inline({ nodes }: { nodes: InlineNode[] }) {
 export default function MarkdownContent({
   blocks,
   className,
+  /**
+   * Type scale. The default is the compact one a follow-up bubble wants; the
+   * report reads as a document, so it asks for `reading` — a step up in size
+   * and line height, which is the difference between skimming a card and
+   * actually reading two pages of prose.
+   */
+  reading = false,
 }: {
   blocks: Block[];
   className?: string;
+  reading?: boolean;
 }) {
+  const body = reading ? 'text-[14px] leading-[1.75]' : 'text-[13px] leading-relaxed';
+
   return (
-    <div className={cn('space-y-3', className)}>
+    <div className={cn(reading ? 'space-y-4' : 'space-y-3', className)}>
       {blocks.map((block, index) => {
         switch (block.kind) {
           case 'heading':
@@ -82,7 +92,14 @@ export default function MarkdownContent({
                 key={index}
                 className={cn(
                   'txt font-display font-bold',
-                  block.level === 3 ? 'text-[13.5px]' : 'text-[12.5px]',
+                  reading ? 'pt-1' : '',
+                  block.level === 3
+                    ? reading
+                      ? 'text-[15px]'
+                      : 'text-[13.5px]'
+                    : reading
+                      ? 'text-[14px]'
+                      : 'text-[12.5px]',
                 )}
               >
                 <Inline nodes={block.content} />
@@ -91,7 +108,10 @@ export default function MarkdownContent({
 
           case 'list':
             return block.ordered ? (
-              <ol key={index} className="txt-muted ml-4 list-decimal space-y-1.5 text-[13px] leading-relaxed">
+              <ol
+                key={index}
+                className={cn('txt-muted ml-5 list-decimal space-y-2', body)}
+              >
                 {block.items.map((item, itemIndex) => (
                   <li key={itemIndex} className="pl-1">
                     <Inline nodes={item} />
@@ -99,7 +119,7 @@ export default function MarkdownContent({
                 ))}
               </ol>
             ) : (
-              <ul key={index} className="txt-muted ml-4 list-disc space-y-1.5 text-[13px] leading-relaxed">
+              <ul key={index} className={cn('txt-muted ml-5 list-disc space-y-2', body)}>
                 {block.items.map((item, itemIndex) => (
                   <li key={itemIndex} className="pl-1">
                     <Inline nodes={item} />
@@ -108,11 +128,62 @@ export default function MarkdownContent({
               </ul>
             );
 
+          case 'table':
+            return (
+              // The scroll container is the table's own, not the page's: a
+              // six-column competitor comparison must not make the whole
+              // report scroll sideways on a laptop.
+              <div key={index} className="bd -mx-1 overflow-x-auto rounded-xl border">
+                <table
+                  className={cn(
+                    'w-full border-collapse',
+                    reading ? 'text-[13px]' : 'text-[12.5px]',
+                  )}
+                >
+                  <thead>
+                    <tr className="surface-2">
+                      {block.headers.map((header, column) => (
+                        <th
+                          key={column}
+                          scope="col"
+                          className={cn(
+                            'bd txt border-b text-left font-semibold',
+                            reading ? 'px-3.5 py-2.5' : 'px-3 py-2',
+                          )}
+                          style={{ textAlign: block.align[column] }}
+                        >
+                          <Inline nodes={header} />
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border)]">
+                    {block.rows.map((row, rowIndex) => (
+                      <tr key={rowIndex}>
+                        {row.map((cell, column) => (
+                          <td
+                            key={column}
+                            className={cn(
+                              'txt-muted align-top leading-relaxed',
+                              reading ? 'px-3.5 py-2.5' : 'px-3 py-2',
+                            )}
+                            style={{ textAlign: block.align[column] }}
+                          >
+                            <Inline nodes={cell} />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+
           case 'quote':
             return (
               <blockquote
                 key={index}
-                className="txt-muted border-l-2 pl-3 text-[13px] italic leading-relaxed"
+                className={cn('txt-muted border-l-2 italic', reading ? 'pl-4' : 'pl-3', body)}
                 style={{ borderColor: 'var(--accent)' }}
               >
                 <Inline nodes={block.content} />
@@ -121,7 +192,7 @@ export default function MarkdownContent({
 
           default:
             return (
-              <p key={index} className="txt-muted text-[13px] leading-relaxed">
+              <p key={index} className={cn('txt-muted', body)}>
                 <Inline nodes={block.content} />
               </p>
             );

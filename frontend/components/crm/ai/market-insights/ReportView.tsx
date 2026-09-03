@@ -1,162 +1,82 @@
 'use client';
 
 import { useMemo } from 'react';
-import {
-  AlertTriangle,
-  Banknote,
-  Boxes,
-  Building2,
-  CalendarClock,
-  Compass,
-  FileText,
-  Factory,
-  Gauge,
-  Handshake,
-  Lightbulb,
-  ListChecks,
-  Swords,
-  TrendingUp,
-  Users,
-  type LucideIcon,
-} from 'lucide-react';
 
-import InsightSection from '@/components/crm/ai/shared/InsightSection';
-import CopyButton from '@/components/crm/ai/shared/CopyButton';
 import MarkdownContent from '@/components/crm/ai/market-insights/MarkdownContent';
+import HtmlReportFrame from '@/components/crm/ai/market-insights/HtmlReportFrame';
 import { parseReport } from '@/features/ai/market-insights/markdown';
+import { looksLikeHtmlDocument, unfence } from '@/features/ai/market-insights/html-report';
 
 /* ============================================================
    REPORT VIEW
 
-   The Market Intelligence Report.
+   The Market Intelligence Report, as one continuous document.
 
-   The sections are NOT hard-coded. They are whatever level-two
-   headings the configured prompt caused the model to write, so
-   an administrator who edits the prompt in AI Settings changes
-   the shape of this page without anybody touching this file
-   (§5). The map below only assigns an icon to headings that
-   happen to be recognisable; an unrecognised section renders
-   perfectly well with the default one.
+   It reads top to bottom the way a chat assistant's answer
+   does — headings, prose, bullets and tables in the order the
+   model wrote them — rather than as cards in a grid. Two
+   reasons, and the second is the load-bearing one:
+
+   1. This is a two-to-three page report meant to be *read*
+      before a meeting, not a dashboard to be scanned.
+   2. The sections are whatever level-two headings the
+      configured prompt produced (§5). A layout that assigns
+      each section a card, an icon and a collapsed/expanded
+      default is quietly asserting it knows what the sections
+      are. Flowing text makes no such claim, so an administrator
+      who rewrites the prompt in AI Settings gets a report that
+      still reads correctly.
+
+   Copy and Download live once, in the header above this — the
+   same place a chat UI puts them, and the reason there is no
+   per-section action here.
    ============================================================ */
-
-/** Keyword → icon. Matched loosely, purely cosmetic. */
-const SECTION_ICONS: ReadonlyArray<readonly [string, LucideIcon]> = [
-  ['overview', Building2],
-  ['industry', Factory],
-  ['product', Boxes],
-  ['service', Boxes],
-  ['market position', Gauge],
-  ['business model', Compass],
-  ['customer', Handshake],
-  ['competitor', Swords],
-  ['recent', CalendarClock],
-  ['development', CalendarClock],
-  ['leadership', Users],
-  ['people', Users],
-  ['financial', Banknote],
-  ['revenue', Banknote],
-  ['opportunit', Lightbulb],
-  ['risk', AlertTriangle],
-  ['challenge', AlertTriangle],
-  ['sales relevance', TrendingUp],
-  ['next action', ListChecks],
-  ['recommend', ListChecks],
-  ['summary', FileText],
-];
-
-function iconFor(title: string): LucideIcon {
-  const normalised = title.toLowerCase();
-  for (const [keyword, icon] of SECTION_ICONS) {
-    if (normalised.includes(keyword)) return icon;
-  }
-  return FileText;
-}
-
-/** One-line preview shown in a collapsed section header. */
-function summarise(blocks: ReturnType<typeof parseReport>[number]['blocks']): string {
-  for (const block of blocks) {
-    if (block.kind === 'paragraph' || block.kind === 'quote') {
-      const text = block.content.map((node) => node.text).join('').trim();
-      if (text) return text.length > 120 ? `${text.slice(0, 120).trimEnd()}…` : text;
-    }
-    if (block.kind === 'list' && block.items.length > 0) {
-      return `${block.items.length} point${block.items.length === 1 ? '' : 's'}`;
-    }
-  }
-  return '';
-}
 
 export default function ReportView({
   markdown,
   companyName,
 }: {
   markdown: string;
-  companyName: string;
+  /** Present for callers and future use; the document titles itself. */
+  companyName?: string;
 }) {
-  const sections = useMemo(() => parseReport(markdown), [markdown]);
+  void companyName;
 
-  // Content the model wrote before its first heading — usually an opening
-  // summary. Rendered above the cards rather than inside one, because it
-  // introduces the report rather than being a section of it.
-  const lead = sections.find((section) => section.title === '');
-  const titled = sections.filter((section) => section.title !== '');
+  // The configured prompt decides the format, so the renderer follows it
+  // rather than the other way round. A prompt asking for an HTML file gets one
+  // and it is shown as a document; the shipped brief asks for Markdown and
+  // flows below. Getting this wrong is what turns a report into a screenful of
+  // raw `<!doctype html>`.
+  const content = useMemo(() => unfence(markdown), [markdown]);
+  const isHtml = useMemo(() => looksLikeHtmlDocument(content), [content]);
+
+  const sections = useMemo(() => (isHtml ? [] : parseReport(content)), [content, isHtml]);
+
+  if (isHtml) return <HtmlReportFrame html={content} />;
 
   return (
-    <div className="space-y-4">
-      {lead && lead.blocks.length > 0 && (
-        <div className="surface bd rounded-2xl border p-4 sm:p-5">
-          <MarkdownContent blocks={lead.blocks} />
-        </div>
-      )}
-
-      {titled.length === 0 && !lead && (
-        // A report with no headings at all is unusual but not an error — the
-        // prompt may simply not ask for them. Show the prose rather than an
-        // empty page.
-        <div className="surface bd rounded-2xl border p-4 sm:p-5">
-          <MarkdownContent blocks={parseReport(markdown).flatMap((s) => s.blocks)} />
-        </div>
-      )}
-
-      <div className="grid gap-3 lg:grid-cols-2">
-        {titled.map((section, index) => (
-          <InsightSection
-            key={`${section.title}-${index}`}
-            icon={iconFor(section.title)}
-            title={section.title}
-            summary={summarise(section.blocks)}
-            // The first four open, the rest collapsed: a fourteen-section
-            // report fully expanded is a wall of text nobody scrolls.
-            defaultOpen={index < 4}
-            action={
-              <CopyButton
-                value={sectionMarkdown(markdown, section.title)}
-                label={`${section.title} for ${companyName}`}
-              />
-            }
-          >
-            <MarkdownContent blocks={section.blocks} />
-          </InsightSection>
+    <article className="surface bd rounded-2xl border px-5 py-6 sm:px-8 sm:py-8">
+      {/* Capped for line length: prose at the full width of a wide monitor is
+          measurably harder to read, and this is a document. */}
+      <div className="mx-auto max-w-[44rem]">
+        {sections.map((section, index) => (
+          <section key={`${section.title}-${index}`}>
+            {section.title && (
+              <h2
+                className={
+                  'font-display txt text-[17px] font-extrabold leading-snug tracking-tight ' +
+                  // No top margin on the first heading — the card's padding is
+                  // already the space above it.
+                  (index === 0 ? 'mb-3' : 'mb-3 mt-7')
+                }
+              >
+                {section.title}
+              </h2>
+            )}
+            <MarkdownContent blocks={section.blocks} reading />
+          </section>
         ))}
       </div>
-    </div>
+    </article>
   );
-}
-
-/**
- * The original Markdown of one section, for the clipboard.
- *
- * Sliced out of the source rather than re-serialised from the parse tree: what
- * someone pastes into an email should be exactly what the model wrote.
- */
-function sectionMarkdown(markdown: string, title: string): string {
-  const lines = markdown.replace(/\r\n/g, '\n').split('\n');
-  const start = lines.findIndex(
-    (line) => /^#{1,2}\s+/.test(line) && line.replace(/^#{1,2}\s+/, '').trim() === title,
-  );
-  if (start === -1) return markdown;
-
-  const rest = lines.slice(start + 1);
-  const end = rest.findIndex((line) => /^#{1,2}\s+/.test(line));
-  return [lines[start], ...(end === -1 ? rest : rest.slice(0, end))].join('\n').trim();
 }
