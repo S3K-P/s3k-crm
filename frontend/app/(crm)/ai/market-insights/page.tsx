@@ -27,6 +27,7 @@ import ResearchProgress from '@/components/crm/ai/market-insights/ResearchProgre
 import ReportView from '@/components/crm/ai/market-insights/ReportView';
 import SourcesPanel from '@/components/crm/ai/market-insights/SourcesPanel';
 import FollowUpChat from '@/components/crm/ai/market-insights/FollowUpChat';
+import DownloadReportMenu from '@/components/crm/ai/market-insights/DownloadReportMenu';
 import HistoryList from '@/components/crm/ai/market-insights/HistoryList';
 import AddToCrmDrawer from '@/components/crm/ai/market-insights/AddToCrmDrawer';
 import { describeApiError } from '@/features/shared/hooks/useCollection';
@@ -596,6 +597,29 @@ function SessionHeader({
 }) {
   const external = session.account_id === null;
 
+  // Everything the exported document needs, in one object so the menu's
+  // callbacks are not rebuilt on every keystroke elsewhere on the page.
+  const exportDocument = useMemo(
+    () => ({
+      companyName: session.company_name,
+      markdown: reportMarkdown,
+      sources: session.sources,
+      generatedAt: session.created_at,
+      model: session.model,
+      promptVersion: session.prompt_version,
+      usedCrmContext: session.used_crm_context,
+    }),
+    [
+      session.company_name,
+      session.sources,
+      session.created_at,
+      session.model,
+      session.prompt_version,
+      session.used_crm_context,
+      reportMarkdown,
+    ],
+  );
+
   return (
     <div className="surface bd flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-start sm:justify-between sm:p-5">
       <div className="flex min-w-0 items-start gap-3">
@@ -642,6 +666,8 @@ function SessionHeader({
 
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         <CopyButton value={reportMarkdown} label="Report" showLabel />
+
+        <DownloadReportMenu report={exportDocument} />
 
         {external && canAddToCrm && (
           <button

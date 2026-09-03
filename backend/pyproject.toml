@@ -25,6 +25,14 @@ dependencies = [
     "boto3>=1.35.0",
     # ADR-016: the Shared AI Gateway calls Claude through the official SDK.
     "anthropic>=0.69.0",
+    # The gateway's second provider. Gemini has a free tier, including a
+    # monthly allowance of Google Search grounding, which is what lets a
+    # deployment run Market Insights without a paid account.
+    "google-genai>=1.0.0",
+    # Direct runtime use: the Gemini provider resolves Google's grounding
+    # redirect links to real publisher URLs. Both AI SDKs happen to pull httpx
+    # in, but a module that imports it must not rely on that.
+    "httpx>=0.28.0",
 ]
 
 [dependency-groups]

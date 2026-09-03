@@ -1,7 +1,11 @@
-"""The model call itself: Claude with server-side web search.
+"""The model call itself: a model that can search the web while it answers.
 
 This is the only module in the codebase that talks to an AI provider, and the
-only one that reads the API credential.
+only one that reads an API credential. Two vendors are implemented behind
+:class:`ResearchProvider` — Claude with its ``web_search`` server tool, and
+Gemini with Google Search grounding — and ``ai_provider`` picks between them.
+They are not interchangeable in quality: see :class:`GeminiResearchProvider`
+for what the free option gives up.
 
 **Why web search rather than model knowledge.** Market Insights answers
 questions whose answers change — funding rounds, leadership, recent
@@ -10,33 +14,41 @@ would produce confident, stale prose with no way to tell which parts had aged.
 The ``web_search`` server tool runs on Anthropic's infrastructure, returns
 results with real URLs, and lets the model cite them inline.
 
-**Sources are observed, never invented.** :class:`ResearchSource` values come
-from ``web_search_tool_result`` blocks the API actually returned. Nothing here
-parses URLs out of prose, and nothing constructs a citation the tool did not
-report — a fabricated source in a business-intelligence report is worse than
-no source at all (§17). ``cited=True`` is set only where a text block carried
-a ``web_search_result_location`` citation naming that URL, so the interface can
-distinguish *retrieved* from *quoted*.
+**Sources are observed, never invented.** This is the rule both providers are
+held to. :class:`ResearchSource` values come from what the search tool
+reported — ``web_search_tool_result`` blocks on Claude, ``grounding_chunks`` on
+Gemini. Nothing here parses URLs out of prose, and nothing constructs a
+citation the tool did not report: a fabricated source in a business-
+intelligence report is worse than no source at all (§17). ``cited=True`` marks
+the narrower claim that a sentence actually rested on that page, so the
+interface can distinguish *retrieved* from *quoted*.
 
-**Turn shape.** Server tools run a sampling loop on Anthropic's side. When it
-reaches its iteration limit the response comes back with ``stop_reason ==
-"pause_turn"`` and must be resumed by echoing the assistant turn back
-unchanged — no synthetic "continue" message, which would corrupt the tool
-state. ``max_continuations`` bounds that loop so a pathological turn cannot run
-forever.
+**Turn shape differs between the two.** Claude's server tools run a sampling
+loop on Anthropic's side; when it reaches its iteration limit the response
+comes back with ``stop_reason == "pause_turn"`` and must be resumed by echoing
+the assistant turn back unchanged — no synthetic "continue" message, which
+would corrupt the tool state. ``max_continuations`` bounds that loop so a
+pathological turn cannot run forever. Gemini's grounding completes inside a
+single ``generate_content`` call, so it has no continuation loop at all and
+``max_continuations`` does not apply to it.
 """
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 import anthropic
+import httpx
 import structlog
 from anthropic.types.beta import BetaMessage
 from fastapi import status
+from google import genai
+from google.genai import errors as genai_errors
+from google.genai import types as genai_types
 
 from app.core.config import Settings
 from app.core.exceptions import AppError
@@ -325,6 +337,305 @@ class AnthropicResearchProvider:
             raise AiProviderError from exc
 
 
+class GeminiResearchProvider:
+    """A :class:`ResearchProvider` backed by Gemini with Google Search grounding.
+
+    The free option. Flash models carry a free token allowance and the 3.x
+    generation includes a monthly allowance of grounded searches, so a
+    deployment can run Market Insights without a paid account.
+
+    **What it gives up, stated plainly.** Grounding returns its sources as
+    ``vertexaisearch.cloud.google.com`` redirect links rather than publisher
+    URLs, and the ``domain`` field comes back empty
+    (googleapis/python-genai#1512). A Sources panel listing a dozen identical
+    Google hostnames is not evidence, so this provider resolves each redirect
+    to its destination before returning it — that is what
+    :meth:`_resolve_sources` is for, and it is the reason this class does
+    network I/O the Anthropic one does not need.
+
+    **One round trip, not a loop.** Grounding runs inside the single
+    ``generate_content`` call, so there is no ``pause_turn`` equivalent and no
+    continuation loop. ``ai_max_continuations`` does not apply here.
+    """
+
+    #: Prefix Google wraps every grounded source in. Matched rather than
+    #: assumed: a chunk that is already a real URL is left alone.
+    REDIRECT_HOST = "vertexaisearch.cloud.google.com"
+
+    #: Bound on redirect resolution. These run concurrently and only to learn a
+    #: URL, so a slow publisher must not extend a research turn noticeably.
+    RESOLVE_TIMEOUT_SECONDS = 8.0
+    RESOLVE_CONCURRENCY = 8
+
+    def __init__(self, settings: Settings) -> None:
+        if not settings.ai_configured:
+            raise AiNotConfiguredError
+        key = settings.gemini_api_key
+        if key is None:  # pragma: no cover - narrowed by ai_configured above
+            raise AiNotConfiguredError
+
+        self._client = genai.Client(
+            api_key=key.get_secret_value(),
+            http_options=genai_types.HttpOptions(
+                timeout=int(settings.ai_request_timeout_seconds * 1000),
+            ),
+        )
+        self._model = settings.gemini_model
+        self._max_tokens = settings.ai_max_output_tokens
+
+    async def run(
+        self,
+        *,
+        system: str,
+        messages: Sequence[dict[str, Any]],
+        web_search: bool = True,
+    ) -> ResearchResult:
+        """Run one turn against Gemini and return its result.
+
+        Args:
+            system: the system prompt, already composed by the service.
+            messages: conversation history in the gateway's shape.
+            web_search: whether to offer Google Search grounding.
+
+        Returns:
+            The answer plus every source grounding actually retrieved.
+
+        Raises:
+            AiRefusedError: the response was blocked on safety grounds.
+            AiTemporarilyUnavailableError: rate limited, overloaded, timed out.
+            AiProviderError: any other provider failure, or an empty answer.
+        """
+        config = genai_types.GenerateContentConfig(
+            system_instruction=system,
+            max_output_tokens=self._max_tokens,
+            tools=(
+                [genai_types.Tool(google_search=genai_types.GoogleSearch())] if web_search else None
+            ),
+            # Grounding runs on Google's side and calls nothing of ours, so
+            # the SDK's automatic function-calling loop has no work to do here.
+            # Declared off rather than left to default: with `tools` set, the
+            # SDK otherwise warns and reserves the right to drive a loop this
+            # provider does not want.
+            automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
+        )
+
+        try:
+            response = await self._client.aio.models.generate_content(
+                model=self._model,
+                contents=to_gemini_contents(messages),
+                config=config,
+            )
+        except genai_errors.ClientError as exc:
+            # 429 is the free tier's quota, which is "come back later", not a
+            # fault. A rejected credential is a deployment fault, reported as
+            # "not configured" for the same reason the Anthropic path does so:
+            # that is the message whose advice actually helps.
+            if exc.code == 429:
+                logger.warning("ai_provider_unavailable", error="ClientError", code=exc.code)
+                raise AiTemporarilyUnavailableError from exc
+            if is_credential_error(exc):
+                logger.error("ai_provider_rejected_credential", status_code=exc.code)
+                raise AiNotConfiguredError from exc
+            logger.warning("ai_provider_error", status_code=exc.code)
+            raise AiProviderError from exc
+        except genai_errors.ServerError as exc:
+            logger.warning("ai_provider_unavailable", error="ServerError", code=exc.code)
+            raise AiTemporarilyUnavailableError from exc
+        except (TimeoutError, httpx.TimeoutException) as exc:
+            logger.warning("ai_provider_unavailable", error=type(exc).__name__)
+            raise AiTemporarilyUnavailableError from exc
+        except genai_errors.APIError as exc:
+            logger.warning("ai_provider_error", status_code=getattr(exc, "code", None))
+            raise AiProviderError from exc
+
+        text, sources, searches, finish_reason = harvest_gemini_response(response)
+
+        if not text:
+            # A safety block returns 200 with no text and a finish reason
+            # saying why — the same shape as Claude's ``refusal`` stop reason,
+            # and it deserves the same 422 rather than a generic failure.
+            if finish_reason in _BLOCKED_FINISH_REASONS:
+                logger.info("ai_turn_refused", finish_reason=finish_reason)
+                raise AiRefusedError
+            logger.warning("ai_turn_produced_no_text", finish_reason=finish_reason)
+            raise AiProviderError
+
+        usage = getattr(response, "usage_metadata", None)
+
+        return ResearchResult(
+            text=text,
+            sources=await self._resolve_sources(sources),
+            model=getattr(response, "model_version", None) or self._model,
+            stop_reason=finish_reason,
+            search_count=searches,
+            input_tokens=getattr(usage, "prompt_token_count", 0) or 0,
+            output_tokens=getattr(usage, "candidates_token_count", 0) or 0,
+            truncated=finish_reason == "MAX_TOKENS",
+        )
+
+    async def _resolve_sources(
+        self, sources: Sequence[ResearchSource]
+    ) -> tuple[ResearchSource, ...]:
+        """Turn Google's redirect links into the publisher URLs behind them.
+
+        Each redirect is followed once, concurrently, with a short timeout. A
+        failure keeps the redirect URL: it still resolves in a browser, so a
+        source the reader can open beats dropping the evidence entirely.
+
+        Deduplication happens *after* resolution — two different redirect links
+        routinely point at the same page, and the panel should list it once.
+        """
+        if not sources:
+            return ()
+
+        limiter = asyncio.Semaphore(self.RESOLVE_CONCURRENCY)
+
+        async def resolve(client: httpx.AsyncClient, source: ResearchSource) -> ResearchSource:
+            if self.REDIRECT_HOST not in source.url:
+                return source
+            async with limiter:
+                try:
+                    response = await client.get(source.url)
+                except httpx.HTTPError as exc:
+                    logger.info("ai_source_redirect_unresolved", error=type(exc).__name__)
+                    return source
+            final = str(response.url)
+            if self.REDIRECT_HOST in final:
+                return source
+            # `title` holds the publisher domain for a grounded chunk, which is
+            # a poor headline once the real URL is known but the only label
+            # Google supplies. Kept as-is rather than invented from the page.
+            return ResearchSource(
+                title=source.title, url=final, page_age=source.page_age, cited=source.cited
+            )
+
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=self.RESOLVE_TIMEOUT_SECONDS,
+        ) as client:
+            resolved = await asyncio.gather(
+                *(resolve(client, source) for source in sources),
+                return_exceptions=False,
+            )
+
+        unique: dict[str, ResearchSource] = {}
+        for source in resolved:
+            existing = unique.get(source.url)
+            # A cited duplicate outranks an uncited one: the panel's "Cited"
+            # badge has to survive deduplication.
+            if existing is None or (source.cited and not existing.cited):
+                unique[source.url] = source
+        return tuple(unique.values())
+
+
+#: Finish reasons that mean the model declined rather than failed.
+_BLOCKED_FINISH_REASONS = frozenset({"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII"})
+
+#: ``reason`` values that mean the credential is the problem.
+_CREDENTIAL_REASONS = frozenset(
+    {"API_KEY_INVALID", "API_KEY_SERVICE_BLOCKED", "PERMISSION_DENIED", "ACCESS_TOKEN_EXPIRED"}
+)
+
+
+def is_credential_error(exc: genai_errors.ClientError) -> bool:
+    """Whether a 4xx means "your key is wrong" rather than "your request was".
+
+    Worth its own function because the obvious test is the wrong one: Google
+    answers an invalid API key with **400 INVALID_ARGUMENT**, not 401, so the
+    status code cannot separate a bad credential from a bad request. Left
+    unhandled, a deployment with a mistyped key tells its operator "the AI
+    provider could not complete this request. Please try again" — advice that
+    will never work — instead of "AI is not connected".
+
+    The structured ``reason`` is what gets matched. The human-readable message
+    is deliberately not: it is prose, and prose gets reworded.
+    """
+    if exc.code in (401, 403):
+        return True
+    details = getattr(exc, "details", None)
+    if not isinstance(details, dict):
+        return False
+    error = details.get("error")
+    if not isinstance(error, dict):
+        return False
+    return any(
+        isinstance(item, dict) and item.get("reason") in _CREDENTIAL_REASONS
+        for item in error.get("details") or ()
+    )
+
+
+def to_gemini_contents(messages: Sequence[dict[str, Any]]) -> list[genai_types.Content]:
+    """Convert the gateway's message list into Gemini ``Content`` values.
+
+    The gateway speaks the Messages API shape because that is what its first
+    provider used. The only differences that matter here are the name of the
+    assistant role and that content arrives as plain text, so the conversion
+    is this small — and doing it here keeps the shape out of the service.
+    """
+    contents: list[genai_types.Content] = []
+    for message in messages:
+        content = message.get("content")
+        if not isinstance(content, str):
+            # Defensive: the Anthropic provider echoes block lists back into
+            # its own history, and nothing should reach here having done that.
+            content = str(content)
+        contents.append(
+            genai_types.Content(
+                role="model" if message.get("role") == "assistant" else "user",
+                parts=[genai_types.Part(text=content)],
+            )
+        )
+    return contents
+
+
+def harvest_gemini_response(response: Any) -> tuple[str, list[ResearchSource], int, str | None]:
+    """Pull text, grounded sources, search count and finish reason from a response.
+
+    A module-level function over duck-typed objects for the same reason
+    :func:`harvest_blocks` is one: the unit tests feed it recorded shapes
+    without constructing SDK models or a client.
+
+    ``cited`` is set from ``grounding_supports``, which is the only signal
+    distinguishing a chunk a sentence actually rests on from one that was
+    merely retrieved. Nothing here reads URLs out of the model's prose.
+    """
+    candidates = getattr(response, "candidates", None) or ()
+    if not candidates:
+        return "", [], 0, None
+
+    candidate = candidates[0]
+    finish_reason = getattr(candidate, "finish_reason", None)
+    finish = getattr(finish_reason, "name", None) or (str(finish_reason) if finish_reason else None)
+
+    texts: list[str] = []
+    for part in getattr(getattr(candidate, "content", None), "parts", None) or ():
+        part_text = getattr(part, "text", None)
+        if part_text:
+            texts.append(part_text)
+
+    metadata = getattr(candidate, "grounding_metadata", None)
+    chunks = list(getattr(metadata, "grounding_chunks", None) or ())
+    searches = len(getattr(metadata, "web_search_queries", None) or ())
+
+    cited_indices: set[int] = set()
+    for support in getattr(metadata, "grounding_supports", None) or ():
+        for index in getattr(support, "grounding_chunk_indices", None) or ():
+            cited_indices.add(index)
+
+    sources: list[ResearchSource] = []
+    for index, chunk in enumerate(chunks):
+        web = getattr(chunk, "web", None)
+        uri = getattr(web, "uri", None)
+        if not uri:
+            continue
+        # `title` is the publisher domain; `domain` is documented but empty in
+        # practice. Fall back through both to the URL rather than show "None".
+        label = (getattr(web, "title", None) or getattr(web, "domain", None) or uri).strip()
+        sources.append(ResearchSource(title=label, url=uri, cited=index in cited_indices))
+
+    return "\n\n".join(texts).strip(), sources, searches, finish
+
+
 def harvest_blocks(
     blocks: Iterable[Any],
 ) -> tuple[list[str], list[ResearchSource], set[str], int]:
@@ -394,8 +705,12 @@ __all__ = [
     "AiRefusedError",
     "AiTemporarilyUnavailableError",
     "AnthropicResearchProvider",
+    "GeminiResearchProvider",
     "ResearchProvider",
     "ResearchResult",
     "ResearchSource",
     "harvest_blocks",
+    "harvest_gemini_response",
+    "is_credential_error",
+    "to_gemini_contents",
 ]

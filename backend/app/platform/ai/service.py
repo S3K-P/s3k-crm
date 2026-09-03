@@ -34,6 +34,7 @@ from app.platform.ai.models import MARKET_INSIGHTS_PROMPT_KEY, AiPromptVersion
 from app.platform.ai.provider import (
     AiNotConfiguredError,
     AnthropicResearchProvider,
+    GeminiResearchProvider,
     ResearchProvider,
     ResearchResult,
 )
@@ -56,36 +57,114 @@ logger = structlog.get_logger(__name__)
 #: wholesale; the section list below is a starting point, not a contract the
 #: code depends on.
 DEFAULT_MARKET_INSIGHTS_PROMPT = """\
-Research this company comprehensively, for a sales and business development \
-audience. Prioritise information that would change how a seller approaches \
-them.
+Act as a senior market research analyst, corporate strategy consultant and B2B \
+account intelligence specialist. Produce a concise, executive-ready Market \
+Research Report on this company — the document a sales or delivery leader reads \
+in the ten minutes before a CXO meeting.
 
-Cover the areas below that you can support with evidence, as level-two \
-Markdown headings, in this order. Omit any heading you have nothing reliable \
-to say about rather than filling it with generalities:
+Aim at two to three printed pages. Insight-dense, never exhaustive.
 
-## Company Overview
-## Industry
-## Products & Services
-## Market Position
-## Business Model
-## Key Customers & Markets
-## Competitors
-## Recent Developments
+# Sourcing
+
+Work only from credible public sources: the company's own website, annual \
+reports and investor presentations, stock-exchange filings, published financial \
+results, press releases, reputable business press, and leadership profiles \
+where they are relevant.
+
+- Hyperlink every important claim inline, as [label](url), to the page it came from.
+- Where something is not available publicly, write "Not publicly disclosed" \
+rather than estimating it.
+- Keep confirmed fact and your own inference visibly apart, and label inference \
+as inference.
+
+# Structure
+
+Write the sections below as level-two Markdown headings, in this order. Omit a \
+heading rather than filling it with generalities when you have nothing reliable \
+to say under it.
+
+## Executive Summary
+Five to seven lines: what the company is, how it is performing, where it is \
+heading, and the single most useful thing to know before meeting them.
+
+## Key Insights
+Four to six bullets, each a strategic signal a seller could act on.
+
+## Company Snapshot
+Overview, headquarters, year founded, industry, scale of operations, key \
+brands, subsidiaries and group companies, and where it sits in its market. Put \
+the factual fields in a table.
+
 ## Leadership
-## Financial & Business Information
-## Opportunities
-## Risks & Challenges
-## Sales Relevance
-## Recommended Next Actions
+Chairman, managing director, CEO and the executives who matter, with promoter \
+or board context where it is public, and any stated leadership priorities.
 
-Guidance:
-- Lead each section with the conclusion, then the evidence for it.
-- Prefer specifics — named customers, dated events, figures — over adjectives.
-- Attribute anything time-sensitive, and give the date it was true.
-- Where sources disagree, say so and give both readings.
-- Mark anything uncertain as uncertain. Never present an inference as a fact, \
-and never invent a figure, a customer, a person or an event to fill a gap.
+## Revenue, Financials & Growth
+Latest revenue, EBITDA, PAT and margins where published; the three-to-five year \
+trend as a table; export or international contribution; capex and capacity \
+plans; and the financial strengths and concerns behind the numbers.
+
+## Business Units, Products & Markets
+Segments, product categories, manufacturing or delivery capability, domestic \
+versus international mix, geographies served, and customer types.
+
+## Strategic Priorities
+What this company is visibly trying to do — growth, geographic expansion, \
+premiumisation and branding, sustainability, modernisation, supply-chain \
+efficiency, customer diversification, product innovation, data-led decision \
+making. Ground each one in something they have said or done, and cite it.
+
+## Competition
+Domestic and global competitors, in a table comparing scale, positioning and \
+market focus.
+
+## Compliance, Regulatory & Risk
+The regulatory and compliance environment this company operates under, and \
+where it is under pressure. Cover whichever apply: listing and disclosure \
+obligations, tax and customs regimes, trade policy, tariffs and anti-dumping \
+action, labour and factory law, environmental consents and emissions rules, \
+product safety and certification, data protection, ESG and supply-chain \
+due-diligence reporting, and any live litigation, penalty, audit qualification \
+or regulatory notice. For each, state the specific challenge it creates for \
+this business rather than restating the rule.
+
+## Recent News — Last 12 Months
+Dated items only: results, expansion, acquisitions and partnerships, leadership \
+changes, ESG initiatives, and legal, regulatory or market events.
+
+## Digital Transformation & Technology Initiatives
+Anything publicly stated about ERP, cloud, analytics, supply-chain \
+digitisation, automation, AI or ML, e-commerce, traceability platforms, \
+cybersecurity or infrastructure modernisation. Where nothing is on the record, \
+say so plainly and mark what follows "Potential Opportunity Areas" — never as \
+confirmed initiatives.
+
+## Technology Partners
+Named technology, consulting, platform or implementation partners. If none are \
+on the public record, write "No major technology partners found in the public \
+domain."
+
+## Potential AI / Digital Opportunity Areas
+Six to eight practical opportunities fitted to how this company actually \
+operates — demand forecasting, customer and retail analytics, trend \
+intelligence, supply-chain visibility, production planning, computer-vision \
+quality inspection, ESG reporting automation, sales and operations knowledge \
+management, generative-AI proposal and catalogue work, and the like. For each: \
+the opportunity, the business problem it solves, and why it fits this company. \
+This whole section is inference — say so at the top of it.
+
+## Sources
+Every source used, as a list of linked titles with publisher and date.
+
+# Style
+
+- Lead with the conclusion, then the evidence for it.
+- Prefer named customers, dated events and figures to adjectives.
+- Bullets and tables over prose. No paragraph longer than four lines.
+- Tables are GitHub-style Markdown pipe tables, header row included.
+- Attribute anything time-sensitive and give the date it was true.
+- Where sources disagree, give both readings and say which is which.
+- Never invent a figure, a customer, a person, an event or a URL to fill a gap.
 """
 
 
@@ -249,10 +328,19 @@ class AiGatewayService:
         return self._settings.ai_configured
 
     def _require_provider(self) -> ResearchProvider:
+        """The provider ``ai_provider`` selects, built on first use.
+
+        The only place in the codebase that names a vendor. Both constructors
+        re-check the credential, so a misconfigured deployment fails here with
+        ``ai_not_configured`` rather than at the model call.
+        """
         if self._provider is None:
             if not self._settings.ai_configured:
                 raise AiNotConfiguredError
-            self._provider = AnthropicResearchProvider(self._settings)
+            if self._settings.ai_provider == "gemini":
+                self._provider = GeminiResearchProvider(self._settings)
+            else:
+                self._provider = AnthropicResearchProvider(self._settings)
         return self._provider
 
     async def enforce_rate_limit(self, *, user_id: uuid.UUID) -> None:
