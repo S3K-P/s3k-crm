@@ -76,6 +76,24 @@ class Settings(BaseSettings):
     redis_max_connections: int = Field(default=10, ge=1, le=1000)
     redis_socket_timeout: float = Field(default=5.0, gt=0)
 
+    # --- Notifications (Phase A; app.platform.notifications.scheduler) -----
+    # How often the in-process reminder scheduler polls every organization
+    # for due reminders. A tick this frequent costs one cheap query per
+    # active organization when nothing is due; see that module's docstring
+    # for why polling rather than an event is the interim design.
+    notification_poll_interval_seconds: int = Field(default=60, ge=5, le=3600)
+    # Defaults on, for a real deployment and for `uv run uvicorn` in local
+    # development. The integration suite turns this off (see
+    # `tests/integration/conftest.py`'s `integration_settings`, and the CI
+    # workflow's `backend-tests` env block): `create_app()` is built fresh —
+    # and a new scheduler task started — by every single test that touches
+    # `client`/`api_app`, hundreds of times in one run. A background task per
+    # ephemeral test app, each doing a real database round trip and then
+    # racing its own cancellation at that test's teardown, is a source of
+    # flakiness the production system never has: one process, one scheduler,
+    # for the life of the deployment.
+    notifications_scheduler_enabled: bool = True
+
     # --- Authentication (ADR-009, doc 13 "Authentication Security") --------
     # EdDSA (Ed25519) signing keys, PEM encoded. Required in every environment
     # except development/test, where an ephemeral keypair is generated at
