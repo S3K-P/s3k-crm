@@ -42,6 +42,17 @@ PERMISSION_MODULES: Final[tuple[str, ...]] = (
     "notes",
     "documents",
     "dashboard",
+    #: The saved-report library: folders and saved report definitions.
+    #:
+    #: *Running* a report is not gated here and never was — that is authorized
+    #: against the module the report reads, because reading a report is reading
+    #: the records it aggregates (see ``products/crm/reports/policies.py``).
+    #: What this module governs is the saved object: may you name a report,
+    #: file it in a folder, share it with colleagues, delete somebody's. Those
+    #: are a lifecycle of their own, and holding ``reports.CREATE`` grants no
+    #: sight of a single record — a caller who saves a lead report and lacks
+    #: ``leads.VIEW`` still gets 403 when they run it.
+    "reports",
     #: AI company research (Market Insights). A CRM module: it reads CRM data
     #: and its sessions are owned by the rep who ran them.
     "market_insights",
@@ -89,6 +100,7 @@ _CRM_MODULES: Final[tuple[str, ...]] = (
     "notes",
     "documents",
     "dashboard",
+    "reports",
     "market_insights",
 )
 

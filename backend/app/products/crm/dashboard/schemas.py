@@ -16,7 +16,11 @@ import datetime as dt
 import uuid
 from decimal import Decimal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.products.crm.dashboard.models import DASHBOARD_GRID_COLUMNS, ComponentDisplay
+from app.products.crm.reports.models import ShareScope
+from app.products.crm.reports.schemas import ReportResult
 
 
 class DashboardKpis(BaseModel):
@@ -97,11 +101,129 @@ class DashboardSummary(BaseModel):
     activities: list[DashboardActivity]
 
 
+# ---------------------------------------------------------------------------
+# Configurable dashboards
+# ---------------------------------------------------------------------------
+
+
+class DashboardCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=2000)
+    visibility: ShareScope = ShareScope.PRIVATE
+    is_default: bool = False
+
+
+class DashboardUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=2000)
+    visibility: ShareScope | None = None
+    is_default: bool | None = None
+
+
+class DashboardComponentCreate(BaseModel):
+    saved_report_id: uuid.UUID
+    title: str | None = Field(default=None, max_length=120)
+    display: ComponentDisplay = ComponentDisplay.CHART
+    width: int = Field(default=6, ge=1, le=DASHBOARD_GRID_COLUMNS)
+    #: Omitted means "append". Explicit positions are for a client restoring a
+    #: known layout, not for ordinary tile creation.
+    sort_order: int | None = Field(default=None, ge=0)
+
+
+class DashboardComponentUpdate(BaseModel):
+    saved_report_id: uuid.UUID | None = None
+    title: str | None = Field(default=None, max_length=120)
+    display: ComponentDisplay | None = None
+    width: int | None = Field(default=None, ge=1, le=DASHBOARD_GRID_COLUMNS)
+    sort_order: int | None = Field(default=None, ge=0)
+
+
+class DashboardReorder(BaseModel):
+    """The complete new order, as tile ids.
+
+    Whole-list rather than a set of moves: a drag that shifts one tile changes
+    the index of every tile after it, and applying that as N patches would be
+    both chatty and non-atomic.
+    """
+
+    order: list[uuid.UUID] = Field(min_length=1)
+
+
+class DashboardComponentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    dashboard_id: uuid.UUID
+    saved_report_id: uuid.UUID
+    title: str | None
+    display: ComponentDisplay
+    sort_order: int
+    width: int
+
+
+class DashboardResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    description: str | None
+    owner_id: uuid.UUID | None
+    visibility: ShareScope
+    is_default: bool
+    created_at: dt.datetime
+    updated_at: dt.datetime
+
+
+class DashboardDetail(DashboardResponse):
+    """A dashboard and its layout, without running anything."""
+
+    components: list[DashboardComponentResponse]
+
+
+class DashboardComponentData(BaseModel):
+    """One rendered tile.
+
+    Exactly one of ``result`` and ``unavailable`` is set. ``unavailable`` is a
+    short code rather than a sentence so the client can phrase it — and so the
+    server never composes a message that might describe data the viewer cannot
+    see.
+    """
+
+    id: uuid.UUID
+    saved_report_id: uuid.UUID
+    title: str
+    display: ComponentDisplay
+    sort_order: int
+    width: int
+    result: ReportResult | None = None
+    unavailable: str | None = None
+
+
+class DashboardData(BaseModel):
+    """A dashboard with every tile run as the caller."""
+
+    id: uuid.UUID
+    name: str
+    description: str | None
+    generated_at: dt.datetime
+    components: list[DashboardComponentData]
+
+
 __all__ = [
     "DashboardActivity",
+    "DashboardComponentCreate",
+    "DashboardComponentData",
+    "DashboardComponentResponse",
+    "DashboardComponentUpdate",
+    "DashboardCreate",
+    "DashboardData",
+    "DashboardDetail",
     "DashboardKpis",
     "DashboardMeeting",
+    "DashboardReorder",
+    "DashboardResponse",
     "DashboardSummary",
     "DashboardTask",
+    "DashboardUpdate",
     "PipelineStageSummary",
 ]
