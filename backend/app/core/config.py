@@ -120,6 +120,31 @@ class Settings(BaseSettings):
     login_max_failed_attempts: int = Field(default=5, ge=1, le=50)
     login_lockout_seconds: int = Field(default=900, ge=30)
 
+    #: Attempts one client address may make against the unauthenticated auth
+    #: endpoints per window. Covers the attack the lockout above cannot see:
+    #: one password against many accounts, where no single account ever
+    #: reaches its own threshold.
+    #:
+    #: Sized for a shared office address rather than a single person — a NAT'd
+    #: floor of staff arriving at 09:00 should never meet it, and a script
+    #: working through a credential dump should meet it within seconds.
+    login_rate_limit_attempts: int = Field(default=30, ge=1, le=1000)
+    login_rate_limit_window_seconds: int = Field(default=300, ge=10, le=86400)
+
+    #: Reverse proxies between the internet and this process.
+    #:
+    #: Decides which ``X-Forwarded-For`` entry is the real client: the address
+    #: is counted from the right, skipping this many hops, because everything
+    #: to the left of our own infrastructure is client-supplied and forgeable.
+    #: Railway terminates TLS at one edge proxy, hence the default. Set to
+    #: ``0`` when the application is exposed directly, which makes the socket
+    #: peer authoritative and ignores the header entirely.
+    #:
+    #: Getting this **too high** is the dangerous direction: it would start
+    #: trusting an entry the client wrote. The limiter therefore falls back to
+    #: the socket peer whenever the header carries fewer hops than this claims.
+    trusted_proxy_hops: int = Field(default=1, ge=0, le=8)
+
     # --- Cookies -----------------------------------------------------------
     #: Refresh tokens travel in an httpOnly cookie (SEC01); never readable by JS.
     refresh_cookie_name: str = "s3k_refresh"

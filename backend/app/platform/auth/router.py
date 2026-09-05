@@ -33,6 +33,7 @@ from app.platform.auth.schemas import (
 )
 from app.platform.auth.security import PasswordHasher, TokenIssuer
 from app.platform.auth.service import AuthenticationError, AuthService, IssuedTokens
+from app.platform.auth.throttle import AuthThrottle
 from app.platform.authorization.repository import AuthorizationRepository
 from app.platform.authorization.service import AuthorizationService
 from app.platform.organizations.repository import OrganizationRepository
@@ -41,6 +42,11 @@ router = APIRouter()
 
 SettingsDep = Annotated[Settings, Depends(get_settings_from_request)]
 IssuerDep = Annotated[TokenIssuer, Depends(get_token_issuer)]
+
+#: Per-address throttling for the two routes that take credentials from an
+#: unauthenticated caller. Built per request because it resolves the client
+#: address from that request's proxy headers.
+ThrottleDep = Annotated[AuthThrottle, Depends(AuthThrottle)]
 
 
 def get_auth_service(
@@ -102,6 +108,7 @@ async def signup(
     response: Response,
     service: AuthServiceDep,
     settings: SettingsDep,
+    throttle: ThrottleDep,
 ) -> TokenResponse:
     """Create an S3K identity and start a session for it.
 
@@ -117,9 +124,11 @@ async def signup(
     ``/login`` mid-wizard is the step most likely to lose them.
 
     Raises:
+        TooManyAttemptsError: 429, the address is over its attempt budget.
         ConflictError: 409, the address is already registered.
         WeakPasswordError: 422, the password fails the configured policy.
     """
+    await throttle.check()
     user = await service.register_user(
         email=payload.email,
         password=payload.password.get_secret_value(),
@@ -151,8 +160,24 @@ async def login(
     response: Response,
     service: AuthServiceDep,
     settings: SettingsDep,
+    throttle: ThrottleDep,
 ) -> TokenResponse:
-    """Exchange credentials for an access token and a refresh cookie."""
+    """Exchange credentials for an access token and a refresh cookie.
+
+    Two brute-force controls apply, and they cover different attacks. The
+    account lockout in the service stops one account being guessed repeatedly.
+    The throttle here stops one *address* working through many accounts, which
+    the lockout cannot see because no single account ever reaches its
+    threshold.
+
+    The throttle runs before the credentials are checked, so a rejected caller
+    learns nothing about whether the account exists.
+
+    Raises:
+        TooManyAttemptsError: 429, the address is over its attempt budget.
+        AuthenticationError: 401, wrong credentials or a locked account.
+    """
+    await throttle.check()
     tokens = await service.authenticate(
         email=payload.email,
         password=payload.password.get_secret_value(),
@@ -160,6 +185,8 @@ async def login(
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("User-Agent"),
     )
+    # Only on success: a wrong password leaves the counter standing.
+    await throttle.clear()
     _set_refresh_cookie(response, tokens, settings)
     return TokenResponse(
         access_token=tokens.access_token,

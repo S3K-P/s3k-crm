@@ -14,10 +14,27 @@ import nextTypescript from 'eslint-config-next/typescript';
  */
 const config = [
   {
-    ignores: ['.next/**', 'node_modules/**', 'next-env.d.ts'],
+    ignores: [
+      '.next/**',
+      'node_modules/**',
+      'next-env.d.ts',
+      'playwright-report/**',
+      'test-results/**',
+      '.playwright/**',
+    ],
   },
   ...coreWebVitals,
   ...nextTypescript,
+  {
+    // End-to-end specs are Node programs that drive a browser; no React runs
+    // in them. The hooks rule in particular misreads Playwright's fixture
+    // callback — its parameter is conventionally named `use`, which the rule
+    // sees as React's `use` hook being called outside a component.
+    files: ['e2e/**/*.ts', 'playwright.config.ts'],
+    rules: {
+      'react-hooks/rules-of-hooks': 'off',
+    },
+  },
 ];
 
 export default config;

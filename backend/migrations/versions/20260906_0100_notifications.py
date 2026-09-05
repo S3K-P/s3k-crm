@@ -1,8 +1,13 @@
 """Notifications: the in-app inbox and the reminder dedupe key (Phase A).
 
-Revision ID: 20260904_0100
-Revises: 20260903_0100
+Revision ID: 20260906_0100
+Revises: 20260905_0100
 Create Date: 2026-09-04 01:00:00.000000
+
+Written as ``20260904_0100`` and renumbered on merge: the report library
+(``20260905_0100``) reached ``main`` while this sat in review, and two
+revisions claiming the same parent is a branched history that ``upgrade head``
+refuses. Nothing about the table changed — only its place in the chain.
 
 Adds ``platform.notifications``, tenant-scoped with RLS enabled and forced,
 like every other table holding customer data. No permission-catalogue rows
@@ -23,8 +28,8 @@ from alembic import op
 
 from app.core.rls import disable_rls, enable_rls
 
-revision: str = "20260904_0100"
-down_revision: str | None = "20260903_0100"
+revision: str = "20260906_0100"
+down_revision: str | None = "20260905_0100"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

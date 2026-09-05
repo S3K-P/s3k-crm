@@ -298,6 +298,149 @@ jobs:
         run: npm run build --workspace=frontend
 
   # ──────────────────────────────────────────────────────────────────────────
+  # End-to-end. A real browser against a real Next.js server, a real API and a
+  # real database — the only job that can catch a permission gate that is
+  # correct in the API and missing from the screen, or a session that does not
+  # survive a reload.
+  #
+  # It runs the **production build**, not `next dev`: dev-mode compilation is
+  # slower and less deterministic under load, and the artefact worth testing is
+  # the one that ships. `NEXT_PUBLIC_API_BASE_URL` is baked in at build time,
+  # so it is set on the build step rather than the run step.
+  #
+  # No MinIO here, deliberately: nothing in the suite uploads a file, and a
+  # dependency the tests do not use is a failure mode they do not need.
+  # ──────────────────────────────────────────────────────────────────────────
+  e2e:
+    name: End-to-end
+    runs-on: ubuntu-latest
+    needs: [backend-static, frontend]
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: s3k
+          POSTGRES_PASSWORD: s3k_ci
+          POSTGRES_DB: s3k_crm
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U s3k -d s3k_crm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://s3k_app:s3k_ci_app@localhost:5432/s3k_app
+      REDIS_URL: redis://localhost:6379/0
+      ENVIRONMENT: development
+      CORS_ALLOWED_ORIGINS: http://127.0.0.1:3100
+      E2E_API_URL: http://127.0.0.1:8100
+      E2E_BASE_URL: http://127.0.0.1:3100
+      # The throttle would otherwise refuse the suite's own sign-ins: eleven
+      # tests times several attempts each, all from the runner's one address.
+      # Raised rather than disabled, so the limiter still runs in the path the
+      # tests exercise.
+      LOGIN_RATE_LIMIT_ATTEMPTS: '500'
+      # The runner is the client; there is no proxy in front of it, so trusting
+      # a forwarded header here would let the suite's own requests choose their
+      # bucket and prove nothing.
+      TRUSTED_PROXY_HOPS: '0'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Set up Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
+        working-directory: backend
+
+      - name: Install backend dependencies
+        run: uv sync --frozen
+        working-directory: backend
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # Same non-superuser role as the backend suite: RLS is the thing under
+      # test on several of these journeys, and a superuser would bypass it.
+      - name: Create the non-superuser application role
+        env:
+          PGPASSWORD: s3k_ci
+        run: |
+          psql -h localhost -U s3k -d s3k_crm -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE s3k_app LOGIN PASSWORD 's3k_ci_app' NOSUPERUSER NOCREATEDB NOBYPASSRLS;" \
+            -c "CREATE DATABASE s3k_app OWNER s3k_app;"
+
+      # No JWT keys are set, and that is deliberate: in `development` the app
+      # generates an ephemeral Ed25519 pair at startup. One API process serves
+      # the whole run, so every token it issues it can also verify — and a key
+      # that does not outlive the job is one fewer secret in the workflow.
+      - name: Migrate
+        run: uv run alembic upgrade head
+        working-directory: backend
+
+      - name: Start the API
+        run: |
+          uv run uvicorn app.main:app --host 127.0.0.1 --port 8100 &
+          for _ in $(seq 1 60); do
+            curl -sf http://127.0.0.1:8100/health && exit 0
+            sleep 2
+          done
+          echo "::error::the API did not become healthy"; exit 1
+        working-directory: backend
+
+      - name: Build the frontend against that API
+        run: npm run build --workspace=frontend
+        env:
+          NEXT_PUBLIC_API_BASE_URL: http://127.0.0.1:8100
+
+      - name: Start the frontend
+        run: |
+          npm run start --workspace=frontend -- --port 3100 --hostname 127.0.0.1 &
+          for _ in $(seq 1 60); do
+            curl -sf http://127.0.0.1:3100/login && exit 0
+            sleep 2
+          done
+          echo "::error::the frontend did not become reachable"; exit 1
+
+      - name: Install Playwright's browser
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+
+      - name: Run the suite
+        run: npm run test:e2e --workspace=frontend
+
+      # Only on failure: the trace is what makes a red run diagnosable without
+      # reproducing it locally, and uploading one per green run is noise.
+      - name: Upload traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: frontend/test-results/
+          retention-days: 7
+
+  # ──────────────────────────────────────────────────────────────────────────
   # Dependency audit. Reports rather than blocks: a transitive advisory with
   # no available fix should not stop an unrelated change from merging, and an
   # audit that routinely has to be overridden stops being read at all. Revisit
