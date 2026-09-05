@@ -2,6 +2,7 @@ import {
   LayoutDashboard,
   Filter,
   BarChart3,
+  LayoutGrid,
   Megaphone,
   Users,
   Building2,
@@ -74,6 +75,10 @@ export const CRM_NAV_SECTIONS: CrmNavSection[] = [
       // returns only the reports the caller may run — a member with no CRM
       // access gets an empty catalogue and the page says so.
       { id: 'reports', label: 'Reports', href: '/reports', icon: BarChart3 },
+      // Gated on `dashboard`, unlike Reports above: a dashboard is an object
+      // with its own permission, and a member without it gets 403 on every
+      // route here rather than an empty but usable screen.
+      { id: 'dashboards', label: 'Dashboards', href: '/dashboards', icon: LayoutGrid, permissionModule: 'dashboard' },
     ],
   },
   {
@@ -123,6 +128,7 @@ export const BREADCRUMB_LABELS: Record<string, string> = {
   dashboard: 'Dashboard',
   'pipeline-journey': 'Pipeline Journey',
   reports: 'Reports',
+  dashboards: 'Dashboards',
   'lead-sources': 'Lead Sources',
   leads: 'Leads',
   campaigns: 'Campaigns',

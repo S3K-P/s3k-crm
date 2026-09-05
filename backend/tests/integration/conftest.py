@@ -69,6 +69,13 @@ _TENANT_SCOPED_STATEMENTS_TO_CLEAN = (
     # tenant-scoped half because the migration RLS-enables the table: an
     # unscoped DELETE would match nothing and pass in silence.
     "DELETE FROM platform.ai_prompt_versions",
+    # Dashboard tiles before the reports they RESTRICT, and before the
+    # dashboards they cascade from: the foreign keys make the order load-
+    # bearing rather than cosmetic here.
+    "DELETE FROM crm.dashboard_components",
+    "DELETE FROM crm.dashboards",
+    "DELETE FROM crm.saved_reports",
+    "DELETE FROM crm.report_folders",
     "DELETE FROM crm.opportunity_stage_history",
     "DELETE FROM crm.opportunities",
     "DELETE FROM crm.campaign_members",
