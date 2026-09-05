@@ -3,7 +3,7 @@
 import { BarChart3, Filter, PieChart, Timer, TrendingUp, Wallet } from 'lucide-react';
 import SectionHeader from '@/components/crm/shared/SectionHeader';
 import KpiCard from '@/components/crm/cards/KpiCard';
-import { BarChart, DonutChart, FunnelChart, LineChart } from '@/components/crm/ai/shared/MiniCharts';
+import { BarChart, DonutChart, FunnelChart, LineChart } from '@/components/crm/charts/MiniCharts';
 import { formatCompactCurrency } from '@/features/ai/shared/format';
 import type { SalesIntelligenceSnapshot as SnapshotData } from '@/features/ai/insights/types';
 

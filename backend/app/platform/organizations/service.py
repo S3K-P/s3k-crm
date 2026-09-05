@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import re
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 import structlog
 from fastapi import status as http_status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppError, ConflictError, NotFoundError
 from app.platform.audit.service import Action as AuditAction
@@ -29,6 +31,25 @@ from app.platform.organizations.models import (
 from app.platform.organizations.repository import OrganizationRepository
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class MemberIdentity:
+    """Who a user id refers to, for display beside data they own.
+
+    Deliberately the minimum a "grouped by person" view needs. It carries no
+    role, status or membership detail: this is a name resolver, not a second
+    way to read the member list, and widening it would make it one.
+    """
+
+    user_id: uuid.UUID
+    email: str
+    full_name: str | None
+
+    @property
+    def display_name(self) -> str:
+        """The name if there is one, else the address. Never empty."""
+        return self.full_name or self.email
 
 
 class LastAdministratorError(AppError):
@@ -262,6 +283,27 @@ class OrganizationService:
             organization_id=organization_id, user_id=user_id
         )
 
+    async def member_directory(
+        self, organization_id: uuid.UUID, user_ids: Collection[uuid.UUID]
+    ) -> dict[uuid.UUID, MemberIdentity]:
+        """Display names for member ids, for anything that groups by person.
+
+        Exists because a product may not read ``platform.users`` itself
+        (ARCHITECTURE-BOUNDARIES.md rule 2: products consume Platform through
+        service interfaces), and a CRM report grouped "by owner" that printed
+        raw UUIDs would not be a report. The CRM reports module is the first
+        caller; a dashboard leaderboard would be the second.
+
+        Ids that name a non-member — another tenant's user, or somebody since
+        removed — are simply absent from the result. Callers fall back to a
+        placeholder rather than receiving an address they should not see.
+        """
+        rows = await self._repository.member_identities(organization_id, user_ids)
+        return {
+            user_id: MemberIdentity(user_id=user_id, email=email, full_name=full_name)
+            for user_id, email, full_name in rows
+        }
+
     async def list_members(
         self, organization_id: uuid.UUID, *, limit: int = 50, offset: int = 0
     ) -> tuple[Sequence[OrganizationMembership], int]:
@@ -382,10 +424,28 @@ async def ensure_administrator_remains(
         raise LastAdministratorError
 
 
+def organizations_for_session(session: AsyncSession) -> OrganizationService:
+    """Build an :class:`OrganizationService` bound to an existing session.
+
+    The seam product code uses, mirroring
+    :func:`app.platform.audit.service.audit_for_session`. A product imports
+    this function and never names ``OrganizationRepository``, which
+    ARCHITECTURE-BOUNDARIES.md rule 2 forbids it from importing.
+
+    No ``audit`` is attached: the reads a product makes through this seam —
+    resolving member names for a report, say — change nothing and so have
+    nothing to record. A caller that writes should build the service with its
+    own audit service, as the Platform routers do.
+    """
+    return OrganizationService(OrganizationRepository(session))
+
+
 __all__ = [
     "USERS_MODULE",
     "LastAdministratorError",
+    "MemberIdentity",
     "OrganizationService",
     "ensure_administrator_remains",
+    "organizations_for_session",
     "slugify",
 ]
