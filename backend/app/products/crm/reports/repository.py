@@ -7,13 +7,20 @@ in Python would be slower and less correct than one grouped query. Like that
 module, this one is **read-only** — nothing here writes, so no module's
 invariants can be bypassed through it.
 
-**Every query takes a ``RecordVisibility`` and applies it.** That is the whole
-security property of this module. A report is an aggregate, and an aggregate
-computed over rows the caller cannot open is a disclosure that no 404 later
-can take back: "your team closed £2.4m this quarter" tells a rep the number
-even if every underlying deal stays hidden. So the predicate goes *into* the
-grouped query, exactly as the dashboard puts it into its counts, and never
-into a filter applied to the result afterwards.
+**Every query over an owner-scoped module takes a ``RecordVisibility`` and
+applies it.** That is the whole security property of this module. A report is
+an aggregate, and an aggregate computed over rows the caller cannot open is a
+disclosure that no 404 later can take back: "your team closed £2.4m this
+quarter" tells a rep the number even if every underlying deal stays hidden.
+So the predicate goes *into* the grouped query, exactly as the dashboard puts
+it into its counts, and never into a filter applied to the result afterwards.
+
+The one query that takes no visibility is ``activity_by_owner``, because
+``activities`` is not in ``OWNER_SCOPED_MODULES`` and so resolves to
+unrestricted for every caller anyway; see that method for why the module is
+organization-wide. Adding a module to that frozenset therefore obliges you to
+thread a predicate through here — ``test_every_owner_scoped_module_narrows_its_list``
+guards the list endpoints, and the visibility tests here guard the totals.
 
 Aggregation happens in PostgreSQL. Fetching rows and summing them in the
 application would work and would be wrong the first time a tenant had more
