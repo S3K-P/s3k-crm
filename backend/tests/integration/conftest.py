@@ -91,6 +91,7 @@ _TENANT_SCOPED_STATEMENTS_TO_CLEAN = (
     "DELETE FROM crm.accounts",
     "DELETE FROM platform.audit_logs",
     "DELETE FROM platform.attachments",
+    "DELETE FROM platform.notifications",
 )
 
 #: Tables the tenant policy does *not* cover, so one unscoped pass clears them.
@@ -154,9 +155,20 @@ class Tenant:
 @pytest.fixture(scope="session")
 def integration_settings() -> Settings:
     try:
-        return get_settings()
+        settings = get_settings()
     except ConfigurationError:  # pragma: no cover - environment dependent
         pytest.skip("backend/.env is not configured; see .env.example")
+
+    # `api_app` builds a fresh `create_app()` — and, unmodified, a fresh
+    # in-process reminder scheduler task — for every single test that touches
+    # `client`. Hundreds of background tasks per run, each doing a real
+    # database round trip and then racing its own cancellation at that test's
+    # teardown, is a source of flakiness the production system (one process,
+    # one scheduler, for the life of the deployment) never has. Overridden
+    # here rather than relying on every developer's `backend/.env` or CI
+    # config to remember an env var: this is the one fixture every
+    # `api_app`-based test already depends on.
+    return settings.model_copy(update={"notifications_scheduler_enabled": False})
 
 
 @pytest_asyncio.fixture

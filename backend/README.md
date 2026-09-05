@@ -7,10 +7,12 @@ Shared Platform layer and the S3K CRM product.
 > **Status: Phase 2 complete, Phase 3 in progress.** Password authentication
 > with rotating refresh tokens, organizations and memberships, RBAC, teams,
 > product entitlements, audit logging, attachments on S3-compatible storage,
-> and the CRM core (accounts, contacts, leads, campaigns, opportunities and
-> the pipeline, activities, tasks, notes) are implemented and covered by the
-> suite. Tenant isolation is enforced by PostgreSQL row-level security on
-> every table naming a customer.
+> the CRM core (accounts, contacts, leads, campaigns, opportunities and
+> the pipeline, activities, tasks, notes), and in-app notifications with a
+> polled reminder scheduler for meetings and due tasks (`platform.
+> notifications`) are implemented and covered by the suite. Tenant isolation
+> is enforced by PostgreSQL row-level security on every table naming a
+> customer.
 >
 > Not yet built: reports (W21–W22), import/export and bulk operations (W23),
 > the transactional outbox and webhooks (Phase 4), and the cross-product
