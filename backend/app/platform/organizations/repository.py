@@ -8,12 +8,13 @@ its ``user_id`` predicate is a cross-tenant disclosure.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.platform.auth.models import User, UserProfile
 from app.platform.organizations.models import (
     MembershipStatus,
     Organization,
@@ -119,6 +120,41 @@ class OrganizationRepository:
             .offset(offset)
         )
         return result.scalars().all()
+
+    async def member_identities(
+        self, organization_id: uuid.UUID, user_ids: Collection[uuid.UUID]
+    ) -> Sequence[tuple[uuid.UUID, str, str | None]]:
+        """``(user_id, email, full_name)`` for members of this organization.
+
+        Scoped by the membership join, not only by the ids passed in: a caller
+        that supplies an id belonging to another tenant gets no row back
+        rather than that person's email address. The ids come from CRM
+        ``owner_id`` columns, which are ordinary data — treating them as
+        untrusted here is what keeps a crafted or stale value from becoming a
+        directory lookup across the tenant boundary.
+
+        One query for a whole page of rows, in the shape
+        ``AuditService._resolve_actors`` already uses for the same problem.
+        """
+        if not user_ids:
+            return []
+        result = await self._session.execute(
+            select(User.id, User.email, UserProfile.first_name, UserProfile.last_name)
+            .join(
+                OrganizationMembership,
+                OrganizationMembership.user_id == User.id,
+            )
+            .outerjoin(UserProfile, UserProfile.user_id == User.id)
+            .where(
+                OrganizationMembership.organization_id == organization_id,
+                User.id.in_(list(user_ids)),
+            )
+        )
+        rows: list[tuple[uuid.UUID, str, str | None]] = []
+        for user_id, email, first_name, last_name in result.all():
+            name = f"{first_name or ''} {last_name or ''}".strip()
+            rows.append((user_id, email, name or None))
+        return rows
 
     async def count_memberships_in_organization(self, organization_id: uuid.UUID) -> int:
         result = await self._session.execute(

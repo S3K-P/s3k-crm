@@ -386,7 +386,8 @@ export function DonutChart({ data, formatValue, caption, className }: DonutChart
    ------------------------------------------------------------ */
 
 interface FunnelChartProps {
-  data: { label: string; count: number; value: number }[];
+  /** `value` is optional — a funnel counted in records has no money on it. */
+  data: { label: string; count: number; value?: number }[];
   formatValue: (value: number) => string;
   caption: string;
   className?: string;
@@ -409,7 +410,9 @@ export function FunnelChart({ data, formatValue, caption, className }: FunnelCha
               <span className="txt text-[12px] font-semibold">{step.label}</span>
               <span className="txt-muted text-[11.5px] font-medium">
                 {step.count.toLocaleString('en-US')}
-                <span className="txt-faint"> · {formatValue(step.value)}</span>
+                {step.value !== undefined && (
+                  <span className="txt-faint"> · {formatValue(step.value)}</span>
+                )}
                 {conversion !== null && (
                   <span className="txt-faint"> · {conversion}% conv.</span>
                 )}

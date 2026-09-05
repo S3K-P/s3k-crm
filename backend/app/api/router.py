@@ -18,6 +18,7 @@ Path layout follows doc 11:
     /api/v1/audit-logs/*      the audit trail (read-only, admin permission)
     /api/v1/attachments/*     file metadata + pre-signed object-storage URLs
     /api/v1/crm/*             S3K CRM business resources
+    /api/v1/crm/reports       the built-in report library, gated per report
     /api/v1/crm/search        cross-entity search, permission-filtered in-query
 """
 
@@ -48,6 +49,7 @@ from app.products.crm.leads import source_router as lead_sources_router
 from app.products.crm.market_insights import router as market_insights_router
 from app.products.crm.notes import router as notes_router
 from app.products.crm.opportunities import router as opportunities_router
+from app.products.crm.reports import router as reports_router
 from app.products.crm.search import router as search_router
 from app.products.crm.shared.attachments import crm_entity_access
 from app.products.crm.shared.provisioning import crm_provisioning_hook
@@ -148,8 +150,11 @@ crm_router.include_router(
     prefix="/crm/market-insights",
     tags=["crm:market-insights"],
 )
-# Search spans four modules, so it is gated by the permission snapshot inside
-# the query rather than by a module permission on the route — see its router.
+# Reports and search share a shape: neither can name its permission when the
+# route is declared. Search spans four modules at once; a report names the one
+# module it reads, which arrives as a path parameter. Both therefore take the
+# permission snapshot and decide inside — see their routers.
+crm_router.include_router(reports_router.router, prefix="/crm/reports", tags=["crm:reports"])
 crm_router.include_router(search_router.router, prefix="/crm/search", tags=["crm:search"])
 # Import chooses its entity from a path parameter, so the permission it needs
 # is not known when the route is declared. The route authorizes against the

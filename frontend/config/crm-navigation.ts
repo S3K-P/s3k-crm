@@ -1,6 +1,7 @@
 import {
   LayoutDashboard,
   Filter,
+  BarChart3,
   Megaphone,
   Users,
   Building2,
@@ -68,6 +69,11 @@ export const CRM_NAV_SECTIONS: CrmNavSection[] = [
     items: [
       { id: 'dashboard', label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, permissionModule: 'dashboard' },
       { id: 'pipeline-journey', label: 'Pipeline Journey', href: '/pipeline-journey', icon: Filter, permissionModule: 'opportunities' },
+      // No `permissionModule`: reports span leads, deals, accounts and
+      // activities, so no single module gates the page. `GET /crm/reports`
+      // returns only the reports the caller may run — a member with no CRM
+      // access gets an empty catalogue and the page says so.
+      { id: 'reports', label: 'Reports', href: '/reports', icon: BarChart3 },
     ],
   },
   {
@@ -116,6 +122,7 @@ export const CRM_NAV_ITEMS: CrmNavItem[] = CRM_NAV_SECTIONS.flatMap(s => s.items
 export const BREADCRUMB_LABELS: Record<string, string> = {
   dashboard: 'Dashboard',
   'pipeline-journey': 'Pipeline Journey',
+  reports: 'Reports',
   'lead-sources': 'Lead Sources',
   leads: 'Leads',
   campaigns: 'Campaigns',
