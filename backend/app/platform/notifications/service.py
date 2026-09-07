@@ -51,6 +51,7 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.config import get_settings
 from app.core.database import provisioning_scope
 from app.core.exceptions import NotFoundError
 from app.core.ids import uuid7
@@ -58,10 +59,16 @@ from app.core.pagination import PageParams
 from app.platform.audit.service import Action as AuditAction
 from app.platform.audit.service import AuditService, audit_for_session
 from app.platform.auth.dependencies import Principal
+from app.platform.email.service import request_email
 from app.platform.notifications.models import Notification
-from app.platform.notifications.policies import NullReminderSource, ReminderSource
+from app.platform.notifications.policies import (
+    NullReminderSource,
+    ReminderDue,
+    ReminderSource,
+)
 from app.platform.notifications.repository import NotificationRepository
 from app.platform.organizations.models import Organization, OrganizationStatus
+from app.platform.organizations.service import organizations_for_session
 
 logger = structlog.get_logger(__name__)
 
@@ -201,6 +208,14 @@ class NotificationService:
             if not inserted:
                 continue
             created += 1
+            # After the insert, and only for a *new* notification. The dedupe
+            # key is what makes a reminder fire once; hanging the email off
+            # the same branch means a tick that finds the same meeting again
+            # re-sends nothing, which is the property that matters most for
+            # something arriving in an inbox.
+            await self._request_reminder_email(
+                reminder, organization_id=organization_id
+            )
             await self._audit.record(
                 organization_id=organization_id,
                 action=AuditAction.CREATED,
@@ -216,6 +231,65 @@ class NotificationService:
                 },
             )
         return created
+
+    async def _request_reminder_email(
+        self, reminder: ReminderDue, *, organization_id: uuid.UUID
+    ) -> None:
+        """Enqueue the email for a reminder that asked for one.
+
+        Enqueued, not sent: this runs inside the scheduler's transaction, so
+        the message joins the outbox alongside the notification row and both
+        commit or neither does. A reminder that rolled back must not leave an
+        email behind saying it happened.
+
+        Every failure here is swallowed with a log rather than raised. The
+        reminder itself has already been created and audited, and a directory
+        lookup that comes back empty — a member removed between the meeting
+        being scheduled and its reminder falling due — is not a reason to
+        abandon the rest of the organization's tick.
+        """
+        if reminder.email_template is None:
+            return
+
+        try:
+            directory = await organizations_for_session(
+                self._repository.session
+            ).member_directory(organization_id, {reminder.recipient_user_id})
+            identity = directory.get(reminder.recipient_user_id)
+            if identity is None:
+                # Not a member any more, so not somebody to email. The in-app
+                # notification is already written and will simply not be read.
+                logger.info(
+                    "reminder_email_skipped_unknown_recipient",
+                    recipient_user_id=str(reminder.recipient_user_id),
+                )
+                return
+
+            base = get_settings().public_app_url.rstrip("/")
+            context: dict[str, str] = {
+                **dict(reminder.email_context),
+                # Applied *after* the product's fields, so a product cannot
+                # redirect the greeting or the link by supplying its own.
+                "recipient_name": identity.full_name or identity.email,
+                "record_url": (
+                    f"{base}{reminder.record_path}"
+                    if reminder.record_path is not None
+                    else base
+                ),
+            }
+            request_email(
+                self._repository.session,
+                organization_id=organization_id,
+                to_address=identity.email,
+                template=reminder.email_template,
+                context=context,
+            )
+        except Exception:  # an email must not cost the reminder
+            logger.exception(
+                "reminder_email_could_not_be_requested",
+                kind=reminder.kind,
+                organization_id=str(organization_id),
+            )
 
 
 def notifications_for_session(session: AsyncSession) -> NotificationService:

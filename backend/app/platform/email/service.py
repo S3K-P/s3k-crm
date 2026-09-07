@@ -36,22 +36,47 @@ from app.platform.events.service import PermanentEventError, enqueue
 
 logger = structlog.get_logger(__name__)
 
-#: The one event type email uses. A single type with a template name in the
-#: payload, rather than an event type per message: the handler is identical
-#: for all of them, and a registry of a dozen near-identical handlers is a
-#: dozen places for one of them to be forgotten.
+#: The event type for a message that belongs to an organization. A single type
+#: with a template name in the payload, rather than an event type per message:
+#: the handler is identical for all of them, and a registry of a dozen
+#: near-identical handlers is a dozen places for one of them to be forgotten.
 EMAIL_REQUESTED = "platform.email.requested"
+
+#: The event type for a message addressed to a global identity — today, only
+#: the password reset.
+#:
+#: A second type rather than a nullable organization on the one above, and the
+#: distinction is the dispatcher's to enforce rather than this module's. A
+#: handler declares whether it is tenant-scoped, and an event of a tenant-scoped
+#: type that arrives with no organization is dead-lettered instead of being run
+#: unscoped (``events/service.py``). Collapsing both cases into one type would
+#: mean registering the handler untenanted, and *that* would turn a future bug
+#: which dropped the organization from an invitation into a silent unscoped
+#: send rather than a loud failure.
+#:
+#: Same handler, same template registry, same delivery log. Only the contract
+#: with the dispatcher differs, which is exactly the thing that differs.
+IDENTITY_EMAIL_REQUESTED = "platform.email.identity_requested"
 
 
 def request_email(
     session: AsyncSession,
     *,
-    organization_id: uuid.UUID,
+    organization_id: uuid.UUID | None,
     to_address: str,
     template: str,
     context: dict[str, Any],
 ) -> OutboxEvent:
     """Ask for an email to be sent when this transaction commits.
+
+    Args:
+        organization_id: the tenant the message belongs to, or ``None`` for a
+            message addressed to a global identity. Only the password reset is
+            untenanted today; ``models.EmailDelivery`` sets out why it has to
+            be and what stops that widening. Passing ``None`` for a message
+            that *does* belong to a tenant would keep it out of that tenant's
+            delivery log, so it is spelled out at every call site rather than
+            defaulted.
 
     Raises:
         KeyError: no such template. Raised here, in the caller's request,
@@ -64,7 +89,9 @@ def request_email(
 
     return enqueue(
         session,
-        event_type=EMAIL_REQUESTED,
+        event_type=(
+            EMAIL_REQUESTED if organization_id is not None else IDENTITY_EMAIL_REQUESTED
+        ),
         payload={"to_address": to_address, "template": template, "context": context},
         organization_id=organization_id,
     )
@@ -177,4 +204,9 @@ async def _record_failure(
     await session.commit()
 
 
-__all__ = ["EMAIL_REQUESTED", "deliver_email_event", "request_email"]
+__all__ = [
+    "EMAIL_REQUESTED",
+    "IDENTITY_EMAIL_REQUESTED",
+    "deliver_email_event",
+    "request_email",
+]

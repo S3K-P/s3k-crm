@@ -30,8 +30,8 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -59,6 +59,32 @@ class ReminderDue:
     #: produce the same key so the second insert is a harmless no-op rather
     #: than a duplicate notification.
     dedupe_key: str
+
+    # --- Email, for the reminders that warrant one -------------------------
+    #
+    # An in-app notification is free; an email is an interruption. So this is
+    # opt-in per reminder rather than a blanket "email every notification":
+    # a meeting starting in fifteen minutes is worth reaching somebody who is
+    # not looking at the product, and a task that went overdue overnight is
+    # not — it is waiting for them either way, and a daily mail saying so is
+    # how people learn to filter the sender.
+    #
+    # The split of who supplies what is deliberate. The product knows the
+    # template's subject matter and its own routes; Platform knows the
+    # recipient's address and the deployment's public URL. Neither has to
+    # learn the other's half.
+
+    #: Name of an ``app.platform.email.templates`` template, or ``None`` for a
+    #: reminder that stays in-app.
+    email_template: str | None = None
+    #: Template fields only the product can fill. Merged under the ones
+    #: Platform supplies (``recipient_name``, ``record_url``), so a product
+    #: cannot accidentally override the recipient the email is addressed to.
+    email_context: Mapping[str, str] = field(default_factory=dict)
+    #: Path to the record inside the product's own UI, e.g.
+    #: ``/meetings/<id>``. Joined to the deployment's public URL by Platform,
+    #: which is the half that knows what that URL is.
+    record_path: str | None = None
 
 
 class ReminderSource(Protocol):

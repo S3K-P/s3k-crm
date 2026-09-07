@@ -45,6 +45,14 @@ pytestmark = pytest.mark.integration
 #: Meets the default policy: 12+ chars, mixed case, digit.
 TEST_PASSWORD = "Str0ngPassphrase!"
 
+#: How many sign-ins one address may make over a test run.
+#:
+#: Far above the production default (see ``integration_settings`` for why) and
+#: deliberately not unlimited: if a later change makes the suite sign in an
+#: order of magnitude more often than it does now, that is worth finding out
+#: about rather than absorbing silently.
+SUITE_LOGIN_ATTEMPT_ALLOWANCE = 5_000
+
 #: Cleared between tests, dependants first.
 #:
 #: Split by whether the tenant policy applies, because the two halves have to
@@ -169,7 +177,29 @@ def integration_settings() -> Settings:
     # here rather than relying on every developer's `backend/.env` or CI
     # config to remember an env var: this is the one fixture every
     # `api_app`-based test already depends on.
-    return settings.model_copy(update={"notifications_scheduler_enabled": False})
+    # The credential throttle is overridden for the same reason and needs a
+    # word of its own, because raising a security limit in a test fixture is
+    # exactly the kind of thing that should not pass unremarked.
+    #
+    # The limit is per *address*, and the whole suite is one address: every
+    # `as_*` fixture signs in, so a run makes hundreds of sign-ins that
+    # production would only ever see from an attacker. Left at the real
+    # default the suite exhausts its own budget partway through, and the rest
+    # of the run fails in fixture setup on the `raise_for_status` inside
+    # `ApiSession.login` — a scatter of 429s that looks nothing like the thing
+    # each test was actually asserting.
+    #
+    # Raised rather than switched off: the limiter still runs on every sign-in
+    # the suite makes, so a change that broke it outright — an exception in
+    # the Redis path, a bad address lookup — still fails here. The behaviour
+    # it exists for is asserted against a production-shaped limit in
+    # `test_login_throttle.py`, which restores one for itself.
+    return settings.model_copy(
+        update={
+            "notifications_scheduler_enabled": False,
+            "login_rate_limit_attempts": SUITE_LOGIN_ATTEMPT_ALLOWANCE,
+        }
+    )
 
 
 @pytest_asyncio.fixture

@@ -42,6 +42,30 @@ def _forwarded(client_claim: str = "9.9.9.9", edge: str = EDGE) -> dict[str, str
     return {"X-Forwarded-For": f"{client_claim}, {edge}"}
 
 
+#: The limit these tests run against.
+#:
+#: Small so that "exhaust the budget" costs a handful of requests rather than
+#: thousands, and every assertion below derives its counts from the setting
+#: rather than from this number, so the shape of the behaviour is what is
+#: being pinned — not one particular threshold.
+THROTTLE_LIMIT = 8
+
+
+@pytest.fixture
+def integration_settings(integration_settings: Settings) -> Settings:
+    """Put a real limit back for this file.
+
+    The suite-wide fixture raises the allowance far out of the way, because
+    every test that signs in shares one address and would otherwise spend the
+    budget on ordinary setup. These tests are the ones that need the limit to
+    actually bite, so they narrow it again — for this module only, and through
+    the same fixture `api_app` reads, so the app under test is built with it.
+    """
+    return integration_settings.model_copy(
+        update={"login_rate_limit_attempts": THROTTLE_LIMIT}
+    )
+
+
 @pytest.fixture
 def api(integration_settings: Settings) -> str:
     return integration_settings.api_prefix

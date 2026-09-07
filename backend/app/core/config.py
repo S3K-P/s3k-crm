@@ -127,6 +127,18 @@ class Settings(BaseSettings):
     # --- Password policy ---------------------------------------------------
     password_min_length: int = Field(default=12, ge=8, le=128)
 
+    #: How long a self-service password-reset link stays redeemable.
+    #:
+    #: One hour is the usual figure and the reasoning is worth stating: the
+    #: link is a bearer credential sitting in an inbox, so a long window is a
+    #: long exposure, while a short one strands anyone who reads mail on a
+    #: delay. Bounded below at five minutes so a deployment cannot configure
+    #: the feature into uselessness, and above at 24 hours so it cannot
+    #: configure away the expiry that limits the damage.
+    password_reset_ttl_seconds: int = Field(
+        default=3600, ge=300, le=60 * 60 * 24
+    )
+
     # --- Brute-force protection (doc 13) -----------------------------------
     login_max_failed_attempts: int = Field(default=5, ge=1, le=50)
     login_lockout_seconds: int = Field(default=900, ge=30)

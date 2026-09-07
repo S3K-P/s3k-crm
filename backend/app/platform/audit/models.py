@@ -81,6 +81,12 @@ class AuditAction(enum.StrEnum):
     TOKEN_REUSE_DETECTED = "TOKEN_REUSE_DETECTED"  # noqa: S105
     PASSWORD_CHANGED = "PASSWORD_CHANGED"  # noqa: S105
     PASSWORD_RESET_BY_ADMIN = "PASSWORD_RESET_BY_ADMIN"  # noqa: S105
+    #: A reset was *asked for*. Recorded because an unexpected one is the
+    #: earliest visible sign of an account takeover attempt, and because a
+    #: request that never turns into a completion is how you tell "the mail
+    #: never arrived" from "nobody tried".
+    PASSWORD_RESET_REQUESTED = "PASSWORD_RESET_REQUESTED"  # noqa: S105
+    PASSWORD_RESET_COMPLETED = "PASSWORD_RESET_COMPLETED"  # noqa: S105
 
     # --- Record lifecycle --------------------------------------------------
     CREATED = "CREATED"

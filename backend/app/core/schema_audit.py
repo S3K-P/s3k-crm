@@ -11,7 +11,11 @@ unprotected table sits in production. Discovery is therefore inverted: ask the
 database which tables exist, and require every one of them to be either
 
 * tenant-scoped — carrying ``organization_id``, with RLS enabled, FORCEd, and a
-  policy isolating on that column for reads *and* writes; or
+  policy isolating on that column for reads *and* writes;
+* optional-tenant — the same, but with a nullable discriminator and a
+  NULL-aware policy, for the rare table holding rows that belong to no
+  organization. Named in the caller's optional-tenant map with a written
+  reason, and checked *more* strictly than an ordinary table, not less; or
 * explicitly exempt — named in the caller's exemption map with a written reason.
 
 A newly created table is neither until someone makes it one, so the audit fails
@@ -262,12 +266,114 @@ def build_table_security(
     )
 
 
-def _audit_tenant_scoped(table: TableSecurity, column: str) -> list[Finding]:
-    """Checks that apply to a table carrying the tenant column."""
+#: How a NULL-aware comparison can appear in ``pg_get_expr`` output.
+#:
+#: Two spellings, because PostgreSQL does not give back what was written. A
+#: policy created as ``organization_id IS NOT DISTINCT FROM <setting>`` is
+#: rendered as ``NOT (organization_id IS DISTINCT FROM <setting>)`` — the
+#: parser normalises the negation outwards. Matching only the source spelling
+#: found nothing on the real schema while passing against synthetic rows that
+#: used it, which is the exact failure the substring approach invites and the
+#: reason both forms are listed rather than the one that was written.
+#:
+#: The negation is part of the match, not incidental. A bare
+#: ``IS DISTINCT FROM`` is the *inverse* policy — every row except this
+#: tenant's — so accepting it would turn this check into the opposite of a
+#: control.
+_NULL_AWARE_COMPARISONS: Final = ("IS NOT DISTINCT FROM", "NOT (")
+
+
+def _audit_optional_tenant(table: TableSecurity, column: str) -> list[Finding]:
+    """Checks for a table whose tenant column may legitimately be NULL.
+
+    The ordinary rule — "a nullable discriminator is a finding" — is right
+    because ``organization_id = <setting>`` evaluates to NULL for an
+    untenanted row, so the row is invisible to *everyone* and only reachable
+    by bypassing RLS. That is a trap, not isolation.
+
+    A table that declares an untenanted case is not excused from proving
+    isolation; it is held to a different predicate. Its policy must compare
+    with ``IS NOT DISTINCT FROM``, which pairs a NULL row with a session that
+    has no organization in scope and with nothing else. Both halves still fail
+    closed: a tenant session never sees the untenanted rows, and an unscoped
+    session never sees a tenant's.
+
+    Asserting the predicate shape rather than trusting the declaration is the
+    point. Without this, adding a name to the optional-tenant map would turn
+    off the nullable check and leave the table with a policy that hides its
+    own rows — passing the audit while being more broken than before.
+    """
     findings: list[Finding] = []
     name = table.qualified_name
 
-    if not table.tenant_column_not_null:
+    if table.tenant_column_not_null:
+        findings.append(
+            Finding(
+                name,
+                "stale_optional_tenant",
+                f"is listed as optional-tenant but {column} is NOT NULL; drop "
+                "the entry so the list keeps meaning something",
+            )
+        )
+        # The ordinary policy is then exactly right, and the checks below
+        # would demand a NULL branch the table has no use for.
+        return findings
+
+    tenant_policies = [
+        policy
+        for policy in table.policies
+        if policy.permissive and policy.is_tenant_policy(column)
+    ]
+    if tenant_policies and not any(
+        _is_null_aware(expression, column)
+        for policy in tenant_policies
+        for expression in (policy.read_expression, policy.write_expression)
+    ):
+        findings.append(
+            Finding(
+                name,
+                "optional_tenant_not_null_aware",
+                f"{column} is nullable but no tenant policy compares it with "
+                "IS NOT DISTINCT FROM, so every untenanted row is invisible to "
+                "every session rather than to every tenant",
+            )
+        )
+
+    return findings
+
+
+def _is_null_aware(expression: str | None, column: str) -> bool:
+    """Whether ``expression`` pairs a NULL ``column`` with an unset tenant.
+
+    Accepts the two renderings in :data:`_NULL_AWARE_COMPARISONS` and nothing
+    else. In particular a bare ``IS DISTINCT FROM`` — the same operator
+    without the negation — is rejected: that policy exposes every row *except*
+    the current tenant's, so treating it as equivalent would invert the
+    control this function exists to verify.
+    """
+    if expression is None or column not in expression:
+        return False
+    written, rendered = _NULL_AWARE_COMPARISONS
+    if written in expression:
+        return True
+    return rendered in expression and "IS DISTINCT FROM" in expression
+
+
+def _audit_tenant_scoped(
+    table: TableSecurity, column: str, *, optional_tenant: bool = False
+) -> list[Finding]:
+    """Checks that apply to a table carrying the tenant column.
+
+    ``optional_tenant`` swaps one check for another rather than dropping it:
+    the table is allowed a nullable discriminator, and in exchange its policy
+    must be NULL-aware. See :func:`audit_tenant_isolation`.
+    """
+    findings: list[Finding] = []
+    name = table.qualified_name
+
+    if optional_tenant:
+        findings.extend(_audit_optional_tenant(table, column))
+    elif not table.tenant_column_not_null:
         findings.append(
             Finding(
                 name,
@@ -344,6 +450,7 @@ def audit_tenant_isolation(
     tables: Iterable[TableSecurity],
     *,
     exemptions: Mapping[str, str],
+    optional_tenant: Mapping[str, str] | None = None,
     column: str = TENANT_COLUMN,
 ) -> tuple[Finding, ...]:
     """Return every way ``tables`` breaks the tenant-isolation contract.
@@ -356,8 +463,14 @@ def audit_tenant_isolation(
             tenant data. A table that is neither tenant-scoped nor listed here
             is reported; that is what makes a newly added table fail by default
             instead of passing unnoticed.
+        optional_tenant: unqualified table name -> the written reason some of
+            its rows belong to no organization. Not an exemption: such a table
+            is still required to be RLS-enabled, FORCEd and policy-covered,
+            and is additionally required to compare its discriminator in a
+            NULL-aware way. See :func:`_audit_optional_tenant`.
         column: the tenant discriminator column.
     """
+    optional = optional_tenant or {}
     findings: list[Finding] = []
     discovered: set[str] = set()
 
@@ -375,7 +488,11 @@ def audit_tenant_isolation(
                         f"{column}; drop the exemption and enable RLS on it",
                     )
                 )
-            findings.extend(_audit_tenant_scoped(table, column))
+            findings.extend(
+                _audit_tenant_scoped(
+                    table, column, optional_tenant=table.name in optional
+                )
+            )
         elif exemption is None:
             findings.append(
                 Finding(
@@ -395,6 +512,15 @@ def audit_tenant_isolation(
             "the list keeps meaning something",
         )
         for name in sorted(set(exemptions) - discovered)
+    )
+    findings.extend(
+        Finding(
+            name,
+            "stale_optional_tenant",
+            "is listed as optional-tenant but no such table exists; drop the "
+            "entry so the list keeps meaning something",
+        )
+        for name in sorted(set(optional) - discovered)
     )
 
     return tuple(findings)

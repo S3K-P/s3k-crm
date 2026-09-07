@@ -42,7 +42,13 @@ from app.core.config import Settings
 from app.core.exceptions import AppError, ConflictError
 from app.core.tenant import get_tenant_context
 from app.platform.audit.service import AUTH_MODULE, Action, AuditService, Status
-from app.platform.auth.models import Session, User, UserProfile, UserStatus
+from app.platform.auth.models import (
+    PasswordResetToken,
+    Session,
+    User,
+    UserProfile,
+    UserStatus,
+)
 from app.platform.auth.repository import AuthRepository
 from app.platform.auth.security import (
     PasswordHasher,
@@ -50,6 +56,8 @@ from app.platform.auth.security import (
     TokenIssuer,
     validate_password_policy,
 )
+from app.platform.email.service import request_email
+from app.platform.email.templates import PASSWORD_RESET
 from app.platform.organizations.repository import OrganizationRepository
 
 logger = structlog.get_logger(__name__)
@@ -70,6 +78,21 @@ def _dummy_hash() -> str:
     Computed once, lazily, because hashing is deliberately slow.
     """
     return PasswordHasher().hash("timing-equalisation-placeholder")
+
+
+class InvalidResetTokenError(AppError):
+    """The presented password-reset token is unknown, spent or expired.
+
+    One error for all three, like :class:`AuthenticationError` above and for
+    the same reason: distinguishing "expired" from "already used" from "never
+    existed" tells somebody holding a link they should not have which of those
+    it is, and the person who legitimately holds it needs the same next step
+    either way — ask for a new one.
+    """
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    code = "invalid_reset_token"
+    message = "This password reset link is no longer valid. Please request a new one."
 
 
 class AuthenticationError(AppError):
@@ -745,6 +768,178 @@ class AuthService:
                 details={"sessions_revoked": revoked, "lockout_cleared": True},
             )
 
+    # --- Self-service password reset ---------------------------------------
+
+    async def request_password_reset(
+        self, *, email: str, ip_address: str | None = None
+    ) -> None:
+        """Start a reset for ``email``, if there is anything to start.
+
+        Returns ``None`` in every case, including the ones where nothing
+        happened. That is the security property, not an oversight: a caller
+        who could tell "we sent one" from "no such account" would have a
+        user-enumeration oracle on an unauthenticated endpoint, which is
+        precisely what :class:`AuthenticationError` goes to such lengths to
+        deny them one route further along. The router turns every outcome into
+        the same 202 and the same body.
+
+        What that costs is real and worth naming: a person who mistypes their
+        address gets the same reassuring screen as one who did not, and no
+        mail arrives. The alternative — telling them — hands the same
+        information to anyone with a list of addresses to test, so the trade
+        is made the way every product makes it, and the copy on the screen
+        says "if that address has an account" rather than "check your inbox".
+
+        Outstanding tokens for the account are spent first. Asking twice
+        because the first mail was slow must not leave two live links in an
+        inbox; only the newest works.
+
+        The email is enqueued on the outbox inside the caller's transaction,
+        so a rollback takes the mail with it and there is no window in which a
+        link exists for a token that was never committed.
+        """
+        account = await self._repository.get_user_by_email(email)
+        if account is None or not account.is_active:
+            # Logged, not audited. There is no organization an unknown address
+            # belongs to, and attributing it to a guess would put the
+            # enumeration oracle back on the audit screen instead — the same
+            # reasoning as the unknown-address branch of `authenticate`.
+            logger.info("password_reset_requested_for_unusable_account")
+            return
+
+        now = dt.datetime.now(dt.UTC)
+        await self._repository.spend_outstanding_reset_tokens(account.id, at=now)
+
+        secret = RefreshTokenFactory.issue()
+        expires_at = now + dt.timedelta(
+            seconds=self._settings.password_reset_ttl_seconds
+        )
+        await self._repository.add_password_reset_token(
+            PasswordResetToken(
+                user_id=account.id,
+                token_hash=secret.digest,
+                expires_at=expires_at,
+                requested_ip=ip_address,
+            )
+        )
+
+        # Untenanted on purpose. A password belongs to the identity, and this
+        # user may be in several organizations or in none; see
+        # `app.platform.email.models` for what that means for the delivery log.
+        request_email(
+            self._repository.session,
+            organization_id=None,
+            to_address=account.email,
+            template=PASSWORD_RESET,
+            context={
+                "reset_url": (
+                    f"{self._settings.public_app_url.rstrip('/')}"
+                    f"/reset-password?token={secret.value}"
+                ),
+                "expires_on": expires_at.strftime("%d %B %Y at %H:%M UTC"),
+            },
+        )
+        logger.info("password_reset_requested", user_id=str(account.id))
+
+        organization_id = await self._organizations.default_organization_id(account.id)
+        if self._audit is not None and organization_id is not None:
+            await self._audit.record(
+                organization_id=organization_id,
+                action=Action.PASSWORD_RESET_REQUESTED,
+                module=USERS_MODULE,
+                actor_id=account.id,
+                entity_type="USER",
+                entity_id=account.id,
+                entity_label=account.email,
+                # No token, no digest, no link. The record says a reset was
+                # asked for; anything more would make the audit screen a way
+                # to take an account over.
+                details={"self_service": True},
+            )
+
+    async def redeem_password_reset(self, *, token: str, new_password: str) -> User:
+        """Spend a reset token and set the new password.
+
+        The token is looked up by digest, so a stolen database gives an
+        attacker nothing they can present. It is spent whether or not anything
+        else about the request is right, and every outstanding token for the
+        account goes with it: by the time this returns, no link that existed
+        before the call still works.
+
+        No session is issued. The caller signs in with the password they just
+        chose, which is one extra step and proves the reset actually took —
+        against handing back tokens on the strength of a link in an inbox.
+
+        Raises:
+            InvalidResetTokenError: unknown, already spent, or expired.
+            WeakPasswordError: the new password fails the configured policy.
+        """
+        stored = await self._repository.get_password_reset_token(
+            RefreshTokenFactory.digest(token)
+        )
+        now = dt.datetime.now(dt.UTC)
+        if stored is None or not stored.is_redeemable_at(now):
+            logger.info(
+                "password_reset_token_rejected",
+                reason=(
+                    "unknown"
+                    if stored is None
+                    else "spent"
+                    if stored.used_at is not None
+                    else "expired"
+                ),
+            )
+            raise InvalidResetTokenError
+
+        account = await self._repository.get_user(stored.user_id)
+        if account is None or not account.is_active:
+            # The account was disabled or deleted after the link was sent.
+            # Spend the token anyway — it must not outlive the account.
+            await self._repository.spend_outstanding_reset_tokens(
+                stored.user_id, at=now
+            )
+            logger.warning("password_reset_for_unusable_account")
+            raise InvalidResetTokenError
+
+        # Validated before anything is spent, so a password that fails the
+        # policy leaves the person their link rather than sending them back to
+        # request another one.
+        validate_password_policy(
+            new_password, min_length=self._settings.password_min_length
+        )
+
+        account.password_hash = self._hasher.hash(new_password)
+        # Everything issued before now stops working, on every device. Someone
+        # resetting a password may be doing it *because* an attacker is in the
+        # account, and leaving that session live would make the reset useless.
+        account.tokens_valid_from = now
+        # A person locked out by failed attempts who then recovers through
+        # email has proven control of the address; leaving the lockout in
+        # place would make them wait out a window for no further safety.
+        account.failed_login_count = 0
+        account.locked_until = None
+        revoked = await self._repository.revoke_all_for_user(account.id, at=now)
+        await self._repository.spend_outstanding_reset_tokens(account.id, at=now)
+        logger.info("password_reset_completed", user_id=str(account.id))
+
+        organization_id = await self._organizations.default_organization_id(account.id)
+        if self._audit is not None and organization_id is not None:
+            await self._audit.record(
+                organization_id=organization_id,
+                action=Action.PASSWORD_RESET_COMPLETED,
+                module=USERS_MODULE,
+                actor_id=account.id,
+                entity_type="USER",
+                entity_id=account.id,
+                entity_label=account.email,
+                details={
+                    "sessions_revoked": revoked,
+                    "lockout_cleared": True,
+                    "self_service": True,
+                },
+            )
+        return account
+
     async def update_profile(
         self,
         *,
@@ -867,6 +1062,7 @@ __all__ = [
     "AccountLockedError",
     "AuthService",
     "AuthenticationError",
+    "InvalidResetTokenError",
     "IssuedTokens",
     "NoOrganizationError",
 ]

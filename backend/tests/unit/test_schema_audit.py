@@ -31,6 +31,26 @@ TENANT_PREDICATE = (
     "''::text))::uuid)"
 )
 
+#: What ``enable_rls(..., optional_tenant=True)`` produces, **as PostgreSQL
+#: renders it back** — copied from ``pg_get_expr`` output on the real table,
+#: not from the SQL the migration writes.
+#:
+#: Those two differ, which is the whole reason this constant is spelled out
+#: here: the policy is created with ``IS NOT DISTINCT FROM`` and comes back as
+#: ``NOT (... IS DISTINCT FROM ...)``. A test written against the source
+#: spelling passes while the audit finds nothing on the live schema.
+NULL_AWARE_PREDICATE = (
+    f"(NOT (organization_id IS DISTINCT FROM (NULLIF(current_setting("
+    f"'{TENANT_SETTING}'::text, true), ''::text))::uuid))"
+)
+
+#: The form written in ``app.core.rls``. Accepted too, so a hand-written
+#: policy in a future migration is not reported as broken.
+NULL_AWARE_PREDICATE_AS_WRITTEN = (
+    f"(organization_id IS NOT DISTINCT FROM (NULLIF(current_setting("
+    f"'{TENANT_SETTING}'::text, true), ''::text))::uuid)"
+)
+
 NO_EXEMPTIONS: dict[str, str] = {}
 
 
@@ -76,13 +96,16 @@ def _audit(
     policies: list[dict[str, object]] | None = None,
     *,
     exemptions: dict[str, str] | None = None,
+    optional_tenant: dict[str, str] | None = None,
 ) -> set[str]:
     """Audit one synthetic table and return the problems reported for it."""
     discovered = build_table_security(
         "crm", [table], [] if policies is None else policies
     )
     findings = audit_tenant_isolation(
-        discovered, exemptions=NO_EXEMPTIONS if exemptions is None else exemptions
+        discovered,
+        exemptions=NO_EXEMPTIONS if exemptions is None else exemptions,
+        optional_tenant=optional_tenant,
     )
     return {finding.problem for finding in findings}
 
@@ -247,6 +270,134 @@ def test_findings_render_with_the_table_and_the_reason() -> None:
 
 def test_a_clean_audit_renders_as_nothing() -> None:
     assert format_findings(()) == ""
+
+
+# --- Optional-tenant tables -------------------------------------------------
+#
+# One table needs a nullable discriminator: `platform.email_deliveries` logs a
+# password reset, which is addressed to a global identity and belongs to no
+# organization. The audit does not simply excuse it — it swaps the nullable
+# check for a stricter one, because the failure mode a nullable column
+# introduces is silent in the opposite direction.
+
+
+OPTIONAL = {"probe": "a written reason some of its rows belong to no tenant"}
+
+
+def test_a_nullable_tenant_column_is_reported_by_default() -> None:
+    """The ordinary rule, restated so the exception below has something to be.
+
+    ``organization_id = <setting>`` is NULL for an untenanted row, so the row
+    is invisible to everyone and reachable only by bypassing RLS.
+    """
+    assert "tenant_column_nullable" in _audit(
+        _table(tenant_column_not_null=False), [_policy()]
+    )
+
+
+def test_a_declared_optional_tenant_table_with_a_null_aware_policy_passes() -> None:
+    """The shape `email_deliveries` actually has."""
+    assert (
+        _audit(
+            _table(tenant_column_not_null=False),
+            [_policy(using=NULL_AWARE_PREDICATE, check=NULL_AWARE_PREDICATE)],
+            optional_tenant=OPTIONAL,
+        )
+        == set()
+    )
+
+
+def test_the_source_spelling_of_the_null_aware_policy_is_also_accepted() -> None:
+    """Both renderings, because only one of them ever reaches the catalogue.
+
+    ``pg_get_expr`` normalises the negation outwards, so the live schema shows
+    the other form. Accepting only what the migration writes was the bug this
+    pins.
+    """
+    assert (
+        _audit(
+            _table(tenant_column_not_null=False),
+            [
+                _policy(
+                    using=NULL_AWARE_PREDICATE_AS_WRITTEN,
+                    check=NULL_AWARE_PREDICATE_AS_WRITTEN,
+                )
+            ],
+            optional_tenant=OPTIONAL,
+        )
+        == set()
+    )
+
+
+def test_an_inverted_policy_is_not_mistaken_for_a_null_aware_one() -> None:
+    """``IS DISTINCT FROM`` without the negation is the opposite policy.
+
+    It exposes every row *except* the current tenant's. Matching on the
+    substring alone would accept it, so the negation is part of the check.
+    """
+    inverted = NULL_AWARE_PREDICATE_AS_WRITTEN.replace(
+        "IS NOT DISTINCT FROM", "IS DISTINCT FROM"
+    )
+    assert "optional_tenant_not_null_aware" in _audit(
+        _table(tenant_column_not_null=False),
+        [_policy(using=inverted, check=inverted)],
+        optional_tenant=OPTIONAL,
+    )
+
+
+def test_declaring_optional_tenant_without_a_null_aware_policy_is_reported() -> None:
+    """The check that makes the declaration cost something.
+
+    This is the trap the whole mechanism exists to catch: adding a name to the
+    map turns off the nullable finding, and without this check the table would
+    then pass the audit while every untenanted row it holds is invisible to
+    *every* session — more broken than before, and silently so.
+    """
+    assert "optional_tenant_not_null_aware" in _audit(
+        _table(tenant_column_not_null=False),
+        [_policy()],  # the ordinary `=` predicate
+        optional_tenant=OPTIONAL,
+    )
+
+
+def test_an_optional_tenant_table_still_has_to_force_rls() -> None:
+    """The declaration relaxes one check, not the others."""
+    problems = _audit(
+        _table(tenant_column_not_null=False, rls_forced=False),
+        [_policy(using=NULL_AWARE_PREDICATE, check=NULL_AWARE_PREDICATE)],
+        optional_tenant=OPTIONAL,
+    )
+    assert "rls_not_forced" in problems
+
+
+def test_an_optional_tenant_table_still_has_to_have_a_policy() -> None:
+    problems = _audit(
+        _table(tenant_column_not_null=False),
+        [],
+        optional_tenant=OPTIONAL,
+    )
+    assert "no_tenant_policy" in problems
+
+
+def test_declaring_a_not_null_column_optional_is_reported() -> None:
+    """A stale entry in the map is a lie about the schema.
+
+    The same reasoning as ``stale_exemption``: a list that no longer describes
+    the database stops being read.
+    """
+    assert "stale_optional_tenant" in _audit(
+        _table(tenant_column_not_null=True),
+        [_policy()],
+        optional_tenant=OPTIONAL,
+    )
+
+
+def test_declaring_a_table_that_does_not_exist_is_reported() -> None:
+    assert "stale_optional_tenant" in _audit(
+        _table(name="something_else"),
+        [],
+        optional_tenant={"probe": "a reason for a table that is not there"},
+    )
 
 
 # --- The CRM exemption registry ---------------------------------------------

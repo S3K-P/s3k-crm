@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { 
   LayoutDashboard, Users, Shield, UsersRound, Settings,
-  Workflow, Database, Bell, Blocks, ScrollText, Lock, Grid2x2, MailPlus
+  Workflow, Database, Bell, Blocks, ScrollText, Lock, Grid2x2, MailPlus, Mails
 } from 'lucide-react';
 
 const ADMIN_NAVIGATION = [
@@ -32,6 +32,7 @@ const ADMIN_NAVIGATION = [
   ]},
   { group: 'Security & Compliance', items: [
     { name: 'Audit Logs', href: '/admin/audit-logs', icon: ScrollText },
+    { name: 'Email Deliveries', href: '/admin/email-deliveries', icon: Mails },
     { name: 'Security & Billing', href: '/admin/security', icon: Lock },
   ]}
 ];

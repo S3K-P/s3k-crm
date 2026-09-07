@@ -29,14 +29,25 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from collections.abc import AsyncIterator
 
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings
 from app.core.models import TENANT_SETTING
+from app.platform.email.provider import DeliveryReceipt, OutboundEmail
+from app.platform.email.service import EMAIL_REQUESTED, deliver_email_event
+from app.platform.events.models import OutboxEvent
+from app.platform.events.service import (
+    EventDispatcher,
+    clear_handlers,
+    register_handler,
+    registered_handlers,
+)
 from app.platform.notifications.models import Notification
 from app.platform.notifications.service import (
     dispatch_due_reminders_for_all_organizations,
@@ -69,6 +80,73 @@ def _session_as(
 
 
 # --- Seeding helpers ---------------------------------------------------------
+
+
+class _Mailbox:
+    """A provider that keeps what it was handed. The only fake here.
+
+    Everything else the reminder email touches — the outbox, the dispatcher,
+    the delivery log, the member directory — is real, because those are where
+    the behaviour lives. There is no SMTP server in CI and a test suite that
+    sent real mail would be a defect.
+    """
+
+    def __init__(self) -> None:
+        self.name = "mailbox"
+        self.sent: list[OutboundEmail] = []
+
+    async def send(self, message: OutboundEmail) -> DeliveryReceipt:
+        self.sent.append(message)
+        return DeliveryReceipt(message_id=f"box-{len(self.sent)}", provider=self.name)
+
+
+@pytest_asyncio.fixture
+async def reminder_mailbox(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> AsyncIterator[_Mailbox]:
+    """Swap the registered email handler for one that records, on an empty outbox.
+
+    Two pieces of shared state have to be dealt with, and both bit before they
+    were.
+
+    **The handler registry** is global and set by the composition root at
+    import time, so it is saved and restored rather than cleared — otherwise
+    this file would leave the application with no email handler for whatever
+    runs next.
+
+    **The outbox is a table**, and ``clean_database`` in ``conftest`` does not
+    truncate it: it is Platform infrastructure rather than tenant business
+    data. So events enqueued by the reminder tests *above* survive into these
+    ones, and ``drain_once`` — which claims whatever is due, not whatever this
+    test created — delivers them too. The symptom was a mailbox holding a
+    message about a meeting a different test had scheduled, which reads as
+    "the reminder was sent twice" and is nothing of the sort.
+    """
+    existing = registered_handlers()
+    box = _Mailbox()
+
+    async def wipe() -> None:
+        async with session_factory() as session:
+            await session.execute(text("DELETE FROM platform.outbox_events"))
+            await session.commit()
+
+    async def handler(session: AsyncSession, event: OutboxEvent) -> None:
+        await deliver_email_event(session, event, provider=box)
+
+    await wipe()
+    clear_handlers()
+    register_handler(EMAIL_REQUESTED, handler, tenant_scoped=True)
+    yield box
+    clear_handlers()
+    for handler_entry in existing.values():
+        register_handler(
+            handler_entry.event_type,
+            handler_entry.handle,
+            tenant_scoped=handler_entry.tenant_scoped,
+        )
+    # Cleared afterwards too: a reminder these tests enqueued must not be
+    # delivered by whichever file drains the outbox next.
+    await wipe()
 
 
 async def _seed_meeting(
@@ -407,6 +485,106 @@ async def test_a_meeting_outside_its_reminder_window_does_not_fire(
     created = await dispatch_due_reminders_for_all_organizations(session_factory, now=now)
     assert created == 0
     assert as_alpha_admin.get(NOTIFICATIONS).json()["pagination"]["total"] == 0
+
+
+# --- Reminder email ---------------------------------------------------------
+#
+# A meeting reminder is also emailed, because the whole point of one is to
+# reach somebody who is not looking at the CRM. A task reminder is not: an
+# overdue task is waiting either way, and a daily email saying so is how
+# people learn to filter the sender.
+
+
+async def test_a_meeting_reminder_is_also_emailed(
+    session_factory: async_sessionmaker[AsyncSession],
+    alpha: Tenant,
+    now: dt.datetime,
+    reminder_mailbox: _Mailbox,
+) -> None:
+    """The in-app notification and the message go out together.
+
+    The email is enqueued on the outbox inside the scheduler's transaction, so
+    this drains the dispatcher afterwards exactly as the worker does.
+    """
+    async with session_factory() as session, session.begin():
+        await _seed_meeting(
+            session,
+            organization_id=alpha.organization_id,
+            owner_id=alpha.admin.user_id,
+            subject="Quarterly review",
+            start_time=now + dt.timedelta(minutes=5),
+            reminder_minutes=10,
+        )
+
+    assert await dispatch_due_reminders_for_all_organizations(session_factory, now=now) == 1
+    await EventDispatcher(session_factory).drain_once()
+
+    assert len(reminder_mailbox.sent) == 1
+    message = reminder_mailbox.sent[0]
+    assert message.to_address == alpha.admin.email
+    assert "Quarterly review" in message.subject
+    # The link is the reason the email exists; a reminder with no way back to
+    # the record is a notification that made a noise.
+    assert "/meetings/" in message.text_body
+
+
+async def test_a_reminder_that_fires_twice_emails_once(
+    session_factory: async_sessionmaker[AsyncSession],
+    alpha: Tenant,
+    now: dt.datetime,
+    reminder_mailbox: _Mailbox,
+) -> None:
+    """Dedupe governs the email as well as the notification.
+
+    The scheduler runs every few minutes and a reminder window is open for
+    longer than that, so this is the ordinary case rather than a rare one. A
+    duplicate in-app notification is untidy; a duplicate email is the thing
+    people write in about.
+    """
+    async with session_factory() as session, session.begin():
+        await _seed_meeting(
+            session,
+            organization_id=alpha.organization_id,
+            owner_id=alpha.admin.user_id,
+            subject="Standup",
+            start_time=now + dt.timedelta(minutes=5),
+            reminder_minutes=10,
+        )
+
+    await dispatch_due_reminders_for_all_organizations(session_factory, now=now)
+    await dispatch_due_reminders_for_all_organizations(
+        session_factory, now=now + dt.timedelta(minutes=1)
+    )
+    await EventDispatcher(session_factory).drain_once()
+
+    assert len(reminder_mailbox.sent) == 1
+
+
+async def test_a_task_reminder_is_not_emailed(
+    session_factory: async_sessionmaker[AsyncSession],
+    alpha: Tenant,
+    now: dt.datetime,
+    reminder_mailbox: _Mailbox,
+) -> None:
+    """Opt-in per reminder, asserted rather than assumed.
+
+    If emailing were a blanket rule over notifications, every overdue task in
+    every organization would produce mail on every tick — and the reminder
+    horizon means the same task qualifies for days.
+    """
+    async with session_factory() as session, session.begin():
+        await _seed_task(
+            session,
+            organization_id=alpha.organization_id,
+            title="Chase the renewal",
+            due_date=now - dt.timedelta(minutes=5),
+            assigned_to_id=alpha.admin.user_id,
+        )
+
+    assert await dispatch_due_reminders_for_all_organizations(session_factory, now=now) == 1
+    await EventDispatcher(session_factory).drain_once()
+
+    assert reminder_mailbox.sent == []
 
 
 async def test_a_due_task_fires_a_reminder_for_its_assignee(

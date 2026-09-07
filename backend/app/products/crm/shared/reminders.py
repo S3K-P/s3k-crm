@@ -24,6 +24,7 @@ from collections.abc import Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.platform.email.templates import MEETING_REMINDER
 from app.platform.notifications.policies import ReminderDue
 from app.products.crm.activities.models import Activity, ActivityStatus, ActivityType, Meeting
 from app.products.crm.tasks.models import Task, TaskStatus
@@ -103,6 +104,19 @@ class CrmReminderSource:
                     # yesterday's reminder for the old time is not reissued,
                     # and the new time gets its own reminder when it is due.
                     dedupe_key=f"meeting_reminder:{activity.id}:{meeting.start_time.isoformat()}",
+                    # Emailed as well as shown in-app: the whole point of a
+                    # meeting reminder is to reach somebody who is *not*
+                    # looking at the CRM. Task reminders below deliberately
+                    # get no template — an overdue task is waiting either way,
+                    # and a daily email saying so teaches people to filter us.
+                    email_template=MEETING_REMINDER,
+                    email_context={
+                        "subject": activity.subject,
+                        "starts_at": meeting.start_time.strftime(
+                            "%d %B %Y at %H:%M UTC"
+                        ),
+                    },
+                    record_path=f"/meetings/{activity.id}",
                 )
             )
         return due

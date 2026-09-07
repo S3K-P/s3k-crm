@@ -386,6 +386,52 @@ async def test_platform_teams_are_tenant_isolated(owner_engine: AsyncEngine) -> 
         assert not findings, format_findings(findings)
 
 
+async def test_email_deliveries_is_tenant_isolated_with_an_optional_tenant(
+    owner_engine: AsyncEngine,
+) -> None:
+    """The one table in the schema whose tenant column may be NULL.
+
+    A password-reset message is addressed to a global identity — a person who
+    may belong to several organizations or, having signed up and stopped, to
+    none — so the delivery row that records it has no organization to carry.
+    It still has to exist: the unique index on ``outbox_event_id`` is the
+    whole of the exactly-once guarantee, and without a row a retried event
+    puts a second working reset link in somebody's inbox.
+
+    So the audit is pointed at it with the declaration, which is *stricter*
+    than the ordinary rule rather than an excuse from it: the table must still
+    be RLS-enabled, FORCEd and covered for all four commands, and it must
+    additionally prove its policy compares the column in a NULL-aware way. A
+    plain ``organization_id = <setting>`` on a nullable column would hide
+    every untenanted row from every session, which reads as isolation and is
+    actually a trap.
+
+    Behaviour, as opposed to catalogue shape, is asserted from outside in
+    ``test_email_delivery_log.py`` and ``test_password_reset.py``.
+    """
+    tables = {table.name: table for table in await _discover(owner_engine, PLATFORM_SCHEMA)}
+    deliveries = tables.get("email_deliveries")
+
+    assert deliveries is not None, "platform.email_deliveries does not exist"
+    assert not deliveries.tenant_column_not_null, (
+        "the column is NOT NULL, so the optional-tenant declaration is stale"
+    )
+
+    findings = audit_tenant_isolation(
+        (deliveries,),
+        exemptions={},
+        optional_tenant={
+            "email_deliveries": (
+                "a password reset is addressed to a global identity and belongs "
+                "to no organization; the row is still required for exactly-once "
+                "delivery"
+            )
+        },
+    )
+
+    assert not findings, format_findings(findings)
+
+
 async def test_team_memberships_is_isolated_through_its_team(
     owner_engine: AsyncEngine,
 ) -> None:

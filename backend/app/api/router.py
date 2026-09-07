@@ -16,6 +16,7 @@ Path layout follows doc 11:
     /api/v1/organizations/*   tenants and membership
     /api/v1/roles/*           RBAC
     /api/v1/audit-logs/*      the audit trail (read-only, admin permission)
+    /api/v1/email-deliveries/* outbound mail log (read-only, same permission)
     /api/v1/attachments/*     file metadata + pre-signed object-storage URLs
     /api/v1/notifications/*   the caller's own in-app notifications
     /api/v1/crm/*             S3K CRM business resources
@@ -35,8 +36,13 @@ from app.platform.audit import router as audit_router
 from app.platform.auth import router as auth_router
 from app.platform.authorization import router as authorization_router
 from app.platform.documents import router as documents_router
+from app.platform.email import router as email_router
 from app.platform.email.provider import build_provider
-from app.platform.email.service import EMAIL_REQUESTED, deliver_email_event
+from app.platform.email.service import (
+    EMAIL_REQUESTED,
+    IDENTITY_EMAIL_REQUESTED,
+    deliver_email_event,
+)
 from app.platform.events.models import OutboxEvent
 from app.platform.events.service import register_handler
 from app.platform.notifications import router as notifications_router
@@ -86,6 +92,9 @@ api_router.include_router(
     authorization_router.router, prefix="/roles", tags=["platform:authorization"]
 )
 api_router.include_router(audit_router.router, prefix="/audit-logs", tags=["platform:audit"])
+api_router.include_router(
+    email_router.router, prefix="/email-deliveries", tags=["platform:email"]
+)
 # The AI gateway (ADR-016). Not behind the CRM product gate: ``/ai/status``
 # answers whether AI is connected at all, which the AI section needs in order
 # to render its "not connected" state, and prompt configuration is
@@ -165,11 +174,20 @@ def register_event_handlers() -> None:
     register_handler(
         EMAIL_REQUESTED,
         _deliver,
-        # Every email so far belongs to a tenant. An untenanted one — a
-        # password reset for somebody who has not chosen an organization —
-        # will need its own event type rather than a nullable tenant on this
-        # one, so that the dispatcher keeps enforcing the distinction.
+        # An invitation is sent by an organization; a meeting reminder is about
+        # a record inside one. If one of those ever loses its organization it
+        # must dead-letter, not quietly deliver unscoped.
         tenant_scoped=True,
+    )
+    register_handler(
+        IDENTITY_EMAIL_REQUESTED,
+        _deliver,
+        # The same handler under the other contract, which is why the two
+        # types exist. A password reset is addressed to a global identity —
+        # the person may belong to several organizations or, having signed up
+        # and stopped, to none — so there is no organization to scope to and
+        # the dispatcher must not demand one.
+        tenant_scoped=False,
     )
 
 
