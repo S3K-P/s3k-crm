@@ -27,6 +27,7 @@ from app.platform.audit import models as audit_models
 from app.platform.auth import models as auth_models
 from app.platform.authorization import models as authorization_models
 from app.platform.documents import models as document_models
+from app.platform.notifications import models as notification_models
 from app.platform.organizations import models as organization_models
 from app.platform.products import models as product_models
 from app.platform.teams import models as team_models
@@ -63,6 +64,7 @@ __all__ = [
     "market_insight_models",
     "metadata",
     "note_models",
+    "notification_models",
     "opportunity_models",
     "organization_models",
     "product_models",

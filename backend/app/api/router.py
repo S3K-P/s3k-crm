@@ -17,6 +17,7 @@ Path layout follows doc 11:
     /api/v1/roles/*           RBAC
     /api/v1/audit-logs/*      the audit trail (read-only, admin permission)
     /api/v1/attachments/*     file metadata + pre-signed object-storage URLs
+    /api/v1/notifications/*   the caller's own in-app notifications
     /api/v1/crm/*             S3K CRM business resources
     /api/v1/crm/reports       the built-in report library, gated per report
     /api/v1/crm/search        cross-entity search, permission-filtered in-query
@@ -32,6 +33,8 @@ from app.platform.audit import router as audit_router
 from app.platform.auth import router as auth_router
 from app.platform.authorization import router as authorization_router
 from app.platform.documents import router as documents_router
+from app.platform.notifications import router as notifications_router
+from app.platform.notifications.service import register_reminder_source
 from app.platform.organizations import router as organizations_router
 from app.platform.organizations.provisioning import register_provisioning_hook
 from app.platform.products import router as products_router
@@ -53,6 +56,7 @@ from app.products.crm.reports import router as reports_router
 from app.products.crm.search import router as search_router
 from app.products.crm.shared.attachments import crm_entity_access
 from app.products.crm.shared.provisioning import crm_provisioning_hook
+from app.products.crm.shared.reminders import crm_reminder_source
 from app.products.crm.tasks import router as tasks_router
 
 root_router = APIRouter()
@@ -90,6 +94,16 @@ api_router.include_router(
     teams_router.department_router, prefix="/departments", tags=["platform:teams"]
 )
 
+# Notifications are the caller's own mailbox (see policies.py: no permission
+# module gates it), so it is mounted here rather than behind the CRM product
+# gate below — a user without CRM access could still hold a Platform-level
+# notification in future. The CRM is the only source of reminders today
+# (register_reminder_source, beside register_provisioning_hook below), but the
+# module itself has no CRM dependency.
+api_router.include_router(
+    notifications_router.router, prefix="/notifications", tags=["platform:notifications"]
+)
+
 # Attachments are the one place a Platform module needs a product's answer:
 # whether the caller may reach the CRM record a file hangs off depends on
 # ``owner_id`` and on record-level visibility, neither of which Platform may
@@ -112,6 +126,12 @@ api_router.include_router(
 # ``app.bootstrap`` calls ``ensure_default_pipeline`` directly because it holds
 # a lint exemption an HTTP route has no business borrowing.
 register_provisioning_hook(crm_provisioning_hook)
+
+# Same inversion again: deciding which reminders are due needs CRM data
+# (meetings, tasks) that Platform may not import. Registered here rather than
+# beside the router include above because nothing that consumes it is an HTTP
+# route — see app.platform.notifications.policies and .service.
+register_reminder_source(crm_reminder_source)
 
 # --- S3K CRM routers --------------------------------------------------------
 #
