@@ -26,13 +26,19 @@ Path layout follows doc 11:
 from __future__ import annotations
 
 from fastapi import APIRouter
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import health
+from app.core.config import get_settings
 from app.platform.ai import router as ai_router
 from app.platform.audit import router as audit_router
 from app.platform.auth import router as auth_router
 from app.platform.authorization import router as authorization_router
 from app.platform.documents import router as documents_router
+from app.platform.email.provider import build_provider
+from app.platform.email.service import EMAIL_REQUESTED, deliver_email_event
+from app.platform.events.models import OutboxEvent
+from app.platform.events.service import register_handler
 from app.platform.notifications import router as notifications_router
 from app.platform.notifications.service import register_reminder_source
 from app.platform.organizations import router as organizations_router
@@ -132,6 +138,42 @@ register_provisioning_hook(crm_provisioning_hook)
 # beside the router include above because nothing that consumes it is an HTTP
 # route — see app.platform.notifications.policies and .service.
 register_reminder_source(crm_reminder_source)
+
+
+def register_event_handlers() -> None:
+    """Attach every outbox handler to the dispatcher.
+
+    A function rather than module-level statements because two processes need
+    it and they start differently: the API registers on import, so that a
+    request enqueuing an event can be sure a handler exists for it, and the
+    worker calls this from its ARQ startup hook. Both get the same set from
+    one place, which is the only way they cannot drift.
+
+    Handlers are registered here for the reason everything else in this file
+    is: a handler that delivers an email about a CRM record needs both layers,
+    and this module is the only one allowed to see both.
+    """
+    # The provider is chosen from configuration once, here, rather than per
+    # event: constructing it reparses settings, and binding it at registration
+    # means the handler signature stays the plain `(session, event)` the
+    # dispatcher knows about.
+    provider = build_provider(get_settings())
+
+    async def _deliver(session: AsyncSession, event: OutboxEvent) -> None:
+        await deliver_email_event(session, event, provider=provider)
+
+    register_handler(
+        EMAIL_REQUESTED,
+        _deliver,
+        # Every email so far belongs to a tenant. An untenanted one — a
+        # password reset for somebody who has not chosen an organization —
+        # will need its own event type rather than a nullable tenant on this
+        # one, so that the dispatcher keeps enforcing the distinction.
+        tenant_scoped=True,
+    )
+
+
+register_event_handlers()
 
 # --- S3K CRM routers --------------------------------------------------------
 #

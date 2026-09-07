@@ -92,6 +92,7 @@ _TENANT_SCOPED_STATEMENTS_TO_CLEAN = (
     "DELETE FROM platform.audit_logs",
     "DELETE FROM platform.attachments",
     "DELETE FROM platform.notifications",
+    "DELETE FROM platform.email_deliveries",
 )
 
 #: Tables the tenant policy does *not* cover, so one unscoped pass clears them.

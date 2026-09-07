@@ -101,6 +101,19 @@ async def check_database_connection(engine: AsyncEngine) -> None:
         await connection.execute(text("SELECT 1"))
 
 
+#: Serializes concurrent ``alembic upgrade head`` runs across replicas.
+#:
+#: Lives here rather than in ``migrations/env.py`` because that module cannot
+#: be imported outside Alembic — it reads ``alembic.context`` at import time —
+#: and the value needs to be readable by the test that proves the locking
+#: works. ``env.py`` imports it from here.
+#:
+#: Arbitrary but **fixed**: changing it would let an old and a new release
+#: migrate simultaneously during a rolling deploy, which is the exact
+#: situation it exists to prevent.
+MIGRATION_LOCK_KEY = 8_031_071_026
+
+
 async def apply_tenant_context(
     connection: AsyncConnection | AsyncSession, context: TenantContext
 ) -> None:

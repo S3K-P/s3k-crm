@@ -77,12 +77,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Fatal outside development, where it is only a warning.
     await enforce_rls_is_not_bypassed(engine, settings)
 
-    # In-process reminder polling (Phase A; see notifications/service.py for
-    # why this runs here rather than as an ARQ worker). Safe under the
-    # single-replica deployment railway.json pins — see that module's
-    # docstring if that ever changes. `notifications_scheduler_enabled` is
-    # off for the integration suite (see `Settings.notifications_scheduler_
-    # enabled`) — `.stop()` below is unconditional and is a no-op on a
+    # In-process reminder polling, now **off by default**: the Phase C worker
+    # owns reminder dispatch and can be run in several copies, which this
+    # never could — two API replicas each polling produced two of every
+    # reminder. The switch survives for the deployment that runs the API with
+    # no worker beside it (a demo, a single container, a developer who has not
+    # started one). `.stop()` below is unconditional and is a no-op on a
     # scheduler that was never started.
     reminder_scheduler = ReminderScheduler(
         app.state.session_factory,
