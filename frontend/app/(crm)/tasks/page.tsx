@@ -18,6 +18,7 @@ import RelatedRecordFields, {
 } from '@/components/crm/forms/RelatedRecordFields';
 import { usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
+import { useQueryFilter } from '@/features/shared/hooks/useQueryFilter';
 import {
   CLOSED_TASK_STATUSES,
   TASK_PRIORITIES,
@@ -98,9 +99,16 @@ export default function TasksPage() {
   const mayEdit = can('tasks', 'EDIT');
   const mayDelete = can('tasks', 'DELETE');
 
+  // Status and priority are seeded from the query string, so the dashboard's
+  // "Tasks Due" tile can land on the slice of tasks it counted rather than on
+  // an unfiltered list the reader then has to narrow by hand.
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [priorityFilter, setPriorityFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>(
+    useQueryFilter('status', TASK_STATUSES),
+  );
+  const [priorityFilter, setPriorityFilter] = useState<string>(
+    useQueryFilter('priority', TASK_PRIORITIES),
+  );
   const [page, setPage] = useState(1);
 
   const fetcher = useCallback(

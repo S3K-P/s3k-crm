@@ -2,7 +2,6 @@ import {
   LayoutDashboard,
   Filter,
   BarChart3,
-  LayoutGrid,
   Megaphone,
   Users,
   Building2,
@@ -75,10 +74,12 @@ export const CRM_NAV_SECTIONS: CrmNavSection[] = [
       // returns only the reports the caller may run — a member with no CRM
       // access gets an empty catalogue and the page says so.
       { id: 'reports', label: 'Reports', href: '/reports', icon: BarChart3 },
-      // Gated on `dashboard`, unlike Reports above: a dashboard is an object
-      // with its own permission, and a member without it gets 403 on every
-      // route here rather than an empty but usable screen.
-      { id: 'dashboards', label: 'Dashboards', href: '/dashboards', icon: LayoutGrid, permissionModule: 'dashboard' },
+      // `/dashboards` — the boards a user assembles out of saved reports — is
+      // deliberately **not** a sidebar entry. Sitting next to "Dashboard" it
+      // read as a duplicate of the home screen, which it never was: one is the
+      // fixed command centre, the other is a report-composition tool. The
+      // routes are alive and permission-gated as before; they are reached from
+      // Reports, where the saved reports a board is built from already live.
     ],
   },
   {

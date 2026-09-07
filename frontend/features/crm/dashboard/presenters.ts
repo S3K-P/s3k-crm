@@ -34,7 +34,23 @@ import type {
    ------------------------------------------------------------------ */
 
 /**
- * Compact money for a headline figure, e.g. `$1.74M`.
+ * The locale a currency's own readers group its digits in.
+ *
+ * Compact notation is not a symbol swap — it is a *naming* of magnitudes, and
+ * the names differ. An Indian pipeline of 1,26,45,000 is "₹1.26Cr" to the
+ * people whose pipeline it is; formatting it in `en-US` yields "₹12.65M",
+ * which is the right currency counted in the wrong units and reads as a
+ * mistake to anyone who works in lakh and crore.
+ *
+ * Only currencies whose convention actually departs from the default need an
+ * entry. Everything else keeps `en-US`, unchanged.
+ */
+const CURRENCY_LOCALES: Record<string, string> = {
+  INR: 'en-IN',
+};
+
+/**
+ * Compact money for a headline figure, e.g. `$1.74M` or `₹1.26Cr`.
  *
  * `currency` is `null` when the open deals span several currencies; the figure
  * is then shown bare, because no symbol would be true of all of it.
@@ -53,11 +69,13 @@ export function formatMoney(value: string, currency: string | null): string {
     options.currency = currency;
   }
 
+  const locale = (currency && CURRENCY_LOCALES[currency]) ?? 'en-US';
+
   try {
-    return new Intl.NumberFormat('en-US', options).format(amount);
+    return new Intl.NumberFormat(locale, options).format(amount);
   } catch {
     // An unknown ISO code must not blank the dashboard.
-    return new Intl.NumberFormat('en-US', { notation: 'compact' }).format(amount);
+    return new Intl.NumberFormat(locale, { notation: 'compact' }).format(amount);
   }
 }
 

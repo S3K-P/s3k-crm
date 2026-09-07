@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { LayoutGrid, Lock, Plus, Star, Users } from 'lucide-react';
+import { ArrowLeft, LayoutGrid, Lock, Plus, Star, Users } from 'lucide-react';
 
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
 import { ListEmpty, ListError } from '@/components/crm/shared/ListStates';
@@ -90,7 +90,17 @@ export default function DashboardsPage() {
             <LayoutGrid className="h-5 w-5 text-white" />
           </div>
           <div>
-            <h1 className="font-display txt text-[22px] font-extrabold leading-tight tracking-tight">
+            {/* The way back. This screen has no sidebar entry of its own — it
+                is reached from Reports, whose saved reports its boards are
+                built from — so it carries the return link itself rather than
+                leaving the reader to find one. */}
+            <Link
+              href="/reports"
+              className="txt-faint hover:txt inline-flex items-center gap-1 text-[11.5px] font-semibold"
+            >
+              <ArrowLeft className="h-3 w-3" aria-hidden="true" /> Reports
+            </Link>
+            <h1 className="font-display txt mt-0.5 text-[22px] font-extrabold leading-tight tracking-tight">
               Dashboards
             </h1>
             <p className="txt-muted mt-0.5 text-[13px] font-medium">
