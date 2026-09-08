@@ -1,10 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   BarChart3,
   CalendarRange,
   FolderPlus,
+  LayoutGrid,
   Lock,
   Pencil,
   RefreshCw,
@@ -22,6 +24,7 @@ import {
   ReportTable,
   chartHasData,
 } from '@/components/crm/reports/ReportView';
+import { usePermissions } from '@/context/AuthContext';
 import { describeApiError } from '@/features/shared/hooks/useCollection';
 import {
   byCategory,
@@ -80,6 +83,8 @@ type SaveForm = typeof EMPTY_FORM;
 
 export default function ReportsPage() {
   const confirm = useConfirm();
+  const { can } = usePermissions();
+  const mayViewBoards = can('dashboard', 'VIEW');
 
   const [catalogue, setCatalogue] = useState<ReportSummary[] | null>(null);
   const [folders, setFolders] = useState<ReportFolder[]>([]);
@@ -356,11 +361,11 @@ export default function ReportsPage() {
 
   return (
     <div className="flex h-full flex-col space-y-5 p-4 sm:p-6 lg:p-8">
-      <div className="flex items-center gap-3.5">
+      <div className="flex flex-wrap items-center gap-3.5">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-sky-500 to-blue-600">
           <BarChart3 className="h-5 w-5 text-white" />
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h1 className="font-display txt text-[22px] font-extrabold leading-tight tracking-tight">
             Reports
           </h1>
@@ -368,6 +373,20 @@ export default function ReportsPage() {
             Every report counts only the records you can open.
           </p>
         </div>
+        {/* Boards are assembled out of the saved reports on this page, so this
+            is where they are reached from. They used to be a sidebar entry of
+            their own, "Dashboards", which read as a second copy of the home
+            screen; the routes are unchanged, only the way in. Gated on the
+            same `dashboard` permission the API enforces on every board call. */}
+        {mayViewBoards && (
+          <Link
+            href="/dashboards"
+            className="ctl bd inline-flex shrink-0 items-center gap-1.5 rounded-xl border px-3.5 py-2 text-[12.5px] font-semibold transition hover:opacity-80"
+          >
+            <LayoutGrid className="h-3.5 w-3.5" aria-hidden="true" />
+            Dashboards
+          </Link>
+        )}
       </div>
 
       {loadError && (

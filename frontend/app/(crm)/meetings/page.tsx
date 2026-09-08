@@ -19,6 +19,7 @@ import RelatedRecordFields, {
 } from '@/components/crm/forms/RelatedRecordFields';
 import { usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
+import { useQueryFilter } from '@/features/shared/hooks/useQueryFilter';
 import {
   MEETING_STATUSES,
   MEETING_TYPES,
@@ -120,7 +121,11 @@ export default function MeetingsPage() {
   const mayDelete = can('activities', 'DELETE');
 
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  // `/meetings?status=PLANNED` is where the dashboard's "Meetings Today" tile
+  // and the "Upcoming Meetings" panel point — both show meetings still ahead.
+  const [statusFilter, setStatusFilter] = useState<string>(
+    useQueryFilter('status', MEETING_STATUSES),
+  );
   const [page, setPage] = useState(1);
 
   const fetcher = useCallback(

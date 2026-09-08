@@ -34,6 +34,17 @@ import {
    cannot be reached the page says so. A dashboard that quietly
    substitutes invented numbers is worse than one that is
    visibly broken.
+
+   **Where a tile leads.** Every figure is a link into the
+   module it was counted from, and a link carries a filter only
+   where that filter selects *the same rows the figure counted*
+   — "Qualified" opens `/leads?status=QUALIFIED` because the KPI
+   is exactly that status. Where no such filter exists the link
+   goes to the plain list: "New Leads" counts a 30-day creation
+   window and the leads list cannot express one, so narrowing it
+   by status would put a different set of rows under a number
+   that did not count them. The same rule that forbids invented
+   figures forbids links that misdescribe them.
    ============================================================ */
 
 /** Static navigation, not data — these are links, not metrics. */
@@ -194,7 +205,7 @@ export default function DashboardPage() {
               delta="Last 30 days" icon={Users} iconGradient="from-emerald-500 to-green-600"
             />
             <KpiCard
-              href="/qualification" label="Qualified" value={String(kpis.qualified_leads)}
+              href="/leads?status=QUALIFIED" label="Qualified" value={String(kpis.qualified_leads)}
               icon={CheckCircle2} iconGradient="from-violet-600 to-indigo-600"
             />
             <KpiCard
@@ -213,7 +224,7 @@ export default function DashboardPage() {
               icon={CalendarDays} iconGradient="from-pink-500 to-rose-500"
             />
             <KpiCard
-              label="Tasks Due" value={String(kpis.tasks_due)}
+              href="/tasks" label="Tasks Due" value={String(kpis.tasks_due)}
               delta={`${kpis.tasks_due_high_priority} high priority`}
               icon={ClipboardList} iconGradient="from-violet-500 to-purple-600"
             />
@@ -225,7 +236,7 @@ export default function DashboardPage() {
               <SectionHeader
                 title="Open Tasks"
                 action={
-                  <Link href="/leads" className="text-[12.5px] font-semibold hover:opacity-80" style={{ color: 'var(--accent)' }}>
+                  <Link href="/tasks" className="text-[12.5px] font-semibold hover:opacity-80" style={{ color: 'var(--accent)' }}>
                     View all →
                   </Link>
                 }
@@ -241,7 +252,7 @@ export default function DashboardPage() {
               <SectionHeader
                 title="Upcoming Meetings"
                 action={
-                  <Link href="/meetings" className="text-[12.5px] font-semibold hover:opacity-80" style={{ color: 'var(--accent)' }}>
+                  <Link href="/meetings?status=PLANNED" className="text-[12.5px] font-semibold hover:opacity-80" style={{ color: 'var(--accent)' }}>
                     View all →
                   </Link>
                 }

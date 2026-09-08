@@ -21,6 +21,7 @@ import ImportWizard from '@/components/crm/import/ImportWizard';
 import ExportButton from '@/components/crm/toolbar/ExportButton';
 import { usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
+import { useQueryFilter } from '@/features/shared/hooks/useQueryFilter';
 import { listLeadSources, type LeadSource } from '@/features/crm/lead-sources';
 import { listCampaigns, type Campaign } from '@/features/crm/campaigns';
 import { listMembers, type OrganizationMember } from '@/features/admin/users';
@@ -104,7 +105,11 @@ export default function LeadsPage() {
 
   const [view, setView] = useState<ViewMode>('table');
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  // `/leads?status=NEW` and `?status=QUALIFIED` are where the dashboard's lead
+  // tiles point: the tile counts a status, so the link opens that status.
+  const [statusFilter, setStatusFilter] = useState<string>(
+    useQueryFilter('status', LEAD_STATUSES),
+  );
   const [page, setPage] = useState(1);
 
   // The board needs every lead at once; the table is paginated.
