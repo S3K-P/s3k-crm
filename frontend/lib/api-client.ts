@@ -67,12 +67,36 @@ export function setSessionExpiredHandler(handler: (() => void) | null): void {
    Refresh
    ------------------------------------------------------------------ */
 
-/** In-flight refresh, shared so concurrent 401s trigger only one rotation. */
-let refreshInFlight: Promise<boolean> | null = null;
+/**
+ * The part of a refresh response anything here reads.
+ *
+ * Structurally a subset of the `TokenResponse` in `features/auth/types`, and
+ * deliberately not imported from it: `lib` is the layer `features` is built
+ * on, and nothing here should need to know that an auth feature exists.
+ */
+export interface RefreshedSession {
+  access_token: string;
+  organization_id: string | null;
+}
 
-async function refreshAccessToken(): Promise<boolean> {
-  // Refresh tokens rotate on every use: two parallel refreshes would make the
-  // second look like a replay and revoke the whole family. Share one promise.
+/** In-flight refresh, shared so concurrent callers trigger only one rotation. */
+let refreshInFlight: Promise<RefreshedSession | null> | null = null;
+
+/**
+ * Exchange the refresh cookie for a new access token, one request at a time.
+ *
+ * **Every path that wants a refresh must come through here.** Refresh tokens
+ * rotate on use, and the backend treats a second presentation of a token it
+ * has already rotated as a stolen credential: it revokes the entire session
+ * family. Two refreshes carrying the same cookie therefore do not merely waste
+ * a round trip, they sign the user out — so a caller that opens its own
+ * `fetch` to `/auth/refresh` is not a duplication of this function, it is a
+ * self-inflicted replay.
+ *
+ * Resolves to `null` when the refresh is refused, which is the ordinary "no
+ * session on this browser" answer as much as it is a failure.
+ */
+export function refreshSession(): Promise<RefreshedSession | null> {
   refreshInFlight ??= (async () => {
     try {
       const response = await fetch(`${API_BASE_URL}${API_PREFIX}/auth/refresh`, {
@@ -81,18 +105,53 @@ async function refreshAccessToken(): Promise<boolean> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
-      if (!response.ok) return false;
-      const body = (await response.json()) as { access_token: string };
+      if (!response.ok) return null;
+      const body = (await response.json()) as RefreshedSession;
+      // A rotation replaces the token but not the session, so it must leave
+      // the cached probe below alone: the callers that discard it are the ones
+      // that start or end a session deliberately, and a refresh is neither.
       accessToken = body.access_token;
-      return true;
+      return body;
     } catch {
-      return false;
+      return null;
     } finally {
       refreshInFlight = null;
     }
   })();
 
   return refreshInFlight;
+}
+
+/**
+ * The tab's one attempt to restore a session from the refresh cookie.
+ *
+ * The cookie is httpOnly, so the only way to learn whether a session exists is
+ * to spend it. That makes the probe a once-per-page-load event rather than a
+ * repeatable query, and this promise is kept **after it settles** to say so.
+ *
+ * `refreshInFlight` alone would not be enough. React StrictMode mounts a
+ * provider, unmounts it and mounts it again in development, and the `cancelled`
+ * flag such an effect uses only suppresses state updates — it cannot abort the
+ * request already on the wire. A guard that expires the moment the first
+ * refresh settles would let the second mount present a cookie that has since
+ * rotated, which is the replay the backend is built to punish. Holding the
+ * answer instead makes the second mount a cache hit however the two are
+ * ordered.
+ *
+ * Discarded by `forgetRestoredSession` whenever a session is established or
+ * ended deliberately, so nothing later replays an answer that has been
+ * overtaken.
+ */
+let restoreAttempt: Promise<RefreshedSession | null> | null = null;
+
+export function restoreSession(): Promise<RefreshedSession | null> {
+  restoreAttempt ??= refreshSession();
+  return restoreAttempt;
+}
+
+/** Forget the cached probe — see `restoreSession`. */
+export function forgetRestoredSession(): void {
+  restoreAttempt = null;
 }
 
 /* ------------------------------------------------------------------
@@ -163,8 +222,8 @@ async function sendAuthenticated(
   let response = await send();
 
   if (response.status === 401 && !skipRefresh) {
-    const refreshed = await refreshAccessToken();
-    if (refreshed) {
+    const refreshed = await refreshSession();
+    if (refreshed !== null) {
       response = await send();
     } else {
       accessToken = null;

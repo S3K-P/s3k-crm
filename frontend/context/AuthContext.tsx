@@ -13,6 +13,8 @@ import { useRouter } from 'next/navigation';
 import {
   api,
   apiRequest,
+  forgetRestoredSession,
+  restoreSession,
   setAccessToken,
   setOrganizationId,
   setSessionExpiredHandler,
@@ -104,6 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const clearSession = useCallback(() => {
     setAccessToken(null);
+    forgetRestoredSession();
     setOrganizationId(null);
     storeOrganization(null);
     setCurrentUser(null);
@@ -121,20 +124,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   /* --- Restore a session on first mount ---------------------------------
      The refresh cookie is httpOnly, so the only way to know whether a
      session exists is to try to use it. A failure here is the normal
-     "not signed in" case, not an error. */
+     "not signed in" case, not an error.
+
+     Through `restoreSession` rather than a `/auth/refresh` call of its own.
+     The cookie rotates on use, and the backend reads a second presentation of
+     one it has already rotated as a stolen credential — so this probe and the
+     API client's 401 retry have to be the same request, or the two of them
+     revoke the session family and sign the user out. `cancelled` below cannot
+     stand in for that: it suppresses the state update, not the fetch that has
+     already left, which is precisely what a StrictMode double-mount produces
+     in development. */
   useEffect(() => {
     let cancelled = false;
 
     const restore = async () => {
       try {
-        const refreshed = await apiRequest<TokenResponse>('/auth/refresh', {
-          method: 'POST',
-          body: {},
-          skipRefresh: true,
-        });
+        const session = await restoreSession();
         if (cancelled) return;
-        setAccessToken(refreshed.access_token);
-        setOrganizationId(readStoredOrganization() ?? refreshed.organization_id);
+        if (session === null) {
+          clearSession();
+          return;
+        }
+        // No `setAccessToken` here: `restoreSession` has already installed the
+        // token in the API client, exactly as the 401 retry does. Setting it
+        // again would be a second source of truth for the same value, and the
+        // second mount reaching this line is answering from the cached probe
+        // rather than from a refresh of its own.
+        setOrganizationId(readStoredOrganization() ?? session.organization_id);
         await loadCurrentUser();
       } catch {
         if (!cancelled) clearSession();
@@ -165,6 +181,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: credentials,
         skipRefresh: true,
       });
+      // A session established by hand overtakes whatever the cookie probe
+      // found when the tab loaded, so that answer must not be replayed by a
+      // later mount.
+      forgetRestoredSession();
       setAccessToken(tokens.access_token);
       setOrganizationId(tokens.organization_id);
       storeOrganization(tokens.organization_id);
@@ -180,6 +200,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: payload,
         skipRefresh: true,
       });
+      forgetRestoredSession();
       setAccessToken(tokens.access_token);
       // Deliberately null at this point: a brand-new account belongs to no
       // organization until the next step of the wizard creates one. Storing
