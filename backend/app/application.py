@@ -39,6 +39,7 @@ from app.core.tenant import (
 from app.platform.auth.dependencies import DatabaseMembershipVerifier, JwtPrincipalResolver
 from app.platform.auth.security import TokenIssuer
 from app.platform.documents.storage import build_storage
+from app.platform.notifications.scheduler import ReminderScheduler
 
 # Registers every models module on the shared metadata. Needed at runtime, not
 # only for migrations: SQLAlchemy resolves a foreign key's target table lazily
@@ -76,9 +77,26 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Fatal outside development, where it is only a warning.
     await enforce_rls_is_not_bypassed(engine, settings)
 
+    # In-process reminder polling, now **off by default**: the Phase C worker
+    # owns reminder dispatch and can be run in several copies, which this
+    # never could — two API replicas each polling produced two of every
+    # reminder. The switch survives for the deployment that runs the API with
+    # no worker beside it (a demo, a single container, a developer who has not
+    # started one). `.stop()` below is unconditional and is a no-op on a
+    # scheduler that was never started.
+    reminder_scheduler = ReminderScheduler(
+        app.state.session_factory,
+        interval_seconds=settings.notification_poll_interval_seconds,
+    )
+    app.state.reminder_scheduler = reminder_scheduler
+    if settings.notifications_scheduler_enabled:
+        reminder_scheduler.start()
+
     try:
         yield
     finally:
+        # Stopped before the engine it queries through is disposed.
+        await reminder_scheduler.stop()
         await close_redis_client(app.state.redis)
         await dispose_engine(engine)
         logger.info("application_stopped", service=settings.app_name)

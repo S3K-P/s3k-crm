@@ -5,6 +5,18 @@ import { cn } from '@/lib/utils';
    Reusable labelled form field wrapper with input/select/textarea.
    Uses existing ctl class for inputs.
    Reusable across all CRM form drawers and pages.
+
+   **The label wraps its control**, rather than sitting beside it
+   with an optional `htmlFor` nobody passed. As siblings the two
+   were never associated, so every input in all eighteen forms
+   using this component had no accessible name: a screen reader
+   read "edit text", and clicking the word "Email" did not focus
+   the field. An end-to-end test looking for a field by its label
+   is what surfaced it.
+
+   Wrapping gives implicit association, which needs no id and so
+   cannot be forgotten at a call site. `htmlFor` is still honoured
+   for the case where a control has to live outside the label.
    ============================================================ */
 
 interface FormFieldProps {
@@ -28,14 +40,13 @@ export default function FormField({
 }: FormFieldProps) {
   return (
     <div className={cn('space-y-1.5', className)}>
-      <label
-        htmlFor={htmlFor}
-        className="txt text-[13px] font-semibold"
-      >
-        {label}
-        {required && <span className="ml-0.5 text-red-500">*</span>}
+      <label htmlFor={htmlFor} className="block space-y-1.5">
+        <span className="txt block text-[13px] font-semibold">
+          {label}
+          {required && <span className="ml-0.5 text-red-500">*</span>}
+        </span>
+        {children}
       </label>
-      {children}
       {hint && !error && (
         <p className="txt-faint text-[11px]">{hint}</p>
       )}

@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Search, Bell, Menu } from 'lucide-react';
+import { Search, Menu } from 'lucide-react';
 import ThemeToggle from '@/components/ThemeToggle';
 import AccountMenu from '@/components/crm/topbar/AccountMenu';
+import NotificationBell from '@/components/crm/topbar/NotificationBell';
 import CommandPalette from '@/components/crm/topbar/CommandPalette';
 import AppLauncher from '@/components/platform/AppLauncher';
 import { CRM_PRODUCT_CODE } from '@/features/platform/constants';
@@ -69,9 +70,7 @@ export default function CrmTopbar() {
         <div className="ml-auto flex items-center gap-2.5">
           <ThemeToggle />
 
-          <button className="ctl txt-muted grid h-9 w-9 place-items-center rounded-[10px] transition hover:opacity-80">
-            <Bell className="h-[17px] w-[17px]" />
-          </button>
+          <NotificationBell />
 
           <AccountMenu />
         </div>

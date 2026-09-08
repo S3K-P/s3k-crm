@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import Settings
+from app.core.config import Settings, get_settings
 from app.core.database import DbSession
 from app.core.exceptions import NotFoundError, ValidationFailedError
 from app.platform.audit.service import audit_for_session
@@ -36,6 +36,8 @@ from app.platform.authorization.catalog import ADMIN_ROLE
 from app.platform.authorization.models import PermissionAction
 from app.platform.authorization.repository import AuthorizationRepository
 from app.platform.authorization.service import AuthorizationService
+from app.platform.email.service import request_email
+from app.platform.email.templates import INVITATION
 from app.platform.organizations.invitations import invitations_for_session
 from app.platform.organizations.models import (
     MembershipStatus,
@@ -48,6 +50,7 @@ from app.platform.organizations.repository import OrganizationRepository
 from app.platform.organizations.service import (
     OrganizationService,
     ensure_administrator_remains,
+    organizations_for_session,
 )
 from app.platform.products.service import products_for_session
 
@@ -734,8 +737,65 @@ async def invite_member(
         role_id=payload.role_id,
         invited_by_id=principal.user_id,
     )
+
+    # Enqueued in the same transaction as the invitation, which is the whole
+    # point of the outbox: the row and the intent to email it are equally
+    # real, or equally absent. Before Phase C this route created invitations
+    # nobody was ever sent, and the screen implied otherwise.
+    #
+    # The token travels in the link and is *not* stored on the event — only
+    # what is needed to build it. It is the one moment the plaintext token
+    # exists; the database holds a digest.
+    await _request_invitation_email(
+        session,
+        principal=principal,
+        invitation=invitation,
+        token=token,
+    )
+
     return InvitationCreatedResponse(
         invitation=_invitation_response(invitation), token=token
+    )
+
+
+async def _request_invitation_email(
+    session: DbSession,
+    *,
+    principal: Principal,
+    invitation: OrganizationInvitation,
+    token: str,
+) -> None:
+    """Ask for the invitation email, resolving the names it needs to read well.
+
+    A message saying "somebody invited you to something" is worse than no
+    message, so the inviter's display name and the organization's name are
+    resolved here — inside the request, where both are already loaded and
+    tenant-scoped — rather than left for the worker to look up.
+    """
+    settings = get_settings()
+    organizations = organizations_for_session(session)
+    organization = await organizations.get_organization(principal.organization_id)
+
+    inviter = "An administrator"
+    if principal.user_id is not None:
+        directory = await organizations.member_directory(
+            principal.organization_id, {principal.user_id}
+        )
+        identity = directory.get(principal.user_id)
+        if identity is not None:
+            inviter = identity.display_name
+
+    request_email(
+        session,
+        organization_id=principal.organization_id,
+        to_address=invitation.email,
+        template=INVITATION,
+        context={
+            "inviter_name": inviter,
+            "organization_name": organization.name,
+            "accept_url": f"{settings.public_app_url.rstrip('/')}/invitations/accept?token={token}",
+            "expires_on": invitation.expires_at.strftime("%d %B %Y"),
+        },
     )
 
 

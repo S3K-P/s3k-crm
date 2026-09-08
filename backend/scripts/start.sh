@@ -7,10 +7,15 @@
 #
 #   $PORT      the platform picks the port and routes to it. Binding a fixed
 #              8000 makes the health check fail and the deployment roll back.
-#   migrations the schema has to exist before the first request. One replica
-#              runs here, so `alembic upgrade head` on boot is safe; if this
-#              service is ever scaled past one, move it to Railway's
-#              pre-deploy command so replicas cannot race each other.
+#   migrations the schema has to exist before the first request.
+#
+# On migrations and replicas (Phase C): this used to be safe only because
+# `numReplicas` was 1, and the note here said to move it to a pre-deploy
+# command before scaling. That is no longer necessary — `migrations/env.py`
+# takes a transaction-scoped advisory lock, so replicas booting together
+# serialize: the first migrates, the rest wait, find the schema at head and
+# continue. The other reason for the pin, an in-process reminder poller, moved
+# to the worker service (`scripts/worker.sh`).
 #
 # Both `alembic` and `uvicorn` come from the image's virtualenv, which the
 # Dockerfile puts on PATH.

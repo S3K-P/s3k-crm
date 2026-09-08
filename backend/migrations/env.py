@@ -17,6 +17,7 @@ from sqlalchemy import Connection, pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.config import get_settings
+from app.core.database import MIGRATION_LOCK_KEY
 
 # Importing app.schema (rather than app.core.metadata directly) is what loads
 # every models module and registers its tables on the shared metadata.
@@ -56,6 +57,26 @@ def run_migrations_offline() -> None:
 def do_run_migrations(connection: Connection) -> None:
     context.configure(connection=connection, **_configure_kwargs())
     with context.begin_transaction():
+        # `alembic upgrade` is not concurrency-safe on its own: two containers
+        # booting together both read the same current revision, both decide the
+        # same migrations are outstanding, and both run them. That was the
+        # second of the two reasons `railway.json` pinned `numReplicas` to 1 —
+        # the first, an in-process reminder poller, moved to the Phase C worker.
+        #
+        # Taken inside the transaction Alembic already opened, so the lock
+        # covers the version check *and* the migrations it decides to run;
+        # taking it outside would leave exactly the read-then-act window this
+        # closes. Transaction-scoped, so PostgreSQL releases it at commit or
+        # rollback and a container killed mid-migration cannot wedge the next
+        # deploy — there is no unlock call to forget.
+        #
+        # Blocking, not `pg_try_advisory_xact_lock`: a replica that cannot get
+        # the lock must wait rather than carry on and serve requests against a
+        # schema that is still changing. It then finds the database already at
+        # head and does nothing.
+        connection.exec_driver_sql(
+            f"SELECT pg_advisory_xact_lock({MIGRATION_LOCK_KEY})"
+        )
         context.run_migrations()
 
 

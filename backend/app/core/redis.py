@@ -7,7 +7,7 @@ implemented in later phases.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, cast
 
 import structlog
 from fastapi import Depends, Request
@@ -23,15 +23,24 @@ def create_redis_client(settings: Settings) -> Redis:
 
     ``Redis.from_url`` is lazy: no socket is opened until the first command,
     so this is safe to call during application construction.
+
+    The cast is for redis-py 5.x, whose ``from_url`` is annotated as returning
+    ``Any``; 8.x typed it properly, and arq pins the library below 6. It is a
+    narrowing to what the function already returns, not a claim about
+    behaviour.
     """
-    return Redis.from_url(
-        settings.redis_url,
-        max_connections=settings.redis_max_connections,
-        socket_timeout=settings.redis_socket_timeout,
-        socket_connect_timeout=settings.redis_socket_timeout,
-        decode_responses=True,
-        health_check_interval=30,
+    client: Redis = cast(
+        "Redis",
+        Redis.from_url(
+            settings.redis_url,
+            max_connections=settings.redis_max_connections,
+            socket_timeout=settings.redis_socket_timeout,
+            socket_connect_timeout=settings.redis_socket_timeout,
+            decode_responses=True,
+            health_check_interval=30,
+        ),
     )
+    return client
 
 
 async def close_redis_client(client: Redis) -> None:

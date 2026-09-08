@@ -76,6 +76,35 @@ class Settings(BaseSettings):
     redis_max_connections: int = Field(default=10, ge=1, le=1000)
     redis_socket_timeout: float = Field(default=5.0, gt=0)
 
+    # --- Notifications (Phase A; app.platform.notifications.scheduler) -----
+    # How often the in-process reminder scheduler polls every organization
+    # for due reminders. A tick this frequent costs one cheap query per
+    # active organization when nothing is due; see that module's docstring
+    # for why polling rather than an event is the interim design.
+    notification_poll_interval_seconds: int = Field(default=60, ge=5, le=3600)
+    # Defaults on, for a real deployment and for `uv run uvicorn` in local
+    # development. The integration suite turns this off (see
+    # `tests/integration/conftest.py`'s `integration_settings`, and the CI
+    # workflow's `backend-tests` env block): `create_app()` is built fresh —
+    # and a new scheduler task started — by every single test that touches
+    # `client`/`api_app`, hundreds of times in one run. A background task per
+    # ephemeral test app, each doing a real database round trip and then
+    # racing its own cancellation at that test's teardown, is a source of
+    # flakiness the production system never has: one process, one scheduler,
+    # for the life of the deployment.
+    #
+    #: **Default flipped to False in Phase C.** The worker
+    #: (``arq app.worker.WorkerSettings``) now owns reminder dispatch, and it
+    #: is safe to run in several copies where this was not: two API replicas
+    #: each running this poller produced two of every reminder, which is why
+    #: ``railway.json`` had to pin ``numReplicas`` to 1.
+    #:
+    #: Kept rather than deleted for the deployment that runs the API alone with
+    #: no worker process — a single container, a demo, a developer who has not
+    #: started one. Turning it on in a multi-replica deployment reintroduces
+    #: the duplication it was pinned against.
+    notifications_scheduler_enabled: bool = False
+
     # --- Authentication (ADR-009, doc 13 "Authentication Security") --------
     # EdDSA (Ed25519) signing keys, PEM encoded. Required in every environment
     # except development/test, where an ephemeral keypair is generated at
@@ -98,9 +127,87 @@ class Settings(BaseSettings):
     # --- Password policy ---------------------------------------------------
     password_min_length: int = Field(default=12, ge=8, le=128)
 
+    #: How long a self-service password-reset link stays redeemable.
+    #:
+    #: One hour is the usual figure and the reasoning is worth stating: the
+    #: link is a bearer credential sitting in an inbox, so a long window is a
+    #: long exposure, while a short one strands anyone who reads mail on a
+    #: delay. Bounded below at five minutes so a deployment cannot configure
+    #: the feature into uselessness, and above at 24 hours so it cannot
+    #: configure away the expiry that limits the damage.
+    password_reset_ttl_seconds: int = Field(
+        default=3600, ge=300, le=60 * 60 * 24
+    )
+
     # --- Brute-force protection (doc 13) -----------------------------------
     login_max_failed_attempts: int = Field(default=5, ge=1, le=50)
     login_lockout_seconds: int = Field(default=900, ge=30)
+
+    #: Attempts one client address may make against the unauthenticated auth
+    #: endpoints per window. Covers the attack the lockout above cannot see:
+    #: one password against many accounts, where no single account ever
+    #: reaches its own threshold.
+    #:
+    #: Sized for a shared office address rather than a single person — a NAT'd
+    #: floor of staff arriving at 09:00 should never meet it, and a script
+    #: working through a credential dump should meet it within seconds.
+    login_rate_limit_attempts: int = Field(default=30, ge=1, le=1000)
+    login_rate_limit_window_seconds: int = Field(default=300, ge=10, le=86400)
+
+    #: Reverse proxies between the internet and this process.
+    #:
+    #: Decides which ``X-Forwarded-For`` entry is the real client: the address
+    #: is counted from the right, skipping this many hops, because everything
+    #: to the left of our own infrastructure is client-supplied and forgeable.
+    #: Railway terminates TLS at one edge proxy, hence the default. Set to
+    #: ``0`` when the application is exposed directly, which makes the socket
+    #: peer authoritative and ignores the header entirely.
+    #:
+    #: Getting this **too high** is the dangerous direction: it would start
+    #: trusting an entry the client wrote. The limiter therefore falls back to
+    #: the socket peer whenever the header carries fewer hops than this claims.
+    trusted_proxy_hops: int = Field(default=1, ge=0, le=8)
+
+    # --- Email (Phase C) ----------------------------------------------------
+    #: Where the app is reachable from a browser, used to build the links in
+    #: outbound email. Configuration rather than a value derived from the
+    #: request that caused the email: the email is sent later, by a worker
+    #: that has no request, and deriving it from a header would let a caller
+    #: choose the host in a mail somebody else receives.
+    #:
+    #: The default is the local dev server, which is wrong everywhere else and
+    #: visibly so — a link to localhost in a real inbox is an obvious
+    #: misconfiguration, where a silently absent link is not.
+    public_app_url: str = "http://localhost:3000"
+    #: ``smtp`` in production, ``console`` for development, ``null`` when no
+    #: email is configured. ``null`` fails every send loudly rather than
+    #: silently accepting it — the behaviour that let invitations be created
+    #: for months without anybody being sent one.
+    email_provider: Literal["smtp", "console", "null"] = "null"
+    email_from_address: str = "S3K <no-reply@s3k.local>"
+    #: Right-hand side of the ``Message-ID`` we generate. Ours rather than the
+    #: provider's, so a delivery can be traced from our log into theirs.
+    email_message_id_domain: str = "s3k.local"
+
+    smtp_host: str | None = None
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str | None = None
+    smtp_password: SecretStr | None = None
+    #: STARTTLS on a plain connection. The usual choice on port 587.
+    smtp_use_tls: bool = True
+    #: Implicit TLS from the first byte. The usual choice on port 465.
+    smtp_use_ssl: bool = False
+    smtp_timeout_seconds: float = Field(default=30.0, ge=1.0, le=300.0)
+
+    # --- The outbox and its worker (ADR-013) --------------------------------
+    #: Events claimed per drain. Larger batches amortise the query; smaller
+    #: ones return work to the queue sooner when a worker dies mid-batch,
+    #: because only claimed events wait for the stall timeout.
+    outbox_batch_size: int = Field(default=20, ge=1, le=500)
+    #: A PROCESSING event older than this is assumed abandoned by a dead
+    #: worker and returned to the queue. Must exceed the slowest handler, or a
+    #: slow send is reclaimed and delivered twice.
+    outbox_stall_seconds: int = Field(default=300, ge=30, le=3600)
 
     # --- Cookies -----------------------------------------------------------
     #: Refresh tokens travel in an httpOnly cookie (SEC01); never readable by JS.

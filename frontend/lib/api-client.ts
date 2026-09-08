@@ -180,8 +180,17 @@ async function sendAuthenticated(
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const response = await sendAuthenticated(path, options);
 
-  if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+  // 204 is not the only success that carries no body. `POST
+  // /auth/forgot-password` answers 202 with an empty one, deliberately: it
+  // will not say whether the address is registered, so there is nothing to
+  // return. `Response.json()` on an empty body throws a `SyntaxError`, which
+  // is not an `ApiError` and so arrives at the caller as an unrecognised
+  // failure — a request that plainly succeeded, shown to the user as an
+  // outage. Read the body first and only parse it if there is one, rather
+  // than enumerating the statuses that happen to be empty today.
+  if (response.status === 204 || response.status === 205) return undefined as T;
+  const text = await response.text();
+  return (text ? (JSON.parse(text) as T) : (undefined as T));
 }
 
 /** A file the API returned, ready to be handed to the browser. */

@@ -41,3 +41,8 @@ yarn-error.log*
 .env.*
 !.env.example
 backend/.env
+
+# Playwright
+frontend/.playwright/
+frontend/playwright-report/
+frontend/test-results/

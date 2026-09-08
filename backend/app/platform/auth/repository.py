@@ -11,14 +11,26 @@ from sqlalchemy import CursorResult, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.platform.auth.models import Session, User, UserProfile
+from app.platform.auth.models import PasswordResetToken, Session, User, UserProfile
 
 
 class AuthRepository:
-    """Queries over ``users``, ``user_profiles`` and ``sessions``."""
+    """Queries over ``users``, ``user_profiles``, ``sessions`` and reset tokens."""
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    @property
+    def session(self) -> AsyncSession:
+        """The open transaction, for a caller that needs to join it.
+
+        Exposed for one purpose: enqueuing an outbox event in the *same*
+        transaction as the rows that justify it, which is the whole point of
+        the outbox and cannot be done through a method here without this
+        module knowing about events. Not a general-purpose escape hatch — a
+        query written against this belongs in the class instead.
+        """
+        return self._session
 
     # --- Users -------------------------------------------------------------
 
@@ -113,6 +125,51 @@ class AuthRepository:
         await self._session.execute(
             update(Session).where(Session.id == session_id).values(rotated_at=at)
         )
+
+    # --- Password reset tokens ---------------------------------------------
+
+    async def add_password_reset_token(
+        self, token: PasswordResetToken
+    ) -> PasswordResetToken:
+        self._session.add(token)
+        await self._session.flush()
+        return token
+
+    async def get_password_reset_token(self, digest: str) -> PasswordResetToken | None:
+        """Look a reset token up by digest.
+
+        By digest and nothing else: there is deliberately no "list this user's
+        reset tokens", because the only legitimate way to reach one of these
+        rows is to hold the secret it was made from.
+        """
+        result = await self._session.execute(
+            select(PasswordResetToken).where(PasswordResetToken.token_hash == digest)
+        )
+        return result.scalar_one_or_none()
+
+    async def spend_outstanding_reset_tokens(
+        self, user_id: uuid.UUID, *, at: dt.datetime
+    ) -> int:
+        """Mark every unused reset token for ``user_id`` as spent.
+
+        Called on redemption, and on any other event that settles the account's
+        password. Requesting a reset twice must not leave the first link live:
+        a person who asks again because the first mail did not arrive should
+        not be leaving a second working credential in an inbox they may no
+        longer control.
+        """
+        result = cast(
+            "CursorResult[Any]",
+            await self._session.execute(
+                update(PasswordResetToken)
+                .where(
+                    PasswordResetToken.user_id == user_id,
+                    PasswordResetToken.used_at.is_(None),
+                )
+                .values(used_at=at)
+            ),
+        )
+        return int(result.rowcount or 0)
 
 
 __all__ = ["AuthRepository"]

@@ -1,6 +1,7 @@
 'use client';
 
 import { Suspense, useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertCircle, Loader2, Lock, Mail } from 'lucide-react';
 
@@ -158,9 +159,19 @@ function LoginForm() {
             </div>
 
             <div className="space-y-1.5">
-              <label htmlFor="password" className="txt text-[13px] font-semibold">
-                Password
-              </label>
+              <div className="flex items-baseline justify-between gap-3">
+                <label htmlFor="password" className="txt text-[13px] font-semibold">
+                  Password
+                </label>
+                {/* Beside the field it applies to, which is where somebody
+                    looks the moment they realise they cannot remember it. */}
+                <Link
+                  href="/forgot-password"
+                  className="txt-muted hover:txt text-[12px] font-medium"
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <div className="relative">
                 <Lock
                   className="txt-faint pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2"

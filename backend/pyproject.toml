@@ -33,6 +33,7 @@ dependencies = [
     # redirect links to real publisher URLs. Both AI SDKs happen to pull httpx
     # in, but a module that imports it must not rely on that.
     "httpx>=0.28.0",
+    "arq>=0.26.0",
 ]
 
 [dependency-groups]

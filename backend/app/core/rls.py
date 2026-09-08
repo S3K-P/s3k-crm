@@ -42,13 +42,25 @@ __all__ = [
 ]
 
 
-def tenant_policy_predicate(column: str = "organization_id") -> str:
+def tenant_policy_predicate(
+    column: str = "organization_id", *, optional_tenant: bool = False
+) -> str:
     """Return the SQL predicate isolating rows to the current tenant.
 
     ``NULLIF(..., '')`` maps "setting never assigned" to NULL, which makes the
     comparison NULL and therefore excludes the row. Fail closed.
+
+    ``optional_tenant`` widens that by exactly one case, for tables holding a
+    few rows that genuinely belong to no organization — see
+    :func:`enable_rls`. ``IS NOT DISTINCT FROM`` is NULL-aware equality: a row
+    with no organization matches only a session with no organization, and a
+    row with one matches only that organization. Both directions still fail
+    closed, which a plain ``=`` cannot express because ``NULL = NULL`` is NULL.
     """
-    return f"{column} = NULLIF(current_setting('{TENANT_SETTING}', true), '')::uuid"
+    setting = f"NULLIF(current_setting('{TENANT_SETTING}', true), '')::uuid"
+    if optional_tenant:
+        return f"{column} IS NOT DISTINCT FROM {setting}"
+    return f"{column} = {setting}"
 
 
 def enable_rls(
@@ -58,6 +70,7 @@ def enable_rls(
     schema: str,
     column: str = "organization_id",
     policy_name: str | None = None,
+    optional_tenant: bool = False,
 ) -> None:
     """Enable and force tenant RLS on ``schema.table``.
 
@@ -71,10 +84,23 @@ def enable_rls(
         schema: schema name (``platform`` or ``crm``).
         column: tenant discriminator column.
         policy_name: defaults to ``<table>_tenant_isolation``.
+        optional_tenant: allow ``column`` to be NULL, meaning "belongs to no
+            organization", and admit such a row only to a session that has no
+            organization in scope. Pass this **only** for a table that has a
+            genuine untenanted case and say so in its model docstring: it is
+            checked separately and more strictly by the schema audit, which
+            requires the resulting policy to be NULL-aware in both directions
+            rather than accepting a nullable tenant column on trust.
+
+            ``platform.email_deliveries`` is the case that exists: a
+            password-reset message is addressed to a person's global identity,
+            which may belong to no organization at all, and the log of it must
+            still be written — the unique index on ``outbox_event_id`` is what
+            stops a retried event sending the link twice.
     """
     policy = policy_name or f"{table}_tenant_isolation"
     qualified = f'"{schema}"."{table}"'
-    predicate = tenant_policy_predicate(column)
+    predicate = tenant_policy_predicate(column, optional_tenant=optional_tenant)
 
     connection.execute(text(f"ALTER TABLE {qualified} ENABLE ROW LEVEL SECURITY"))
     # Without FORCE the owning role silently bypasses the policy.

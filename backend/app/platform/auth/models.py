@@ -1,6 +1,6 @@
 """SQLAlchemy models for the auth module (doc 04 "Core Models").
 
-Three tables, all in the ``platform`` schema:
+Four tables, all in the ``platform`` schema:
 
 ``users``          global identity. **Deliberately not tenant-scoped**: one
                    person may belong to several organizations, so the row
@@ -10,6 +10,11 @@ Three tables, all in the ``platform`` schema:
                    narrow and cacheable.
 ``sessions``       refresh-token family state. Only the *hash* of a refresh
                    token is ever stored (ADR-009).
+``password_reset_tokens``
+                   outstanding self-service reset requests. Like the three
+                   above it is untenanted, because a password belongs to the
+                   identity and not to any organization the identity happens
+                   to be a member of.
 """
 
 from __future__ import annotations
@@ -175,8 +180,60 @@ class Session(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         return self.revoked_at is None and self.rotated_at is None and self.expires_at > now
 
 
+class PasswordResetToken(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """One outstanding request to choose a new password.
+
+    Not RLS-protected, for the same reason ``users`` is not: a password
+    belongs to a global identity. The person redeeming one may belong to
+    several organizations, or — having signed up and not yet founded or joined
+    one — to none at all, and there is no organization to scope the row to.
+    Isolation comes from the token: a row is reachable only by presenting the
+    secret whose digest it holds, and never by listing.
+
+    ``token_hash`` is a SHA-256 digest of a 48-byte urlsafe token, the same
+    construction and the same reasoning as ``Session.refresh_token_hash``:
+    generated entropy rather than a human-chosen secret, so it is not
+    brute-forceable and the digest has to stay cheap to look up. The token
+    itself exists only in the email.
+
+    ``used_at`` rather than deleting the row on redemption. A used token that
+    is presented again is a signal — either the person clicked twice, or
+    somebody else has the link — and a deleted row is indistinguishable from
+    one that never existed, which turns that signal into "invalid token" and
+    loses it.
+    """
+
+    __tablename__ = "password_reset_tokens"
+    __table_args__ = (
+        Index("uq_password_reset_tokens_token_hash", "token_hash", unique=True),
+        Index("ix_password_reset_tokens_user_id", "user_id"),
+        {"schema": PLATFORM_SCHEMA},
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(f"{PLATFORM_SCHEMA}.users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    used_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: Where the request came from, for the security event a person sees after
+    #: the fact. Nullable because a request can arrive without one.
+    requested_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+
+    def is_redeemable_at(self, now: dt.datetime) -> bool:
+        """A token may be spent once, before it expires."""
+        return self.used_at is None and self.expires_at > now
+
+
 __all__ = [
     "PLATFORM_SCHEMA",
+    "PasswordResetToken",
     "Session",
     "User",
     "UserProfile",
