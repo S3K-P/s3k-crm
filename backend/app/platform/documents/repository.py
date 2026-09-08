@@ -126,6 +126,51 @@ class AttachmentRepository:
         )
         return int(result.scalar_one())
 
+    async def rows_for_entity(
+        self, organization_id: uuid.UUID, *, entity_type: str, entity_id: uuid.UUID
+    ) -> Sequence[Attachment]:
+        """Every live attachment on one record, oldest first, unpaginated.
+
+        For a caller that needs the whole set rather than a page of it — the
+        email worker assembling a message, which cannot send four of five
+        files because the page size said so. ``ACTIVE`` only, like every other
+        read here: a ``PENDING`` row is an upload URL somebody was issued and
+        may never have used, and there are no bytes behind it to attach.
+
+        Oldest first so attachments arrive in the order they were added, which
+        is the order the sender saw them in the composer.
+        """
+        result = await self._session.execute(
+            self._base_query(organization_id)
+            .where(
+                Attachment.entity_type == entity_type,
+                Attachment.entity_id == entity_id,
+                Attachment.status == AttachmentStatus.ACTIVE,
+            )
+            .order_by(Attachment.created_at.asc(), Attachment.id.asc())
+        )
+        return result.scalars().all()
+
+    async def total_bytes_for_entity(
+        self, organization_id: uuid.UUID, *, entity_type: str, entity_id: uuid.UUID
+    ) -> int:
+        """How many bytes are attached to one record.
+
+        Summed in the database rather than by loading the rows: the caller is
+        checking a limit before doing anything, and it should not have to read
+        the metadata of fifty files to find out it is going to refuse.
+        """
+        result = await self._session.execute(
+            select(func.coalesce(func.sum(Attachment.size_bytes), 0)).where(
+                Attachment.organization_id == organization_id,
+                Attachment.entity_type == entity_type,
+                Attachment.entity_id == entity_id,
+                Attachment.deleted_at.is_(None),
+                Attachment.status == AttachmentStatus.ACTIVE,
+            )
+        )
+        return int(result.scalar_one())
+
     # --- Writes ------------------------------------------------------------
 
     async def add(self, attachment: Attachment) -> Attachment:

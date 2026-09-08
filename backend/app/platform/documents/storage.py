@@ -123,6 +123,8 @@ class ObjectStorage(Protocol):
 
     async def delete(self, key: str) -> None: ...
 
+    async def get_object(self, key: str) -> bytes: ...
+
 
 class S3ObjectStorage:
     """boto3 against any S3-compatible endpoint."""
@@ -277,6 +279,41 @@ class S3ObjectStorage:
             self._signing_client.delete_object(Bucket=self._bucket, Key=key)
 
         await self._run(_delete, operation="delete", key=key)
+
+    async def get_object(self, key: str) -> bytes:
+        """The object's bytes, read into memory.
+
+        The one operation here that does *not* serve a browser. Everything
+        else in this class hands the client a pre-signed URL and stays out of
+        the data path, which is what keeps large files off the API. This is
+        for the worker attaching a file to an outgoing email: a mail relay
+        takes one assembled MIME document, so those bytes have to pass through
+        a process whatever the transfer mechanism looks like, and a pre-signed
+        URL the worker then fetches would be the same read with an extra round
+        trip and a token in a log.
+
+        The caller is responsible for the size it asks for — the email service
+        refuses a message over its total before reaching this — because
+        nothing here can decline halfway through.
+
+        Raises:
+            StorageUnavailableError: the endpoint refused or the object is
+                gone. Missing is *not* a normal outcome on this path, unlike
+                :meth:`head`: the attachment row says the object exists, so
+                its absence is a real failure and the outbox should retry it.
+        """
+
+        def _get() -> bytes:
+            response = self._signing_client.get_object(Bucket=self._bucket, Key=key)
+            body: Any = response["Body"]
+            try:
+                return bytes(body.read())
+            finally:
+                # botocore streams hold the connection until closed, and a
+                # worker draining a batch would otherwise exhaust the pool.
+                body.close()
+
+        return await self._run(_get, operation="get_object", key=key)
 
     async def _run[T](self, call: Callable[[], T], *, operation: str, key: str) -> T:
         """Run a blocking boto3 call off the event loop, mapping its failures.

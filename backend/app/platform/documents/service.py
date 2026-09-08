@@ -551,13 +551,105 @@ def documents_for_session(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class AttachedFile:
+    """One attachment's metadata and its bytes.
+
+    Deliberately not an ``Attachment``. A product that needs the contents of a
+    file — today, the email worker assembling a message — must not be handed
+    an ORM row it could write through, and must not need to import this
+    module's models to name the type it is being given
+    (ARCHITECTURE-BOUNDARIES.md: products consume Platform through service
+    interfaces). This is the value, and it is inert.
+    """
+
+    name: str
+    mime_type: str
+    content: bytes
+
+
+async def attachment_count(
+    session: AsyncSession,
+    *,
+    organization_id: uuid.UUID,
+    entity_type: str,
+    entity_id: uuid.UUID,
+) -> int:
+    """How many live files hang off one record.
+
+    A service-level function rather than a method, because the callers that
+    need it — a list endpoint decorating rows, a worker — have a session and no
+    reason to build a :class:`DocumentService` with a storage client and an
+    access verifier they will not use.
+    """
+    return await AttachmentRepository(session).count_for_entity(
+        organization_id, entity_type=entity_type, entity_id=entity_id
+    )
+
+
+async def attachment_total_bytes(
+    session: AsyncSession,
+    *,
+    organization_id: uuid.UUID,
+    entity_type: str,
+    entity_id: uuid.UUID,
+) -> int:
+    """Total size of the live files on one record."""
+    return await AttachmentRepository(session).total_bytes_for_entity(
+        organization_id, entity_type=entity_type, entity_id=entity_id
+    )
+
+
+async def load_attached_files(
+    session: AsyncSession,
+    storage: ObjectStorage,
+    *,
+    organization_id: uuid.UUID,
+    entity_type: str,
+    entity_id: uuid.UUID,
+) -> tuple[AttachedFile, ...]:
+    """Read every live attachment on one record into memory.
+
+    The one read path in this module that puts bytes through this process,
+    and it exists for a caller that has no alternative: a mail relay takes one
+    assembled MIME document, so an attached file has to be materialised
+    somewhere. Everything a browser touches still goes through a pre-signed
+    URL.
+
+    No size ceiling is applied here. The caller knows what it is assembling
+    and what its own limit is — :data:`~app.products.crm.emails.service.
+    MAX_TOTAL_ATTACHMENT_BYTES` for email — and a second, different limit in
+    this function would be a rule nobody could find from the error message.
+    Call :func:`attachment_total_bytes` first.
+
+    Raises:
+        StorageUnavailableError: storage refused, or an object named by a live
+            row is not there. Missing is a genuine failure on this path,
+            unlike a confirm: the row asserts the object exists.
+    """
+    rows = await AttachmentRepository(session).rows_for_entity(
+        organization_id, entity_type=entity_type, entity_id=entity_id
+    )
+    files: list[AttachedFile] = []
+    for row in rows:
+        content = await storage.get_object(row.storage_key)
+        files.append(
+            AttachedFile(name=row.name, mime_type=row.mime_type, content=content)
+        )
+    return tuple(files)
+
+
 __all__ = [
     "AUDIT_ENTITY_TYPE",
+    "AttachedFile",
     "AttachmentNotReadyError",
     "DocumentService",
     "DownloadTicket",
     "EntityAccess",
     "EntityAccessVerifier",
     "UploadTicket",
+    "attachment_count",
+    "attachment_total_bytes",
     "documents_for_session",
+    "load_attached_files",
 ]

@@ -88,6 +88,13 @@ _TENANT_SCOPED_STATEMENTS_TO_CLEAN = (
     "DELETE FROM crm.opportunities",
     "DELETE FROM crm.campaign_members",
     "DELETE FROM crm.campaigns",
+    # Messages before threads: the FK cascades, but naming the order keeps it
+    # true if the cascade is ever tightened. Templates last of the three —
+    # a message references one with ON DELETE SET NULL, so the order only
+    # matters for readability, not for the constraint.
+    "DELETE FROM crm.email_messages",
+    "DELETE FROM crm.email_threads",
+    "DELETE FROM crm.email_templates",
     "DELETE FROM crm.notes",
     "DELETE FROM crm.tasks",
     "DELETE FROM crm.activities",

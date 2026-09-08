@@ -37,6 +37,8 @@ from app.products.crm.accounts.models import Account
 from app.products.crm.campaigns.models import Campaign
 from app.products.crm.common import CrmEntityType
 from app.products.crm.contacts.models import Contact
+from app.products.crm.emails.models import EmailMessage, EmailStatus
+from app.products.crm.emails.service import EMAIL_MESSAGE_ENTITY_TYPE
 from app.products.crm.leads.models import Lead
 from app.products.crm.opportunities.models import Opportunity
 from app.products.crm.shared.visibility import RecordVisibility
@@ -74,6 +76,20 @@ ATTACHABLE: Final[dict[str, _AttachableEntity]] = {
         Opportunity, "opportunities", ("name",)
     ),
     CrmEntityType.CAMPAIGN.value: _AttachableEntity(Campaign, "campaigns", ("name",)),
+    #: An email message, so a rep can attach a file to mail they are composing.
+    #:
+    #: The key is a bare string and not a ``CrmEntityType`` member because an
+    #: email message is not one: that enum is the vocabulary of things a note
+    #: or an activity may be *filed against*, every member of which resolves
+    #: to a customer record in ``relations.py``. Nothing files a note against
+    #: an email.
+    #:
+    #: This is also the only entry whose editability is not simply "do you
+    #: hold EDIT" — see :meth:`CrmEntityAccess.resolve`. A sent message is
+    #: history, and its attachment list is part of what was sent.
+    EMAIL_MESSAGE_ENTITY_TYPE: _AttachableEntity(
+        EmailMessage, "emails", ("subject",)
+    ),
 }
 
 
@@ -112,6 +128,22 @@ class CrmEntityAccess:
         # Attaching or removing a file changes the record's contents, so it
         # takes EDIT on that module — not merely the ability to read it.
         can_edit = principal.has_permission(attachable.module, PermissionAction.EDIT)
+        if isinstance(record, EmailMessage):
+            is_author = record.created_by_id == principal.user_id
+            is_draft = record.status is EmailStatus.DRAFT
+            if is_draft and not is_author:
+                # Somebody else's unsent message. It is invisible everywhere
+                # else in this module — ``emails/policies.py`` filters it out
+                # in SQL — and attachments must not become the way to discover
+                # that it exists, or to read what is attached to it.
+                return EntityAccess.denied()
+            # A message that has left the building cannot gain or lose a file:
+            # the attachment list is part of what was sent, and editing it
+            # afterwards would make the record disagree with the copy in the
+            # recipient's inbox. Enforced here rather than in the emails
+            # service because this is the only place the documents router asks
+            # — the emails module never sees the upload.
+            can_edit = can_edit and is_draft and is_author
         return EntityAccess(
             can_view=True, can_edit=can_edit, label=_label(record, attachable)
         )

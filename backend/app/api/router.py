@@ -36,6 +36,7 @@ from app.platform.audit import router as audit_router
 from app.platform.auth import router as auth_router
 from app.platform.authorization import router as authorization_router
 from app.platform.documents import router as documents_router
+from app.platform.documents.storage import build_storage
 from app.platform.email import router as email_router
 from app.platform.email.provider import build_provider
 from app.platform.email.service import (
@@ -58,6 +59,9 @@ from app.products.crm.activities import router as activities_router
 from app.products.crm.campaigns import router as campaigns_router
 from app.products.crm.contacts import router as contacts_router
 from app.products.crm.dashboard import router as dashboard_router
+from app.products.crm.emails import router as emails_router
+from app.products.crm.emails.delivery import deliver_crm_email_event
+from app.products.crm.emails.events import CRM_EMAIL_SEND_REQUESTED
 from app.products.crm.imports import router as imports_router
 from app.products.crm.leads import router as leads_router
 from app.products.crm.leads import source_router as lead_sources_router
@@ -190,6 +194,29 @@ def register_event_handlers() -> None:
         tenant_scoped=False,
     )
 
+    # User-authored CRM mail. Built here for the reason the provider is: the
+    # worker has no FastAPI application and therefore no `app.state`, so the
+    # storage client the API keeps there has to be constructed again for this
+    # process. `None` when object storage is unconfigured, which is not an
+    # error — it only matters for a message that actually has attachments, and
+    # the handler fails that one loudly rather than sending it incomplete.
+    storage = build_storage(get_settings())
+
+    async def _deliver_crm_email(session: AsyncSession, event: OutboxEvent) -> None:
+        await deliver_crm_email_event(
+            session, event, provider=provider, storage=storage
+        )
+
+    register_handler(
+        CRM_EMAIL_SEND_REQUESTED,
+        _deliver_crm_email,
+        # A message a person wrote against a customer record always belongs to
+        # an organization. One that arrived without one is a bug, and it must
+        # dead-letter rather than run unscoped — an unscoped send would read
+        # the message row with RLS off.
+        tenant_scoped=True,
+    )
+
 
 register_event_handlers()
 
@@ -225,6 +252,15 @@ crm_router.include_router(
 )
 crm_router.include_router(tasks_router.router, prefix="/crm/tasks", tags=["crm:tasks"])
 crm_router.include_router(notes_router.router, prefix="/crm/notes", tags=["crm:notes"])
+# Mail a person wrote, and the templates it is composed from. Two prefixes on
+# one permission module: a template is not a message and does not belong under
+# `/crm/emails/{id}`, where it would collide with a message id.
+crm_router.include_router(emails_router.router, prefix="/crm/emails", tags=["crm:emails"])
+crm_router.include_router(
+    emails_router.templates_router,
+    prefix="/crm/email-templates",
+    tags=["crm:emails"],
+)
 crm_router.include_router(
     market_insights_router.router,
     prefix="/crm/market-insights",

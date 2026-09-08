@@ -10,6 +10,7 @@ import { humanize, statusVariant } from '@/components/crm/shared/statusVariants'
 import { ListError } from '@/components/crm/shared/ListStates';
 import AttachmentsPanel from '@/components/crm/shared/AttachmentsPanel';
 import { ActivityTimelinePanel, NotesPanel } from '@/components/crm/shared/RecordPanels';
+import EmailsPanel from '@/components/crm/emails/EmailsPanel';
 import { ContactOpportunitiesPanel } from '@/components/crm/shared/RelatedLists';
 import { useRecord } from '@/components/crm/shared/useRecord';
 import { usePermissions } from '@/context/AuthContext';
@@ -189,6 +190,7 @@ export default function ContactDetailPage() {
         <ContactOpportunitiesPanel contactId={contact.id} />
         <div className="space-y-6">
           <ActivityTimelinePanel entityType="CONTACT" entityId={contact.id} />
+          <EmailsPanel entityType="CONTACT" entityId={contact.id} defaultTo={contact.email} />
           <NotesPanel entityType="CONTACT" entityId={contact.id} />
         <AttachmentsPanel entityType="CONTACT" entityId={contact.id} />
         </div>

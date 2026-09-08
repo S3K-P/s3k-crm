@@ -10,6 +10,7 @@ import { humanize, statusVariant } from '@/components/crm/shared/statusVariants'
 import { FormError, ListError } from '@/components/crm/shared/ListStates';
 import AttachmentsPanel from '@/components/crm/shared/AttachmentsPanel';
 import { ActivityTimelinePanel, NotesPanel } from '@/components/crm/shared/RecordPanels';
+import EmailsPanel from '@/components/crm/emails/EmailsPanel';
 import { useRecord } from '@/components/crm/shared/useRecord';
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
@@ -658,6 +659,7 @@ export default function LeadDetailPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <ActivityTimelinePanel entityType="LEAD" entityId={lead.id} />
+        <EmailsPanel entityType="LEAD" entityId={lead.id} defaultTo={lead.email} />
         <NotesPanel entityType="LEAD" entityId={lead.id} />
         <AttachmentsPanel entityType="LEAD" entityId={lead.id} />
       </div>

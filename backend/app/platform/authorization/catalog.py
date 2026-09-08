@@ -56,6 +56,13 @@ PERMISSION_MODULES: Final[tuple[str, ...]] = (
     #: AI company research (Market Insights). A CRM module: it reads CRM data
     #: and its sessions are owned by the rep who ran them.
     "market_insights",
+    #: User-authored mail and the templates it is composed from.
+    #:
+    #: One module for both, rather than ``emails`` and ``email_templates``.
+    #: The two are the same act to a user — you pick a template inside the
+    #: composer — and a role that could send mail but not read the templates
+    #: it offers would be a role nobody would deliberately create.
+    "emails",
 )
 
 #: Actions available on every module (doc 04 ``PermissionAction``).
@@ -102,6 +109,7 @@ _CRM_MODULES: Final[tuple[str, ...]] = (
     "dashboard",
     "reports",
     "market_insights",
+    "emails",
 )
 
 _MANAGER_ACTIONS: Final = (
@@ -162,6 +170,16 @@ def _user_permissions() -> tuple[str, ...]:
 #: the mechanism the system already has for that, so a manager holding
 #: ``VIEW_ALL`` still sees the team's research and nobody needs a second
 #: permission model.
+#:
+#: ``emails`` is deliberately absent, for the reason ``activities`` is. A
+#: message sent to a customer is part of that customer's history, and scoping
+#: it by its sender would hide a colleague's correspondence from the account
+#: timeline — which is the opposite of what a shared account history is for,
+#: and the specific failure that makes a rep re-introduce themselves to a
+#: customer their colleague emailed last week. The two genuinely private
+#: things here are narrower than a module and are enforced where they belong:
+#: an unsent draft is its author's, and a blind-copy list is its sender's
+#: (``emails/policies.py``).
 OWNER_SCOPED_MODULES: Final[frozenset[str]] = frozenset(
     {"accounts", "contacts", "leads", "opportunities", "tasks", "market_insights"}
 )

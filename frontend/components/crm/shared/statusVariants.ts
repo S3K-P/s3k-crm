@@ -58,6 +58,18 @@ const VARIANTS: Record<string, BadgeVariant> = {
   INVITED: 'warning',
   SUSPENDED: 'danger',
   DISABLED: 'neutral',
+
+  // Email.
+  //
+  // `QUEUED` is a warning rather than a neutral, and that is the point of
+  // having it: a message still queued minutes after it was sent means the
+  // worker is not draining the outbox, which is worth noticing rather than
+  // blending into the list. `DRAFT` really is neutral — nothing is wrong with
+  // an unsent message.
+  DRAFT: 'neutral',
+  QUEUED: 'warning',
+  SENT: 'success',
+  FAILED: 'danger',
 };
 
 export function statusVariant(value: string | null | undefined): BadgeVariant {
