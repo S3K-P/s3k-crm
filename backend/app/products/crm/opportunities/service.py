@@ -25,6 +25,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import provisioning_scope
 from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
 from app.platform.audit.service import Action as AuditAction
+from app.platform.auth.dependencies import Principal
+from app.products.crm.blueprints.enforcement import BlueprintGuard
+from app.products.crm.blueprints.models import BlueprintField
 from app.products.crm.common import CrmEntityType
 from app.products.crm.opportunities.models import (
     Opportunity,
@@ -223,6 +226,7 @@ class OpportunityService(TenantScopedService[Opportunity]):
         note: str | None = None,
         loss_reason: str | None = None,
         win_reason: str | None = None,
+        principal: Principal | None = None,
     ) -> Opportunity:
         """Move a deal to another stage, recording the movement.
 
@@ -230,10 +234,18 @@ class OpportunityService(TenantScopedService[Opportunity]):
         stamps the corresponding timestamp; every move is appended to the stage
         history regardless.
 
+        ``principal`` is optional so an internal caller with no request behind
+        it can still move a deal. It is used only for a blueprint transition's
+        ``required_permission``; the field and note requirements hold however
+        the change arrived.
+
         Raises:
             OpportunityClosedError: the deal is already closed.
             LossReasonRequiredError: moving to a lost stage without a reason.
             NotFoundError: the stage is not in this organization.
+            BlueprintTransitionBlockedError: the move is legal but the
+                organization's own process refuses it, or its requirements are
+                not yet met.
         """
         if opportunity.is_closed:
             raise OpportunityClosedError
@@ -246,6 +258,25 @@ class OpportunityService(TenantScopedService[Opportunity]):
             raise LossReasonRequiredError
 
         previous_stage_id = opportunity.stage_id
+
+        # The tenant's own process, applied *after* the built-in rules above
+        # (Phase G). The order is the guarantee: a blueprint narrows what the
+        # product allows and never widens it, so it cannot configure away the
+        # closed-deal check or the loss-reason requirement.
+        #
+        # `note` is what a `require_note` transition is satisfied by, and it is
+        # the same note already recorded in the stage history — so a process
+        # demanding an explanation gets one that is actually kept.
+        await BlueprintGuard(self._session).check(
+            organization_id=opportunity.organization_id,
+            field=BlueprintField.OPPORTUNITY_STAGE,
+            record=opportunity,
+            from_state=str(previous_stage_id),
+            to_state=str(stage.id),
+            principal=principal,
+            note=note or loss_reason or win_reason,
+        )
+
         now = dt.datetime.now(dt.UTC)
 
         opportunity.stage_id = stage.id

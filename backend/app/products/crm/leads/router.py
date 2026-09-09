@@ -215,6 +215,10 @@ async def change_lead_status(
         new_status=payload.status,
         actor_id=principal.user_id,
         lost_reason=payload.lost_reason,
+        # Passed so a blueprint transition can require a permission beyond the
+        # `leads.EDIT` this route already demanded. An extra demand, never a
+        # substitute: it can only narrow who may make the move.
+        principal=principal,
     )
     return LeadResponse.model_validate(updated)
 

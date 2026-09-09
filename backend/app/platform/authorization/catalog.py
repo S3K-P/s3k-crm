@@ -98,6 +98,22 @@ PERMISSION_MODULES: Final[tuple[str, ...]] = (
     #: their own would in both cases be a grant that could be held *without*
     #: the ones it is built from — which is to say, a way around them.
     "views",
+    #: Tenant-configured processes over a record's state field (Phase G).
+    #:
+    #: Configuring one is administration in the strongest sense the product
+    #: has: a blueprint decides what everybody *else* in the organization may
+    #: do with a record, which is a wider power than editing any single one. So
+    #: only Admin holds anything but ``VIEW``.
+    #:
+    #: ``VIEW`` goes to every role for the same reason ``custom_fields.VIEW``
+    #: does: a rep whose move was refused has to be able to see the rule that
+    #: stopped them and what would unblock it. Hiding it turns a clear 422 into
+    #: a mystery, and it grants sight of no record.
+    #:
+    #: A transition's ``required_permission`` is checked *in addition to* the
+    #: endpoint's own, so a blueprint can only ever narrow who may make a move
+    #: — never grant somebody one they could not otherwise make.
+    "blueprints",
 )
 
 #: Actions available on every module (doc 04 ``PermissionAction``).
@@ -184,6 +200,7 @@ def _manager_permissions() -> tuple[str, ...]:
     #: administrative act.
     codes.append(permission_code("teams", PermissionAction.VIEW))
     codes.append(permission_code("custom_fields", PermissionAction.VIEW))
+    codes.append(permission_code("blueprints", PermissionAction.VIEW))
     return tuple(codes)
 
 
@@ -195,6 +212,7 @@ def _user_permissions() -> tuple[str, ...]:
     #: form renderable. Without it every rep's form would be missing whatever
     #: their own administrator added.
     codes.append(permission_code("custom_fields", PermissionAction.VIEW))
+    codes.append(permission_code("blueprints", PermissionAction.VIEW))
     #: A rep deletes their own saved views. ``views.DELETE`` reads alarming
     #: beside the CRM modules, where it retires customer records — here it
     #: removes a saved question and touches no record at all, and the service

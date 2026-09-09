@@ -24,7 +24,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
 from app.platform.audit.service import Action as AuditAction
+from app.platform.auth.dependencies import Principal
 from app.products.crm.accounts.models import Account
+from app.products.crm.blueprints.enforcement import BlueprintGuard
+from app.products.crm.blueprints.models import BlueprintField
 from app.products.crm.common import CrmEntityType
 from app.products.crm.contacts.models import Contact
 from app.products.crm.leads.models import Lead, LeadStatus
@@ -572,14 +575,24 @@ class LeadService(TenantScopedService[Lead]):
         new_status: LeadStatus,
         actor_id: uuid.UUID | None,
         lost_reason: str | None = None,
+        principal: Principal | None = None,
     ) -> Lead:
         """Move a lead through the pipeline.
+
+        ``principal`` is optional so an internal caller with no request behind
+        it — a background job, a data fix — can still move a lead. It is used
+        only for a blueprint transition's ``required_permission``; the field
+        and note requirements hold however the change arrived, because those
+        are about the record being complete rather than about who is asking.
 
         Raises:
             InvalidLeadTransitionError: the move is not legal from the current
                 status, including any attempt to set CONVERTED directly —
                 conversion must go through :meth:`convert` so the account and
                 contact are actually created.
+            BlueprintTransitionBlockedError: the move is legal but the
+                organization's own process refuses it, or its requirements are
+                not yet met.
         """
         if new_status is lead.status:
             return lead
@@ -595,6 +608,20 @@ class LeadService(TenantScopedService[Lead]):
                     "allowed": sorted(status.value for status in allowed),
                 },
             )
+
+        # The tenant's own process, applied *after* the built-in machine has
+        # approved the move (Phase G). The order is the guarantee: a blueprint
+        # narrows what the product allows and can never widen it, so an
+        # administrator cannot configure their way past the rule above.
+        await BlueprintGuard(self._session).check(
+            organization_id=lead.organization_id,
+            field=BlueprintField.LEAD_STATUS,
+            record=lead,
+            from_state=previous_status.value,
+            to_state=new_status.value,
+            principal=principal,
+            note=lost_reason,
+        )
 
         lead.status = new_status
         if new_status in (LeadStatus.LOST, LeadStatus.UNQUALIFIED):

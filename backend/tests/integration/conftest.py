@@ -104,6 +104,10 @@ _TENANT_SCOPED_STATEMENTS_TO_CLEAN = (
     "DELETE FROM crm.pipeline_stages",
     "DELETE FROM crm.pipelines",
     "DELETE FROM crm.accounts",
+    # Transitions before their blueprint: the FK cascades, but naming the
+    # order keeps it true if the cascade is ever tightened.
+    "DELETE FROM crm.blueprint_transitions",
+    "DELETE FROM crm.blueprints",
     # Saved views reference nothing and nothing references them — a view holds
     # a question, not rows — so the position here is only for readability.
     "DELETE FROM crm.saved_views",

@@ -27,6 +27,7 @@ Path layout follows doc 11:
     /api/v1/crm/views         saved list views, shared per visibility
     /api/v1/crm/calendar      meetings and tasks projected onto one timeline
     /api/v1/crm/merge/*       combining duplicate records
+    /api/v1/crm/blueprints    tenant-configured processes over record states
 """
 
 from __future__ import annotations
@@ -65,6 +66,7 @@ from app.platform.products.policies import product_gate
 from app.platform.teams import router as teams_router
 from app.products.crm.accounts import router as accounts_router
 from app.products.crm.activities import router as activities_router
+from app.products.crm.blueprints import router as blueprints_router
 from app.products.crm.calendar import router as calendar_router
 from app.products.crm.campaigns import router as campaigns_router
 from app.products.crm.common import CrmEntityType
@@ -354,6 +356,13 @@ crm_router.include_router(
 # authorizes against the named entity's module inside the handler, and demands
 # both EDIT and DELETE there: a merge changes one record and retires others.
 crm_router.include_router(merge_router.router, prefix="/crm/merge", tags=["crm:merge"])
+# Tenant-configured processes. Only the configuration is served here; a
+# blueprint is *applied* on the lead and opportunity state-change paths those
+# modules already own, so there is no second way to move a record and no second
+# place the rules live.
+crm_router.include_router(
+    blueprints_router.router, prefix="/crm/blueprints", tags=["crm:blueprints"]
+)
 # Reports and search share a shape: neither can name its permission when the
 # route is declared. Search spans four modules at once; a report names the one
 # module it reads, which arrives as a path parameter. Both therefore take the

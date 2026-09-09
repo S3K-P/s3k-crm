@@ -238,6 +238,9 @@ async def change_stage(
         note=payload.note,
         loss_reason=payload.loss_reason,
         win_reason=payload.win_reason,
+        # See the leads router: an additional permission demand from the
+        # tenant's process, never a substitute for the route's own.
+        principal=principal,
     )
     return OpportunityResponse.model_validate(updated)
 

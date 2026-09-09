@@ -57,7 +57,7 @@ def calendar_window(
     intact.
     """
     try:
-        return CalendarRange(start=start, end=end)  # type: ignore[arg-type]
+        return CalendarRange(start=start, end=end)
     except ValidationError as exc:
         raise ValidationFailedError(
             "; ".join(error["msg"].removeprefix("Value error, ") for error in exc.errors()),
