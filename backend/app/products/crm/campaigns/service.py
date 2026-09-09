@@ -32,6 +32,7 @@ from app.products.crm.campaigns.models import (
     CampaignStatus,
     CampaignType,
 )
+from app.products.crm.common import CrmEntityType
 from app.products.crm.contacts.models import Contact
 from app.products.crm.leads.models import Lead, LeadStatus
 from app.products.crm.opportunities.models import Opportunity
@@ -54,6 +55,10 @@ class DuplicateCampaignMemberError(ConflictError):
 
 class CampaignService(TenantScopedService[Campaign]):
     entity_name = "Campaign"
+    #: Opts this entity into tenant-defined fields (Phase E). Declaring it
+    #: is the whole wiring: the base class validates and merges
+    #: ``custom_fields`` on every create and update from here on.
+    crm_entity_type = CrmEntityType.CAMPAIGN
 
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(TenantScopedRepository(session, Campaign), Campaign)
@@ -92,8 +97,11 @@ class CampaignService(TenantScopedService[Campaign]):
         *,
         params: PageParams,
         filters: Sequence[ColumnElement[bool]] = (),
+        sort_column: ColumnElement[Any] | None = None,
     ) -> tuple[Sequence[Campaign], int]:
-        return await self.list(organization_id, params=params, filters=filters)
+        return await self.list(
+            organization_id, params=params, filters=filters, sort_column=sort_column
+        )
 
     async def member_counts(self, organization_id: uuid.UUID) -> dict[uuid.UUID, int]:
         """Member totals per campaign, in one grouped query."""
@@ -125,9 +133,7 @@ class CampaignService(TenantScopedService[Campaign]):
         values: dict[str, Any],
     ) -> Campaign:
         payload = {k: v for k, v in values.items() if k not in DERIVED_FIELDS}
-        return await self.create(
-            organization_id=organization_id, actor_id=actor_id, values=payload
-        )
+        return await self.create(organization_id=organization_id, actor_id=actor_id, values=payload)
 
     async def update_campaign(
         self, campaign: Campaign, *, actor_id: uuid.UUID | None, values: dict[str, Any]
@@ -244,9 +250,7 @@ class CampaignService(TenantScopedService[Campaign]):
         campaign.conversion_rate = (
             # Two decimal places, matching Numeric(6, 2); no leads means no
             # rate at all rather than a misleading zero.
-            (Decimal(converted) * Decimal(100) / Decimal(leads_generated)).quantize(
-                Decimal("0.01")
-            )
+            (Decimal(converted) * Decimal(100) / Decimal(leads_generated)).quantize(Decimal("0.01"))
             if leads_generated
             else None
         )

@@ -14,6 +14,8 @@ import FilterSelect from '@/components/crm/forms/FilterSelect';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
 import { humanize, statusVariant } from '@/components/crm/shared/statusVariants';
 import { FormError, ListEmpty, ListError, ResultCount } from '@/components/crm/shared/ListStates';
+import CustomFieldInputs from '@/components/crm/forms/CustomFieldInputs';
+import { changedValues, type CustomFieldValues } from '@/features/crm/custom-fields';
 import { usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
 import { listLeadSources, type LeadSource } from '@/features/crm/lead-sources';
@@ -150,11 +152,16 @@ export default function CampaignsPage() {
 
   /* ---- Drawer ---- */
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Custom values are held apart from `form` because they are keyed by tenant
+  // data: folding them into a typed `CampaignInput` would mean giving that
+  // interface an index signature, and losing every check on the real columns.
+  const [customValues, setCustomValues] = useState<CustomFieldValues>({});
   const [editing, setEditing] = useState<Campaign | null>(null);
   const [form, setForm] = useState<CampaignInput>(EMPTY_FORM);
   const { pending, error: saveError, clearError, run } = useMutation();
 
   const openAdd = () => {
+    setCustomValues({});
     setEditing(null);
     setForm(EMPTY_FORM);
     clearError();
@@ -162,6 +169,7 @@ export default function CampaignsPage() {
   };
 
   const openEdit = (row: Campaign) => {
+    setCustomValues(row.custom_fields ?? {});
     setEditing(row);
     setForm({
       name: row.name,
@@ -196,6 +204,12 @@ export default function CampaignsPage() {
       lead_source_id: form.lead_source_id || null,
       products: form.products?.trim() || null,
       notes: form.notes?.trim() || null,
+      // Only what the user actually touched. Sending the whole document would
+      // be harmless but noisy; sending `{}` when they touched nothing would
+      // *clear* every custom value on the record.
+      ...(Object.keys(changedValues(customValues, editing?.custom_fields)).length > 0
+        ? { custom_fields: changedValues(customValues, editing?.custom_fields) }
+        : {}),
     };
     const saved = await run(() =>
       editing ? updateCampaign(editing.id, body) : createCampaign(body),
@@ -604,6 +618,11 @@ export default function CampaignsPage() {
           </FormField>
 
           <FormError message={saveError} />
+          <CustomFieldInputs
+            entityType="CAMPAIGN"
+            values={customValues}
+            onChange={setCustomValues}
+          />
         </div>
       </SlideDrawer>
     </div>

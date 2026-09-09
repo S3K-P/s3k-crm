@@ -22,7 +22,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
-from app.products.crm.common import CRM_SCHEMA, CrmEntityMixin, searchable
+from app.products.crm.common import CRM_SCHEMA, CrmEntityMixin, CustomFieldValuesMixin, searchable
 
 
 class AccountStatus(enum.StrEnum):
@@ -32,7 +32,7 @@ class AccountStatus(enum.StrEnum):
     CHURNED = "CHURNED"
 
 
-class Account(Base, CrmEntityMixin):
+class Account(Base, CrmEntityMixin, CustomFieldValuesMixin):
     """A company the organization does business with."""
 
     __tablename__ = "accounts"

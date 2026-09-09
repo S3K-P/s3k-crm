@@ -12,6 +12,9 @@ from app.core.exceptions import NotFoundError
 from app.platform.auth.dependencies import Principal, require_permission
 from app.platform.authorization.service import Action as PermissionAction
 from app.products.crm.accounts.service import AccountService
+from app.products.crm.common import CrmEntityType
+from app.products.crm.custom_fields.query import CustomFieldQueryDep
+from app.products.crm.opportunities.models import Opportunity
 from app.products.crm.opportunities.schemas import (
     OpportunityCreate,
     OpportunityReopen,
@@ -54,6 +57,7 @@ async def list_opportunities(
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
     service: ServiceDep,
     params: PageParamsDep,
+    custom: CustomFieldQueryDep,
     search: Annotated[str | None, Query(max_length=255)] = None,
     stage_id: Annotated[uuid.UUID | None, Query()] = None,
     account_id: Annotated[uuid.UUID | None, Query()] = None,
@@ -61,7 +65,14 @@ async def list_opportunities(
     owner_id: Annotated[uuid.UUID | None, Query()] = None,
     is_open: Annotated[bool | None, Query()] = None,
 ) -> Page[OpportunityResponse]:
-    """List opportunities in the caller's organization."""
+    """List opportunities in the caller's organization.
+
+    Tenant-defined fields participate: ``?cf_<api_name>=`` filters on one,
+    ``?cf_<api_name>__gte=`` and friends compare, and ``?sort_by=cf_<api_name>``
+    orders by one. Names are resolved against this organization's own
+    definitions before any SQL is built (``custom_fields/query.py``), so an
+    unrecognised one is a 422 rather than a filter on nothing.
+    """
     filters = service.build_filters(
         search=search,
         stage_id=stage_id,
@@ -70,11 +81,18 @@ async def list_opportunities(
         owner_id=owner_id,
         is_open=is_open,
     )
+    custom_filters, custom_sort = await custom.resolve(
+        Opportunity,
+        organization_id=principal.organization_id,
+        entity_type=CrmEntityType.OPPORTUNITY,
+    )
+    filters = [*filters, *custom_filters]
     items, total = await service.list_opportunities(
         principal.organization_id,
         params=params,
         filters=filters,
         visibility=visible_to(principal),
+        sort_column=custom_sort,
     )
     return Page.build(
         [OpportunityResponse.model_validate(item) for item in items],

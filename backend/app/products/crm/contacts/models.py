@@ -17,7 +17,13 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
-from app.products.crm.common import CRM_SCHEMA, EMAIL_TERMS, CrmEntityMixin, searchable
+from app.products.crm.common import (
+    CRM_SCHEMA,
+    EMAIL_TERMS,
+    CrmEntityMixin,
+    CustomFieldValuesMixin,
+    searchable,
+)
 
 
 class ContactStatus(enum.StrEnum):
@@ -25,7 +31,7 @@ class ContactStatus(enum.StrEnum):
     INACTIVE = "INACTIVE"
 
 
-class Contact(Base, CrmEntityMixin):
+class Contact(Base, CrmEntityMixin, CustomFieldValuesMixin):
     """A person, optionally attached to an account.
 
     ``account_id`` is a real foreign key: the string ``account`` field the

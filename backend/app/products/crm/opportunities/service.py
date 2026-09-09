@@ -16,6 +16,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 from collections.abc import Sequence
+from typing import Any
 
 import structlog
 from sqlalchemy import ColumnElement, func, select
@@ -24,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import provisioning_scope
 from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
 from app.platform.audit.service import Action as AuditAction
+from app.products.crm.common import CrmEntityType
 from app.products.crm.opportunities.models import (
     Opportunity,
     OpportunityStageHistory,
@@ -67,6 +69,10 @@ class LossReasonRequiredError(ValidationFailedError):
 
 class OpportunityService(TenantScopedService[Opportunity]):
     entity_name = "Opportunity"
+    #: Opts this entity into tenant-defined fields (Phase E). Declaring it
+    #: is the whole wiring: the base class validates and merges
+    #: ``custom_fields`` on every create and update from here on.
+    crm_entity_type = CrmEntityType.OPPORTUNITY
 
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(TenantScopedRepository(session, Opportunity), Opportunity)
@@ -99,9 +105,7 @@ class OpportunityService(TenantScopedService[Opportunity]):
             filters.append(Opportunity.won_at.is_(None))
             filters.append(Opportunity.lost_at.is_(None))
         elif is_open is False:
-            filters.append(
-                Opportunity.won_at.is_not(None) | Opportunity.lost_at.is_not(None)
-            )
+            filters.append(Opportunity.won_at.is_not(None) | Opportunity.lost_at.is_not(None))
         return filters
 
     async def list_opportunities(
@@ -111,16 +115,19 @@ class OpportunityService(TenantScopedService[Opportunity]):
         params: PageParams,
         filters: Sequence[ColumnElement[bool]] = (),
         visibility: RecordVisibility | None = None,
+        sort_column: ColumnElement[Any] | None = None,
     ) -> tuple[Sequence[Opportunity], int]:
         return await self.list(
-            organization_id, params=params, filters=filters, visibility=visibility
+            organization_id,
+            params=params,
+            filters=filters,
+            visibility=visibility,
+            sort_column=sort_column,
         )
 
     # --- Stages ------------------------------------------------------------
 
-    async def get_stage(
-        self, stage_id: uuid.UUID, organization_id: uuid.UUID
-    ) -> PipelineStage:
+    async def get_stage(self, stage_id: uuid.UUID, organization_id: uuid.UUID) -> PipelineStage:
         """Fetch a stage inside the organization, or 404.
 
         Scoping this lookup is what stops a caller moving their deal onto
@@ -372,9 +379,7 @@ class OpportunityService(TenantScopedService[Opportunity]):
         values.pop("stage_id", None)
         return await self.update(opportunity, actor_id=actor_id, values=values)
 
-    async def stage_history(
-        self, opportunity: Opportunity
-    ) -> Sequence[OpportunityStageHistory]:
+    async def stage_history(self, opportunity: Opportunity) -> Sequence[OpportunityStageHistory]:
         result = await self._session.execute(
             select(OpportunityStageHistory)
             .where(

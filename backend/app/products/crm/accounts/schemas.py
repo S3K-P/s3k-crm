@@ -11,10 +11,12 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 from decimal import Decimal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.products.crm.accounts.models import AccountStatus
+from app.products.crm.shared.schemas import CustomFieldValues
 
 
 class AccountBase(BaseModel):
@@ -39,6 +41,11 @@ class AccountBase(BaseModel):
 class AccountCreate(AccountBase):
     """Everything needed to open an account."""
 
+    #: Tenant-defined values, validated against this organization's own field
+    #: definitions. Absent means "apply the configured defaults"; a supplied
+    #: object is merged over them.
+    custom_fields: CustomFieldValues | None = None
+
 
 class AccountUpdate(BaseModel):
     """Partial update. Only supplied fields are written."""
@@ -59,6 +66,10 @@ class AccountUpdate(BaseModel):
     state: str | None = Field(default=None, max_length=120)
     postal_code: str | None = Field(default=None, max_length=32)
     country: str | None = Field(default=None, max_length=120)
+    #: Tenant-defined values. Absent leaves the whole document untouched — an
+    #: empty object is what clears it — so patching one built-in column cannot
+    #: wipe a record's custom fields.
+    custom_fields: CustomFieldValues | None = None
 
 
 class AccountResponse(BaseModel):
@@ -86,6 +97,8 @@ class AccountResponse(BaseModel):
     updated_at: dt.datetime
     created_by_id: uuid.UUID | None
     updated_by_id: uuid.UUID | None
+    #: Never absent: the column is NOT NULL DEFAULT '{}'.
+    custom_fields: dict[str, Any] = Field(default_factory=dict)
 
 
 __all__ = ["AccountCreate", "AccountResponse", "AccountUpdate"]

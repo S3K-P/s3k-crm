@@ -10,7 +10,9 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from app.core.database import DbSession
 from app.platform.auth.dependencies import Principal, require_permission
 from app.platform.authorization.service import Action as PermissionAction
-from app.products.crm.leads.models import LeadStatus
+from app.products.crm.common import CrmEntityType
+from app.products.crm.custom_fields.query import CustomFieldQueryDep
+from app.products.crm.leads.models import Lead, LeadStatus
 from app.products.crm.leads.schemas import (
     ConversionMatchAccount,
     ConversionMatchContact,
@@ -57,20 +59,35 @@ async def list_leads(
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
     service: ServiceDep,
     params: PageParamsDep,
+    custom: CustomFieldQueryDep,
     search: Annotated[str | None, Query(max_length=255)] = None,
     lead_status: Annotated[LeadStatus | None, Query(alias="status")] = None,
     owner_id: Annotated[uuid.UUID | None, Query()] = None,
     lead_source_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> Page[LeadResponse]:
-    """List leads in the caller's organization."""
+    """List leads in the caller's organization.
+
+    Tenant-defined fields participate: ``?cf_<api_name>=`` filters on one,
+    ``?cf_<api_name>__gte=`` and friends compare, and ``?sort_by=cf_<api_name>``
+    orders by one. Names are resolved against this organization's own
+    definitions before any SQL is built (``custom_fields/query.py``), so an
+    unrecognised one is a 422 rather than a filter on nothing.
+    """
     filters = service.build_filters(
         search=search, status=lead_status, owner_id=owner_id, lead_source_id=lead_source_id
     )
+    custom_filters, custom_sort = await custom.resolve(
+        Lead,
+        organization_id=principal.organization_id,
+        entity_type=CrmEntityType.LEAD,
+    )
+    filters = [*filters, *custom_filters]
     items, total = await service.list_leads(
         principal.organization_id,
         params=params,
         filters=filters,
         visibility=visible_to(principal),
+        sort_column=custom_sort,
     )
     return Page.build(
         [LeadResponse.model_validate(item) for item in items], total=total, params=params

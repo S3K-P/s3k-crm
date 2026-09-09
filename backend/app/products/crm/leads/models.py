@@ -26,7 +26,14 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
-from app.products.crm.common import CRM_SCHEMA, EMAIL_TERMS, CrmEntityMixin, Priority, searchable
+from app.products.crm.common import (
+    CRM_SCHEMA,
+    EMAIL_TERMS,
+    CrmEntityMixin,
+    CustomFieldValuesMixin,
+    Priority,
+    searchable,
+)
 
 
 class LeadStatus(enum.StrEnum):
@@ -83,7 +90,7 @@ class LeadSource(Base, CrmEntityMixin):
     )
 
 
-class Lead(Base, CrmEntityMixin):
+class Lead(Base, CrmEntityMixin, CustomFieldValuesMixin):
     """A prospective customer, before conversion into an account + contact."""
 
     __tablename__ = "leads"
@@ -133,9 +140,7 @@ class Lead(Base, CrmEntityMixin):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # --- Conversion outcome ------------------------------------------------
-    converted_at: Mapped[dt.datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    converted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     converted_account_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey(f"{CRM_SCHEMA}.accounts.id", ondelete="SET NULL"),

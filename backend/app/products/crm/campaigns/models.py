@@ -25,7 +25,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.core.models import TenantMixin, TimestampMixin, UUIDPrimaryKeyMixin
-from app.products.crm.common import CRM_SCHEMA, CrmEntityMixin
+from app.products.crm.common import CRM_SCHEMA, CrmEntityMixin, CustomFieldValuesMixin
 
 
 class CampaignType(enum.StrEnum):
@@ -49,7 +49,7 @@ class CampaignMemberType(enum.StrEnum):
     CONTACT = "CONTACT"
 
 
-class Campaign(Base, CrmEntityMixin):
+class Campaign(Base, CrmEntityMixin, CustomFieldValuesMixin):
     """A marketing campaign that generates leads."""
 
     __tablename__ = "campaigns"

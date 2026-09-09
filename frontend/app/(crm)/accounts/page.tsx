@@ -16,6 +16,8 @@ import { humanize, statusVariant } from '@/components/crm/shared/statusVariants'
 import { FormError, ListEmpty, ListError, ResultCount } from '@/components/crm/shared/ListStates';
 import ImportWizard from '@/components/crm/import/ImportWizard';
 import ExportButton from '@/components/crm/toolbar/ExportButton';
+import CustomFieldInputs from '@/components/crm/forms/CustomFieldInputs';
+import { changedValues, type CustomFieldValues } from '@/features/crm/custom-fields';
 import { usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
 import {
@@ -97,12 +99,17 @@ export default function AccountsPage() {
   );
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Custom values are held apart from `form` because they are keyed by tenant
+  // data: folding them into a typed `AccountInput` would mean giving that
+  // interface an index signature, and losing every check on the real columns.
+  const [customValues, setCustomValues] = useState<CustomFieldValues>({});
   const [editing, setEditing] = useState<Account | null>(null);
   const [form, setForm] = useState<AccountInput>(EMPTY_FORM);
   const [duplicateWarning, setDuplicateWarning] = useState(false);
   const { pending, error: saveError, clearError, run } = useMutation();
 
   const openAdd = () => {
+    setCustomValues({});
     setEditing(null);
     setForm(EMPTY_FORM);
     setDuplicateWarning(false);
@@ -111,6 +118,7 @@ export default function AccountsPage() {
   };
 
   const openEdit = (row: Account) => {
+    setCustomValues(row.custom_fields ?? {});
     setEditing(row);
     setForm({
       name: row.name,
@@ -138,6 +146,12 @@ export default function AccountsPage() {
       city: form.city?.trim() || null,
       country: form.country?.trim() || null,
       description: form.description?.trim() || null,
+      // Only what the user actually touched. Sending the whole document would
+      // be harmless but noisy; sending `{}` when they touched nothing would
+      // *clear* every custom value on the record.
+      ...(Object.keys(changedValues(customValues, editing?.custom_fields)).length > 0
+        ? { custom_fields: changedValues(customValues, editing?.custom_fields) }
+        : {}),
     };
 
     const saved = await run(() =>
@@ -435,6 +449,11 @@ export default function AccountsPage() {
             />
           </FormField>
           <FormError message={saveError} />
+          <CustomFieldInputs
+            entityType="ACCOUNT"
+            values={customValues}
+            onChange={setCustomValues}
+          />
         </div>
       </SlideDrawer>
     </div>

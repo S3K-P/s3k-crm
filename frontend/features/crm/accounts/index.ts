@@ -8,6 +8,7 @@
 import { api } from '@/lib/api-client';
 import { downloadAndSave } from '@/lib/save-file';
 import { toQuery, withoutPaging, type ListParams, type Page, type RecordMeta } from '@/features/shared/types/api';
+import type { CustomFieldValues } from '@/features/crm/custom-fields';
 
 export type AccountStatus = 'ACTIVE' | 'ONBOARDING' | 'AT_RISK' | 'CHURNED';
 
@@ -35,6 +36,12 @@ export interface Account extends RecordMeta {
   state: string | null;
   postal_code: string | null;
   country: string | null;
+  /**
+   * Tenant-defined values, keyed by `api_name`. Always present — the column is
+   * `NOT NULL DEFAULT '{}'` — so this is `{}` rather than absent for a record
+   * whose organization has defined no fields.
+   */
+  custom_fields: CustomFieldValues;
 }
 
 export interface AccountInput {
@@ -53,6 +60,12 @@ export interface AccountInput {
   state?: string | null;
   postal_code?: string | null;
   country?: string | null;
+  /**
+   * Tenant-defined values. Omit the key entirely to leave the record's existing
+   * document untouched; `{}` clears it. The two are different on the wire, so
+   * never spread a default `{}` into a patch.
+   */
+  custom_fields?: CustomFieldValues;
 }
 
 export interface AccountListParams extends ListParams {

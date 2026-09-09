@@ -9,6 +9,7 @@ import StatusBadge from '@/components/crm/shared/StatusBadge';
 import { humanize, statusVariant } from '@/components/crm/shared/statusVariants';
 import { ListError } from '@/components/crm/shared/ListStates';
 import AttachmentsPanel from '@/components/crm/shared/AttachmentsPanel';
+import CustomFieldsPanel from '@/components/crm/shared/CustomFieldsPanel';
 import { ActivityTimelinePanel, NotesPanel } from '@/components/crm/shared/RecordPanels';
 import EmailsPanel from '@/components/crm/emails/EmailsPanel';
 import { ContactOpportunitiesPanel } from '@/components/crm/shared/RelatedLists';
@@ -185,6 +186,8 @@ export default function ContactDetailPage() {
           </button>
         </div>
       )}
+
+      <CustomFieldsPanel entityType="CONTACT" values={contact.custom_fields} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <ContactOpportunitiesPanel contactId={contact.id} />

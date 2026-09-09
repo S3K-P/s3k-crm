@@ -10,10 +10,11 @@ importantly — makes it impossible to create a CRM table that accidentally omit
 from __future__ import annotations
 
 import enum
+from typing import Any
 
-from sqlalchemy import Computed
-from sqlalchemy.dialects.postgresql import TSVECTOR
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Computed, text
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
+from sqlalchemy.orm import Mapped, declarative_mixin, mapped_column
 
 from app.core.models import (
     AuthorshipMixin,
@@ -101,6 +102,36 @@ def searchable(expression: str) -> Mapped[str | None]:
     )
 
 
+@declarative_mixin
+class CustomFieldValuesMixin:
+    """The ``custom_fields`` JSONB column, for a record type that supports them.
+
+    Lives here rather than in the ``custom_fields`` module for a boundary
+    reason: five entity models need the column, and ARCHITECTURE-BOUNDARIES.md
+    rule 2 forbids a module importing another module's ``models.py``. This file
+    is already where the shared CRM table vocabulary lives — ``CrmEntityMixin``,
+    ``searchable`` — so the column belongs with them and the rules that govern
+    its *contents* stay in the module that owns them.
+
+    ``NOT NULL DEFAULT '{}'`` rather than nullable: a record with no custom
+    values and one whose custom values were never initialised are the same
+    thing to every reader, and making them the same at the storage layer means
+    no caller has to write ``or {}``.
+
+    The dict is replaced wholesale on write, never mutated in place — see
+    :meth:`app.products.crm.shared.service.TenantScopedService.update`. JSONB is
+    an opaque scalar to SQLAlchemy's change detection, so an in-place mutation
+    is not noticed and is silently not persisted.
+    """
+
+    custom_fields: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
+
+
 class CrmEntityMixin(
     UUIDPrimaryKeyMixin,
     TimestampMixin,
@@ -145,6 +176,7 @@ __all__ = [
     "RLS_EXEMPT_TABLES",
     "CrmEntityMixin",
     "CrmEntityType",
+    "CustomFieldValuesMixin",
     "Priority",
     "searchable",
 ]

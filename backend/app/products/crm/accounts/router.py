@@ -15,13 +15,15 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from app.core.database import DbSession
 from app.platform.auth.dependencies import Principal, require_permission
 from app.platform.authorization.service import Action as PermissionAction
-from app.products.crm.accounts.models import AccountStatus
+from app.products.crm.accounts.models import Account, AccountStatus
 from app.products.crm.accounts.schemas import (
     AccountCreate,
     AccountResponse,
     AccountUpdate,
 )
 from app.products.crm.accounts.service import AccountService
+from app.products.crm.common import CrmEntityType
+from app.products.crm.custom_fields.query import CustomFieldQueryDep
 from app.products.crm.shared.csv_export import collect_rows, csv_response
 from app.products.crm.shared.pagination import Page, PageParams, page_params
 from app.products.crm.shared.visibility import RecordVisibility
@@ -54,20 +56,35 @@ async def list_accounts(
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
     service: ServiceDep,
     params: PageParamsDep,
+    custom: CustomFieldQueryDep,
     search: Annotated[str | None, Query(max_length=255)] = None,
     account_status: Annotated[AccountStatus | None, Query(alias="status")] = None,
     industry: Annotated[str | None, Query(max_length=120)] = None,
     owner_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> Page[AccountResponse]:
-    """List accounts in the caller's organization."""
+    """List accounts in the caller's organization.
+
+    Tenant-defined fields participate: ``?cf_<api_name>=`` filters on one,
+    ``?cf_<api_name>__gte=`` and friends compare, and ``?sort_by=cf_<api_name>``
+    orders by one. Names are resolved against this organization's own
+    definitions before any SQL is built (``custom_fields/query.py``), so an
+    unrecognised one is a 422 rather than a filter on nothing.
+    """
     filters = service.build_filters(
         search=search, status=account_status, industry=industry, owner_id=owner_id
     )
+    custom_filters, custom_sort = await custom.resolve(
+        Account,
+        organization_id=principal.organization_id,
+        entity_type=CrmEntityType.ACCOUNT,
+    )
+    filters = [*filters, *custom_filters]
     items, total = await service.list_accounts(
         principal.organization_id,
         params=params,
         filters=filters,
         visibility=visible_to(principal),
+        sort_column=custom_sort,
     )
     return Page.build(
         [AccountResponse.model_validate(item) for item in items], total=total, params=params

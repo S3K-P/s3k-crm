@@ -19,6 +19,8 @@ import { humanize, statusVariant } from '@/components/crm/shared/statusVariants'
 import { FormError, ListEmpty, ListError, ResultCount } from '@/components/crm/shared/ListStates';
 import ImportWizard from '@/components/crm/import/ImportWizard';
 import ExportButton from '@/components/crm/toolbar/ExportButton';
+import CustomFieldInputs from '@/components/crm/forms/CustomFieldInputs';
+import { changedValues, type CustomFieldValues } from '@/features/crm/custom-fields';
 import { usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
 import { useQueryFilter } from '@/features/shared/hooks/useQueryFilter';
@@ -197,6 +199,10 @@ export default function LeadsPage() {
   }, [mayViewCampaigns]);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Custom values are held apart from `form` because they are keyed by tenant
+  // data: folding them into a typed `LeadInput` would mean giving that
+  // interface an index signature, and losing every check on the real columns.
+  const [customValues, setCustomValues] = useState<CustomFieldValues>({});
   const [editing, setEditing] = useState<Lead | null>(null);
   const [form, setForm] = useState<LeadInput>(EMPTY_FORM);
   const [duplicateWarning, setDuplicateWarning] = useState(false);
@@ -204,6 +210,7 @@ export default function LeadsPage() {
   const [boardError, setBoardError] = useState<string | null>(null);
 
   const openAdd = () => {
+    setCustomValues({});
     setEditing(null);
     setForm(EMPTY_FORM);
     setDuplicateWarning(false);
@@ -212,6 +219,7 @@ export default function LeadsPage() {
   };
 
   const openEdit = (row: Lead) => {
+    setCustomValues(row.custom_fields ?? {});
     setEditing(row);
     setForm({
       first_name: row.first_name,
@@ -251,6 +259,12 @@ export default function LeadsPage() {
       product_interest: form.product_interest?.trim() || null,
       expected_deal_size: form.expected_deal_size || null,
       notes: form.notes?.trim() || null,
+      // Only what the user actually touched. Sending the whole document would
+      // be harmless but noisy; sending `{}` when they touched nothing would
+      // *clear* every custom value on the record.
+      ...(Object.keys(changedValues(customValues, editing?.custom_fields)).length > 0
+        ? { custom_fields: changedValues(customValues, editing?.custom_fields) }
+        : {}),
     };
     // Campaign attribution is create-only: `LeadUpdate` does not accept it,
     // so sending it on an edit would be silently discarded.
@@ -728,6 +742,11 @@ export default function LeadsPage() {
             />
           </FormField>
           <FormError message={saveError} />
+          <CustomFieldInputs
+            entityType="LEAD"
+            values={customValues}
+            onChange={setCustomValues}
+          />
         </div>
       </SlideDrawer>
     </div>

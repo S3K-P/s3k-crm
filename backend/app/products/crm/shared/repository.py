@@ -91,17 +91,45 @@ class TenantScopedRepository[ModelT: TenantOwnedModel]:
         """
         mapper = class_mapper(cast("type[Any]", self._model))
         return {
-            attribute.key: getattr(self._model, attribute.key)
-            for attribute in mapper.column_attrs
+            attribute.key: getattr(self._model, attribute.key) for attribute in mapper.column_attrs
         }
 
-    def _apply_sort(self, statement: Select[Any], params: PageParams) -> Select[Any]:
+    def _apply_sort(
+        self,
+        statement: Select[Any],
+        params: PageParams,
+        *,
+        sort_column: ColumnElement[Any] | None = None,
+    ) -> Select[Any]:
         """Sort by a mapped column, falling back to newest first.
 
         ``sort_by`` arrives from the query string. It is resolved against the
         mapper's known columns and silently ignored when it does not match, so
         an attacker-supplied value cannot be injected into the SQL.
+
+        ``sort_column`` is the one way to order by something that is not a
+        mapped column: a tenant-defined field, whose value lives inside the
+        ``custom_fields`` document and has to be cast before it has an order.
+        The caller builds it from the *definition*
+        (``custom_fields/filters.sort_column``), never from the request, so the
+        same guarantee holds — a request names a field, it does not supply an
+        expression.
+
+        A NULLS placement is stated explicitly for it. PostgreSQL defaults to
+        ``NULLS LAST`` on ascending and ``NULLS FIRST`` on descending, which
+        would put every record that has not filled the field in at the top of a
+        descending sort — burying the records the user asked to see.
         """
+        if sort_column is not None:
+            ordering = (
+                sort_column.desc().nullslast()
+                if params.sort_dir == "desc"
+                else sort_column.asc().nullslast()
+            )
+            # Tie-broken by primary key so paging through equal values cannot
+            # repeat or skip a row between requests.
+            return statement.order_by(ordering, self._model.id.asc())
+
         columns = self._sortable_columns()
         column = columns.get(params.sort_by) if params.sort_by else None
         if column is None:
@@ -140,6 +168,7 @@ class TenantScopedRepository[ModelT: TenantOwnedModel]:
         params: PageParams,
         filters: Sequence[ColumnElement[bool]] = (),
         visibility: ColumnElement[bool] | None = None,
+        sort_column: ColumnElement[Any] | None = None,
     ) -> tuple[Sequence[ModelT], int]:
         """Return one page of rows plus the total matching count."""
         statement = self._base_query(organization_id, visibility=visibility)
@@ -149,7 +178,11 @@ class TenantScopedRepository[ModelT: TenantOwnedModel]:
         count_statement = select(func.count()).select_from(statement.subquery())
         total = int((await self._session.execute(count_statement)).scalar_one())
 
-        statement = self._apply_sort(statement, params).limit(params.limit).offset(params.offset)
+        statement = (
+            self._apply_sort(statement, params, sort_column=sort_column)
+            .limit(params.limit)
+            .offset(params.offset)
+        )
         result = await self._session.execute(statement)
         return result.scalars().all(), total
 

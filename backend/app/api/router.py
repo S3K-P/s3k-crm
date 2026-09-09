@@ -22,9 +22,15 @@ Path layout follows doc 11:
     /api/v1/crm/*             S3K CRM business resources
     /api/v1/crm/reports       the built-in report library, gated per report
     /api/v1/crm/search        cross-entity search, permission-filtered in-query
+    /api/v1/crm/custom-fields tenant-defined field definitions
+    /api/v1/crm/picklists     the option sets those fields draw from
 """
 
 from __future__ import annotations
+
+import uuid
+from collections.abc import Mapping
+from typing import Any
 
 from fastapi import APIRouter
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,7 +63,10 @@ from app.platform.teams import router as teams_router
 from app.products.crm.accounts import router as accounts_router
 from app.products.crm.activities import router as activities_router
 from app.products.crm.campaigns import router as campaigns_router
+from app.products.crm.common import CrmEntityType
 from app.products.crm.contacts import router as contacts_router
+from app.products.crm.custom_fields import router as custom_fields_router
+from app.products.crm.custom_fields.service import CustomFieldValueService
 from app.products.crm.dashboard import router as dashboard_router
 from app.products.crm.emails import router as emails_router
 from app.products.crm.emails.delivery import deliver_crm_email_event
@@ -71,6 +80,7 @@ from app.products.crm.opportunities import router as opportunities_router
 from app.products.crm.reports import router as reports_router
 from app.products.crm.search import router as search_router
 from app.products.crm.shared.attachments import crm_entity_access
+from app.products.crm.shared.custom_field_hook import register_custom_field_resolver
 from app.products.crm.shared.provisioning import crm_provisioning_hook
 from app.products.crm.shared.reminders import crm_reminder_source
 from app.products.crm.tasks import router as tasks_router
@@ -96,9 +106,7 @@ api_router.include_router(
     authorization_router.router, prefix="/roles", tags=["platform:authorization"]
 )
 api_router.include_router(audit_router.router, prefix="/audit-logs", tags=["platform:audit"])
-api_router.include_router(
-    email_router.router, prefix="/email-deliveries", tags=["platform:email"]
-)
+api_router.include_router(email_router.router, prefix="/email-deliveries", tags=["platform:email"])
 # The AI gateway (ADR-016). Not behind the CRM product gate: ``/ai/status``
 # answers whether AI is connected at all, which the AI section needs in order
 # to render its "not connected" state, and prompt configuration is
@@ -153,6 +161,58 @@ register_provisioning_hook(crm_provisioning_hook)
 register_reminder_source(crm_reminder_source)
 
 
+def register_custom_fields() -> None:
+    """Teach the shared CRM service how to validate tenant-defined values.
+
+    The fourth instance of the same inversion, and the one with the widest
+    reach. ``TenantScopedService`` is the funnel every CRM entity write passes
+    through, so that is where a record's ``custom_fields`` has to be checked —
+    but ``crm/shared`` sits *below* the modules and may not import
+    ``custom_fields``, which subclasses it. So the shared layer holds a
+    registry and this module, already permitted to see everything, fills it in.
+
+    A service is built per call rather than once, because it is bound to the
+    request's own session: sharing one across requests would mean validating
+    against another transaction's view of the definitions.
+
+    Registered at import, before any router is mounted, and the registry
+    refuses rather than permits until it is — so there is no window in which a
+    record write could store an unvalidated custom value.
+    """
+
+    async def _resolve(
+        session: AsyncSession,
+        *,
+        organization_id: uuid.UUID,
+        entity_type: CrmEntityType,
+        submitted: Mapping[str, Any] | None,
+        existing: Mapping[str, Any] | None,
+        creating: bool,
+    ) -> dict[str, Any]:
+        return await CustomFieldValueService(session).resolve(
+            organization_id=organization_id,
+            entity_type=entity_type,
+            submitted=submitted,
+            existing=existing,
+            creating=creating,
+        )
+
+    async def _defaults(
+        session: AsyncSession,
+        *,
+        organization_id: uuid.UUID,
+        entity_type: CrmEntityType,
+    ) -> dict[str, Any]:
+        return await CustomFieldValueService(session).defaults_for(
+            organization_id=organization_id, entity_type=entity_type
+        )
+
+    register_custom_field_resolver(_resolve, _defaults)
+
+
+register_custom_fields()
+
+
 def register_event_handlers() -> None:
     """Attach every outbox handler to the dispatcher.
 
@@ -203,9 +263,7 @@ def register_event_handlers() -> None:
     storage = build_storage(get_settings())
 
     async def _deliver_crm_email(session: AsyncSession, event: OutboxEvent) -> None:
-        await deliver_crm_email_event(
-            session, event, provider=provider, storage=storage
-        )
+        await deliver_crm_email_event(session, event, provider=provider, storage=storage)
 
     register_handler(
         CRM_EMAIL_SEND_REQUESTED,
@@ -234,9 +292,7 @@ register_event_handlers()
 # permissions their role grants.
 crm_router = APIRouter(dependencies=[product_gate(CRM_PRODUCT_CODE)])
 
-crm_router.include_router(
-    dashboard_router.router, prefix="/crm/dashboard", tags=["crm:dashboard"]
-)
+crm_router.include_router(dashboard_router.router, prefix="/crm/dashboard", tags=["crm:dashboard"])
 crm_router.include_router(accounts_router.router, prefix="/crm/accounts", tags=["crm:accounts"])
 crm_router.include_router(contacts_router.router, prefix="/crm/contacts", tags=["crm:contacts"])
 crm_router.include_router(
@@ -260,6 +316,17 @@ crm_router.include_router(
     emails_router.templates_router,
     prefix="/crm/email-templates",
     tags=["crm:emails"],
+)
+# Tenant-defined fields and the picklists they draw from. Two prefixes on one
+# permission module: a picklist is not a field and does not belong under
+# `/crm/custom-fields/{id}`, where it would collide with a field id.
+crm_router.include_router(
+    custom_fields_router.router, prefix="/crm/custom-fields", tags=["crm:custom-fields"]
+)
+crm_router.include_router(
+    custom_fields_router.picklists_router,
+    prefix="/crm/picklists",
+    tags=["crm:custom-fields"],
 )
 crm_router.include_router(
     market_insights_router.router,

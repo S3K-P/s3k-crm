@@ -63,6 +63,21 @@ PERMISSION_MODULES: Final[tuple[str, ...]] = (
     #: composer — and a role that could send mail but not read the templates
     #: it offers would be a role nobody would deliberately create.
     "emails",
+    #: Tenant-defined fields and the picklists they draw options from.
+    #:
+    #: One module for both, for the reason ``emails`` is one module for
+    #: messages and templates: a picklist exists to be a field's option set,
+    #: and a role that could define a field but not the list it offers would be
+    #: a role nobody would deliberately create.
+    #:
+    #: ``VIEW`` here is unusual in being granted to *every* system role, User
+    #: included, and it is worth saying why that is not a widening. Reading the
+    #: definitions is what makes a record form drawable at all — a rep who
+    #: cannot see that "Leads have a Region field" gets a form missing half its
+    #: inputs. It grants sight of the tenant's own configuration and of nothing
+    #: else: a record's custom *values* live in the record and stay behind that
+    #: record's module permission and record-level visibility.
+    "custom_fields",
 )
 
 #: Actions available on every module (doc 04 ``PermissionAction``).
@@ -135,9 +150,7 @@ _USER_ACTIONS: Final = (
 def _manager_permissions() -> tuple[str, ...]:
     """Full CRM control plus read-only visibility of platform administration."""
     codes = [
-        permission_code(module, action)
-        for module in _CRM_MODULES
-        for action in _MANAGER_ACTIONS
+        permission_code(module, action) for module in _CRM_MODULES for action in _MANAGER_ACTIONS
     ]
     codes.append(permission_code("users", PermissionAction.VIEW))
     codes.append(permission_code("organizations", PermissionAction.VIEW))
@@ -145,14 +158,19 @@ def _manager_permissions() -> tuple[str, ...]:
     #: membership decides who can see whose records, so editing it is an
     #: administrative act.
     codes.append(permission_code("teams", PermissionAction.VIEW))
+    codes.append(permission_code("custom_fields", PermissionAction.VIEW))
     return tuple(codes)
 
 
 def _user_permissions() -> tuple[str, ...]:
     """Day-to-day sales work: read, create and edit **own** records, never delete."""
-    return tuple(
-        permission_code(module, action) for module in _CRM_MODULES for action in _USER_ACTIONS
-    )
+    codes = [permission_code(module, action) for module in _CRM_MODULES for action in _USER_ACTIONS]
+    #: Read-only, and read-only for both non-admin roles: defining a field is
+    #: administration, but *seeing* which fields exist is what makes a lead
+    #: form renderable. Without it every rep's form would be missing whatever
+    #: their own administrator added.
+    codes.append(permission_code("custom_fields", PermissionAction.VIEW))
+    return tuple(codes)
 
 
 #: Modules whose rows carry an ``owner_id`` that record-level visibility is

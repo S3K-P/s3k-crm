@@ -16,6 +16,8 @@ import { humanize, statusVariant } from '@/components/crm/shared/statusVariants'
 import { FormError, ListEmpty, ListError, ResultCount } from '@/components/crm/shared/ListStates';
 import ImportWizard from '@/components/crm/import/ImportWizard';
 import ExportButton from '@/components/crm/toolbar/ExportButton';
+import CustomFieldInputs from '@/components/crm/forms/CustomFieldInputs';
+import { changedValues, type CustomFieldValues } from '@/features/crm/custom-fields';
 import { usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
 import { listAccounts, type Account } from '@/features/crm/accounts';
@@ -127,6 +129,10 @@ function ContactsPageContent() {
   const prefilledAccountId = useSearchParams().get('account_id') ?? '';
 
   const [drawerOpen, setDrawerOpen] = useState(prefilledAccountId !== '');
+  // Custom values are held apart from `form` because they are keyed by tenant
+  // data: folding them into a typed `ContactInput` would mean giving that
+  // interface an index signature, and losing every check on the real columns.
+  const [customValues, setCustomValues] = useState<CustomFieldValues>({});
   const [editing, setEditing] = useState<Contact | null>(null);
   const [form, setForm] = useState<ContactInput>(
     prefilledAccountId ? { ...EMPTY_FORM, account_id: prefilledAccountId } : EMPTY_FORM,
@@ -135,6 +141,7 @@ function ContactsPageContent() {
   const { pending, error: saveError, clearError, run } = useMutation();
 
   const openAdd = () => {
+    setCustomValues({});
     setEditing(null);
     setForm(EMPTY_FORM);
     setDuplicateWarning(false);
@@ -143,6 +150,7 @@ function ContactsPageContent() {
   };
 
   const openEdit = (row: Contact) => {
+    setCustomValues(row.custom_fields ?? {});
     setEditing(row);
     setForm({
       first_name: row.first_name,
@@ -168,6 +176,12 @@ function ContactsPageContent() {
       phone: form.phone?.trim() || null,
       job_title: form.job_title?.trim() || null,
       status: form.status,
+      // Only what the user actually touched. Sending the whole document would
+      // be harmless but noisy; sending `{}` when they touched nothing would
+      // *clear* every custom value on the record.
+      ...(Object.keys(changedValues(customValues, editing?.custom_fields)).length > 0
+        ? { custom_fields: changedValues(customValues, editing?.custom_fields) }
+        : {}),
     };
 
     const saved = await run(() =>
@@ -479,6 +493,11 @@ function ContactsPageContent() {
             />
           </FormField>
           <FormError message={saveError} />
+          <CustomFieldInputs
+            entityType="CONTACT"
+            values={customValues}
+            onChange={setCustomValues}
+          />
         </div>
       </SlideDrawer>
     </div>

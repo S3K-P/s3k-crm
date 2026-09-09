@@ -30,7 +30,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.core.models import TenantMixin, TimestampMixin, UUIDPrimaryKeyMixin
-from app.products.crm.common import CRM_SCHEMA, CrmEntityMixin, searchable
+from app.products.crm.common import CRM_SCHEMA, CrmEntityMixin, CustomFieldValuesMixin, searchable
 
 
 class Pipeline(Base, CrmEntityMixin):
@@ -105,7 +105,7 @@ class PipelineStage(Base, CrmEntityMixin):
         return self.is_won or self.is_lost
 
 
-class Opportunity(Base, CrmEntityMixin):
+class Opportunity(Base, CrmEntityMixin, CustomFieldValuesMixin):
     """A deal in progress against an account."""
 
     __tablename__ = "opportunities"
