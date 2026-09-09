@@ -176,6 +176,24 @@ class Lead(Base, CrmEntityMixin, CustomFieldValuesMixin):
         "setweight(to_tsvector('english'::regconfig, coalesce(product_interest, '')), 'C')"
     )
 
+
+    #: Set when this record was merged into another (Phase F).
+    #:
+    #: A merged record is soft-deleted like any other, but "deleted" and
+    #: "became part of that one" are different facts and only the second can
+    #: answer the question a stale link asks. An old bookmark, an
+    #: integration's stored id or an audit entry from last year resolves
+    #: through this to the record the data now lives on, rather than to a
+    #: 404 that looks like the customer was deleted.
+    #:
+    #: Self-referential and ``SET NULL``: if the survivor is itself somehow
+    #: removed, the pointer clears rather than the FK blocking the removal or
+    #: cascading into a record that has nothing to do with it.
+    merged_into_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(f"{CRM_SCHEMA}.leads.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     @property
     def full_name(self) -> str:
         return f"{self.first_name} {self.last_name}".strip()

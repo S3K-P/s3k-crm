@@ -24,6 +24,9 @@ Path layout follows doc 11:
     /api/v1/crm/search        cross-entity search, permission-filtered in-query
     /api/v1/crm/custom-fields tenant-defined field definitions
     /api/v1/crm/picklists     the option sets those fields draw from
+    /api/v1/crm/views         saved list views, shared per visibility
+    /api/v1/crm/calendar      meetings and tasks projected onto one timeline
+    /api/v1/crm/merge/*       combining duplicate records
 """
 
 from __future__ import annotations
@@ -62,6 +65,7 @@ from app.platform.products.policies import product_gate
 from app.platform.teams import router as teams_router
 from app.products.crm.accounts import router as accounts_router
 from app.products.crm.activities import router as activities_router
+from app.products.crm.calendar import router as calendar_router
 from app.products.crm.campaigns import router as campaigns_router
 from app.products.crm.common import CrmEntityType
 from app.products.crm.contacts import router as contacts_router
@@ -75,6 +79,7 @@ from app.products.crm.imports import router as imports_router
 from app.products.crm.leads import router as leads_router
 from app.products.crm.leads import source_router as lead_sources_router
 from app.products.crm.market_insights import router as market_insights_router
+from app.products.crm.merge import router as merge_router
 from app.products.crm.notes import router as notes_router
 from app.products.crm.opportunities import router as opportunities_router
 from app.products.crm.reports import router as reports_router
@@ -84,6 +89,7 @@ from app.products.crm.shared.custom_field_hook import register_custom_field_reso
 from app.products.crm.shared.provisioning import crm_provisioning_hook
 from app.products.crm.shared.reminders import crm_reminder_source
 from app.products.crm.tasks import router as tasks_router
+from app.products.crm.views import router as views_router
 
 root_router = APIRouter()
 root_router.include_router(health.router)
@@ -333,6 +339,21 @@ crm_router.include_router(
     prefix="/crm/market-insights",
     tags=["crm:market-insights"],
 )
+# Saved list views. A view names filters over a record type and holds no rows,
+# so `views.VIEW` reaches no record: running one goes through that record
+# type's own endpoint, behind its own permission and record-level visibility.
+crm_router.include_router(views_router.router, prefix="/crm/views", tags=["crm:views"])
+# The calendar names no permission of its own — it would either duplicate
+# `activities.VIEW` and `tasks.VIEW` or, worse, become a way to read records
+# around them. It decides per source inside the handler (calendar/policies.py).
+crm_router.include_router(
+    calendar_router.router, prefix="/crm/calendar", tags=["crm:calendar"]
+)
+# Merge chooses its entity from a path parameter, so the permission it needs is
+# not known when the route is declared — the shape imports already use. It
+# authorizes against the named entity's module inside the handler, and demands
+# both EDIT and DELETE there: a merge changes one record and retires others.
+crm_router.include_router(merge_router.router, prefix="/crm/merge", tags=["crm:merge"])
 # Reports and search share a shape: neither can name its permission when the
 # route is declared. Search spans four modules at once; a report names the one
 # module it reads, which arrives as a path parameter. Both therefore take the

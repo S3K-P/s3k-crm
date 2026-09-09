@@ -1,4 +1,5 @@
 import {
+  CalendarRange,
   LayoutDashboard,
   Filter,
   BarChart3,
@@ -90,6 +91,10 @@ export const CRM_NAV_SECTIONS: CrmNavSection[] = [
       { id: 'leads', label: 'Leads', href: '/leads', icon: Users, permissionModule: 'leads' },
       { id: 'campaigns', label: 'Campaigns', href: '/campaigns', icon: Megaphone, permissionModule: 'campaigns' },
       { id: 'meetings', label: 'Meetings', href: '/meetings', icon: CalendarDays, permissionModule: 'activities' },
+      // No `permissionModule`: the calendar shows meetings *and* tasks and
+      // is authorized against both inside the handler, so gating the link on
+      // either one would hide it from somebody who can legitimately use it.
+      { id: 'calendar', label: 'Calendar', href: '/calendar', icon: CalendarRange },
       { id: 'emails', label: 'Email', href: '/emails', icon: Mail, permissionModule: 'emails' },
     ],
   },

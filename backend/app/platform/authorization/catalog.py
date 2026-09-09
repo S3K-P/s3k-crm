@@ -78,6 +78,26 @@ PERMISSION_MODULES: Final[tuple[str, ...]] = (
     #: else: a record's custom *values* live in the record and stay behind that
     #: record's module permission and record-level visibility.
     "custom_fields",
+    #: Saved list views: a named set of filters, columns and ordering.
+    #:
+    #: What this module governs is the saved *question*, not its answer.
+    #: Holding ``views.VIEW`` grants sight of no record whatsoever — running a
+    #: view goes through the record type's own list endpoint, behind that
+    #: module's permission and record-level visibility, so two colleagues
+    #: opening one shared view legitimately see different rows.
+    #:
+    #: ``VIEW_ALL`` has a second meaning here beyond the usual one: it is what
+    #: lets a manager edit or delete a view somebody else owns. Reusing the
+    #: existing grant rather than inventing a ``views.MANAGE`` that nobody
+    #: would think to grant.
+    #:
+    #: There is deliberately no ``calendar`` or ``merge`` module. The calendar
+    #: shows meetings and tasks and is authorized against ``activities.VIEW``
+    #: and ``tasks.VIEW``; merging is an edit plus a deletion and is authorized
+    #: against the record's own ``EDIT`` *and* ``DELETE``. A permission of
+    #: their own would in both cases be a grant that could be held *without*
+    #: the ones it is built from — which is to say, a way around them.
+    "views",
 )
 
 #: Actions available on every module (doc 04 ``PermissionAction``).
@@ -125,6 +145,11 @@ _CRM_MODULES: Final[tuple[str, ...]] = (
     "reports",
     "market_insights",
     "emails",
+    #: Every role may keep its own views. Sharing one is a decision made per
+    #: view through its ``visibility``, not a permission an administrator
+    #: hands out — a rep who cannot save a list view of their own pipeline is
+    #: a rep the feature does not exist for.
+    "views",
 )
 
 _MANAGER_ACTIONS: Final = (
@@ -170,6 +195,11 @@ def _user_permissions() -> tuple[str, ...]:
     #: form renderable. Without it every rep's form would be missing whatever
     #: their own administrator added.
     codes.append(permission_code("custom_fields", PermissionAction.VIEW))
+    #: A rep deletes their own saved views. ``views.DELETE`` reads alarming
+    #: beside the CRM modules, where it retires customer records — here it
+    #: removes a saved question and touches no record at all, and the service
+    #: still refuses to let anyone delete a colleague's without ``VIEW_ALL``.
+    codes.append(permission_code("views", PermissionAction.DELETE))
     return tuple(codes)
 
 

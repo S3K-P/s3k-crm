@@ -2,13 +2,15 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Building2, Plus, Pencil, Trash2, Loader2, Upload } from 'lucide-react';
+import { Building2, GitMerge, Loader2, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess, notifyWarning } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
+import MergeDialog from '@/components/crm/dialogs/MergeDialog';
+import SavedViewPicker from '@/components/crm/toolbar/SavedViewPicker';
 import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
@@ -74,6 +76,12 @@ export default function AccountsPage() {
   const [importOpen, setImportOpen] = useState(false);
   const mayEdit = can('accounts', 'EDIT');
   const mayDelete = can('accounts', 'DELETE');
+  // Merging is an edit *and* a deletion, so the control is offered only to
+  // somebody holding both — the same pair the endpoint demands. Hiding it
+  // protects nothing on its own; it stops offering a button that would 403.
+  const mayMerge = mayEdit && mayDelete;
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [mergeOpen, setMergeOpen] = useState(false);
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -198,6 +206,32 @@ export default function AccountsPage() {
 
   const columns = useMemo<ColumnDef<Account>[]>(
     () => [
+      ...(mayMerge
+        ? [
+            {
+              key: 'select',
+              label: '',
+              minWidth: '36px',
+              render: (row: Account) => (
+                <input
+                  type="checkbox"
+                  aria-label={`Select ${row.name}`}
+                  checked={selectedIds.has(row.id)}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={(event) => {
+                    // A new Set each time: mutating the held one would not
+                    // change its identity and React would not re-render.
+                    const next = new Set(selectedIds);
+                    if (event.target.checked) next.add(row.id);
+                    else next.delete(row.id);
+                    setSelectedIds(next);
+                  }}
+                  className="h-3.5 w-3.5"
+                />
+              ),
+            } satisfies ColumnDef<Account>,
+          ]
+        : []),
       { key: 'name', label: 'Account', minWidth: '200px' },
       {
         key: 'industry',
@@ -258,7 +292,7 @@ export default function AccountsPage() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mayEdit, mayDelete],
+    [mayEdit, mayDelete, mayMerge, selectedIds],
   );
 
   return (
@@ -288,6 +322,19 @@ export default function AccountsPage() {
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <SavedViewPicker
+          entityType="ACCOUNT"
+          current={{ search: search.trim() || null, status: statusFilter || null }}
+          onApply={(params) => {
+            // A view carries filters only; the screen owns its own state, so
+            // applying one means setting that state rather than short-
+            // circuiting the fetch. Anything the view does not mention is
+            // cleared, so switching views cannot leave a stale filter behind.
+            setSearch(typeof params.search === 'string' ? params.search : '');
+            setStatusFilter(typeof params.status === 'string' ? params.status : '');
+            setPage(1);
+          }}
+        />
         <SearchInput
           value={search}
           onChange={(event) => {
@@ -340,6 +387,28 @@ export default function AccountsPage() {
         onImported={reload}
       />
 
+      {mayMerge && selectedIds.size > 1 && (
+        <div className="ctl mb-3 flex flex-wrap items-center gap-3 rounded-lg px-4 py-2.5">
+          <span className="txt text-[13px] font-semibold">
+            {selectedIds.size} selected
+          </span>
+          <button
+            type="button"
+            onClick={() => setMergeOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold text-white transition hover:opacity-90"
+            style={{ background: 'var(--accent)' }}
+          >
+            <GitMerge className="h-3.5 w-3.5" /> Merge duplicates
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedIds(new Set())}
+            className="txt-faint text-[12px] underline transition hover:opacity-70"
+          >
+            Clear selection
+          </button>
+        </div>
+      )}
       {status === 'error' && error !== null ? (
         <ListError message={error} onRetry={reload} />
       ) : (
@@ -456,6 +525,38 @@ export default function AccountsPage() {
           />
         </div>
       </SlideDrawer>
+      {mergeOpen && selectedIds.size > 1 && (
+        <MergeDialog
+          open={mergeOpen}
+          onClose={() => setMergeOpen(false)}
+          entity="accounts"
+          // The first selected row survives. Which one that is matters, so the
+          // dialog names it and the conflict list lets every field be taken
+          // from any of the others.
+          primary={mergeCandidates(items, selectedIds)[0]}
+          duplicates={mergeCandidates(items, selectedIds).slice(1)}
+          onMerged={() => {
+            setSelectedIds(new Set());
+            reload();
+          }}
+        />
+      )}
     </div>
   );
+}
+
+/**
+ * The selected rows, as the merge dialog wants them.
+ *
+ * Ordered by the table's own order rather than by click order, so "the first
+ * one survives" means the topmost row on screen — which is what a person
+ * reading the list expects, and is stable if they click around.
+ */
+function mergeCandidates(
+  rows: Account[],
+  selected: Set<string>,
+): { id: string; label: string }[] {
+  return rows
+    .filter((row) => selected.has(row.id))
+    .map((row) => ({ id: row.id, label: row.name }));
 }

@@ -104,6 +104,9 @@ _TENANT_SCOPED_STATEMENTS_TO_CLEAN = (
     "DELETE FROM crm.pipeline_stages",
     "DELETE FROM crm.pipelines",
     "DELETE FROM crm.accounts",
+    # Saved views reference nothing and nothing references them — a view holds
+    # a question, not rows — so the position here is only for readability.
+    "DELETE FROM crm.saved_views",
     # Custom fields before the picklists they reference: the foreign key is
     # RESTRICT, so a definition still pointing at a list would block the list's
     # deletion, and options before their list because that one cascades.

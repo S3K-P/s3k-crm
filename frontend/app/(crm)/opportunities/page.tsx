@@ -10,6 +10,7 @@ import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
+import SavedViewPicker from '@/components/crm/toolbar/SavedViewPicker';
 import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
@@ -537,6 +538,19 @@ function OpportunitiesPageContent() {
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <SavedViewPicker
+          entityType="OPPORTUNITY"
+          current={{ search: search.trim() || null, stage_id: stageFilter || null }}
+          onApply={(params) => {
+            // A view carries filters only; the screen owns its own state, so
+            // applying one means setting that state rather than short-
+            // circuiting the fetch. Anything the view does not mention is
+            // cleared, so switching views cannot leave a stale filter behind.
+            setSearch(typeof params.search === 'string' ? params.search : '');
+            setStageFilter(typeof params.stage_id === 'string' ? params.stage_id : '');
+            setPage(1);
+          }}
+        />
         <SearchInput
           value={search}
           onChange={(event) => {

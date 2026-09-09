@@ -113,6 +113,49 @@ class ActivityService(TenantScopedService[Activity]):
         )
         return {meeting.activity_id: meeting for meeting in result.scalars().all()}
 
+    async def scheduled_between(
+        self,
+        organization_id: uuid.UUID,
+        *,
+        start: dt.datetime,
+        end: dt.datetime,
+        owner_id: uuid.UUID | None = None,
+        limit: int = 2_000,
+    ) -> Sequence[tuple[Activity, Meeting]]:
+        """Meetings whose scheduled window overlaps ``[start, end)`` (Phase F).
+
+        Lives here rather than in the calendar module because this module owns
+        both tables: ``crm.meetings`` carries no tenant column of its own and
+        is only ever safe to read through its parent activity, which this join
+        does inside the organization filter.
+
+        **Overlap, not containment.** A meeting that starts before the window
+        and ends inside it belongs on the grid — a Monday-morning view has to
+        show the call that began on Sunday night. The condition is therefore
+        ``start_time < end AND coalesce(end_time, start_time) >= start``, which
+        is the standard half-open overlap and treats a meeting with no end time
+        as an instant rather than as one running forever.
+
+        ``limit`` bounds a request for an absurd range. A month of a busy
+        team's meetings is in the low hundreds; two thousand is far above that
+        and low enough that a client asking for a decade gets a bounded answer
+        instead of the whole table.
+        """
+        result = await self._session.execute(
+            select(Activity, Meeting)
+            .join(Meeting, Meeting.activity_id == Activity.id)
+            .where(
+                Activity.organization_id == organization_id,
+                Activity.deleted_at.is_(None),
+                Meeting.start_time < end,
+                func.coalesce(Meeting.end_time, Meeting.start_time) >= start,
+                *([Activity.owner_id == owner_id] if owner_id is not None else []),
+            )
+            .order_by(Meeting.start_time.asc())
+            .limit(limit)
+        )
+        return [(activity, meeting) for activity, meeting in result.all()]
+
     async def timeline(
         self,
         organization_id: uuid.UUID,
