@@ -16,6 +16,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Any
 
 import structlog
 from sqlalchemy import ColumnElement, func, or_, select
@@ -23,7 +24,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
 from app.platform.audit.service import Action as AuditAction
+from app.platform.auth.dependencies import Principal
 from app.products.crm.accounts.models import Account
+from app.products.crm.blueprints.enforcement import BlueprintGuard
+from app.products.crm.blueprints.models import BlueprintField
+from app.products.crm.common import CrmEntityType
 from app.products.crm.contacts.models import Contact
 from app.products.crm.leads.models import Lead, LeadStatus
 from app.products.crm.opportunities.models import Opportunity, PipelineStage
@@ -38,9 +43,7 @@ logger = structlog.get_logger(__name__)
 #: an open stage; CONVERTED is reachable only through :meth:`LeadService.convert`,
 #: never by a direct status edit, so it is absent from every source list here.
 LEAD_TRANSITIONS: dict[LeadStatus, frozenset[LeadStatus]] = {
-    LeadStatus.NEW: frozenset(
-        {LeadStatus.CONTACTED, LeadStatus.UNQUALIFIED, LeadStatus.LOST}
-    ),
+    LeadStatus.NEW: frozenset({LeadStatus.CONTACTED, LeadStatus.UNQUALIFIED, LeadStatus.LOST}),
     LeadStatus.CONTACTED: frozenset(
         {LeadStatus.QUALIFIED, LeadStatus.UNQUALIFIED, LeadStatus.LOST}
     ),
@@ -116,6 +119,10 @@ class ConversionSuggestions:
 
 class LeadService(TenantScopedService[Lead]):
     entity_name = "Lead"
+    #: Opts this entity into tenant-defined fields (Phase E). Declaring it
+    #: is the whole wiring: the base class validates and merges
+    #: ``custom_fields`` on every create and update from here on.
+    crm_entity_type = CrmEntityType.LEAD
 
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(TenantScopedRepository(session, Lead), Lead)
@@ -157,9 +164,14 @@ class LeadService(TenantScopedService[Lead]):
         params: PageParams,
         filters: Sequence[ColumnElement[bool]] = (),
         visibility: RecordVisibility | None = None,
+        sort_column: ColumnElement[Any] | None = None,
     ) -> tuple[Sequence[Lead], int]:
         return await self.list(
-            organization_id, params=params, filters=filters, visibility=visibility
+            organization_id,
+            params=params,
+            filters=filters,
+            visibility=visibility,
+            sort_column=sort_column,
         )
 
     async def create_lead(
@@ -178,13 +190,9 @@ class LeadService(TenantScopedService[Lead]):
             and await self._open_email_exists(organization_id, str(email))
         ):
             raise DuplicateLeadEmailError
-        return await self.create(
-            organization_id=organization_id, actor_id=actor_id, values=values
-        )
+        return await self.create(organization_id=organization_id, actor_id=actor_id, values=values)
 
-    async def conversion_suggestions(
-        self, lead: Lead
-    ) -> ConversionSuggestions:
+    async def conversion_suggestions(self, lead: Lead) -> ConversionSuggestions:
         """Find existing accounts/contacts the convert UI should offer to link."""
         account_name = (lead.company or lead.full_name).strip()
         accounts = await self._find_accounts_by_name(lead.organization_id, account_name)
@@ -198,9 +206,7 @@ class LeadService(TenantScopedService[Lead]):
                     contacts.append(contact)
                     seen.add(contact.id)
         if lead.phone:
-            for contact in await self._find_contacts_by_phone(
-                lead.organization_id, lead.phone
-            ):
+            for contact in await self._find_contacts_by_phone(lead.organization_id, lead.phone):
                 if contact.id not in seen:
                     contacts.append(contact)
                     seen.add(contact.id)
@@ -542,9 +548,7 @@ class LeadService(TenantScopedService[Lead]):
             .where(
                 Lead.organization_id == organization_id,
                 Lead.deleted_at.is_(None),
-                Lead.status.notin_(
-                    (LeadStatus.CONVERTED, LeadStatus.LOST, LeadStatus.UNQUALIFIED)
-                ),
+                Lead.status.notin_((LeadStatus.CONVERTED, LeadStatus.LOST, LeadStatus.UNQUALIFIED)),
                 func.lower(Lead.email) == email.strip().lower(),
             )
         )
@@ -571,14 +575,24 @@ class LeadService(TenantScopedService[Lead]):
         new_status: LeadStatus,
         actor_id: uuid.UUID | None,
         lost_reason: str | None = None,
+        principal: Principal | None = None,
     ) -> Lead:
         """Move a lead through the pipeline.
+
+        ``principal`` is optional so an internal caller with no request behind
+        it — a background job, a data fix — can still move a lead. It is used
+        only for a blueprint transition's ``required_permission``; the field
+        and note requirements hold however the change arrived, because those
+        are about the record being complete rather than about who is asking.
 
         Raises:
             InvalidLeadTransitionError: the move is not legal from the current
                 status, including any attempt to set CONVERTED directly —
                 conversion must go through :meth:`convert` so the account and
                 contact are actually created.
+            BlueprintTransitionBlockedError: the move is legal but the
+                organization's own process refuses it, or its requirements are
+                not yet met.
         """
         if new_status is lead.status:
             return lead
@@ -594,6 +608,20 @@ class LeadService(TenantScopedService[Lead]):
                     "allowed": sorted(status.value for status in allowed),
                 },
             )
+
+        # The tenant's own process, applied *after* the built-in machine has
+        # approved the move (Phase G). The order is the guarantee: a blueprint
+        # narrows what the product allows and can never widen it, so an
+        # administrator cannot configure their way past the rule above.
+        await BlueprintGuard(self._session).check(
+            organization_id=lead.organization_id,
+            field=BlueprintField.LEAD_STATUS,
+            record=lead,
+            from_state=previous_status.value,
+            to_state=new_status.value,
+            principal=principal,
+            note=lost_reason,
+        )
 
         lead.status = new_status
         if new_status in (LeadStatus.LOST, LeadStatus.UNQUALIFIED):

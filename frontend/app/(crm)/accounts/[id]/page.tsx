@@ -8,7 +8,9 @@ import StatusBadge from '@/components/crm/shared/StatusBadge';
 import { humanize, statusVariant } from '@/components/crm/shared/statusVariants';
 import { ListError } from '@/components/crm/shared/ListStates';
 import AttachmentsPanel from '@/components/crm/shared/AttachmentsPanel';
+import CustomFieldsPanel from '@/components/crm/shared/CustomFieldsPanel';
 import { ActivityTimelinePanel, NotesPanel } from '@/components/crm/shared/RecordPanels';
+import EmailsPanel from '@/components/crm/emails/EmailsPanel';
 import {
   AccountContactsPanel,
   AccountOpportunitiesPanel,
@@ -171,6 +173,8 @@ export default function AccountDetailPage() {
         )}
       </div>
 
+      <CustomFieldsPanel entityType="ACCOUNT" values={account.custom_fields} />
+
       <div className="grid gap-6 lg:grid-cols-2">
         <AccountContactsPanel accountId={account.id} />
         <AccountOpportunitiesPanel accountId={account.id} />
@@ -178,6 +182,7 @@ export default function AccountDetailPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <ActivityTimelinePanel entityType="ACCOUNT" entityId={account.id} />
+        <EmailsPanel entityType="ACCOUNT" entityId={account.id} />
         <NotesPanel entityType="ACCOUNT" entityId={account.id} />
         <AttachmentsPanel entityType="ACCOUNT" entityId={account.id} />
       </div>

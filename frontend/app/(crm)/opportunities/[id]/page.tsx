@@ -8,7 +8,9 @@ import SectionHeader from '@/components/crm/shared/SectionHeader';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
 import { ListError } from '@/components/crm/shared/ListStates';
 import AttachmentsPanel from '@/components/crm/shared/AttachmentsPanel';
+import CustomFieldsPanel from '@/components/crm/shared/CustomFieldsPanel';
 import { ActivityTimelinePanel, NotesPanel } from '@/components/crm/shared/RecordPanels';
+import EmailsPanel from '@/components/crm/emails/EmailsPanel';
 import { useRecord } from '@/components/crm/shared/useRecord';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
@@ -417,8 +419,11 @@ export default function OpportunityDetailPage() {
         </div>
       </div>
 
+      <CustomFieldsPanel entityType="OPPORTUNITY" values={opportunity.custom_fields} />
+
       <div className="grid gap-6 lg:grid-cols-2">
         <ActivityTimelinePanel entityType="OPPORTUNITY" entityId={opportunity.id} />
+        <EmailsPanel entityType="OPPORTUNITY" entityId={opportunity.id} />
         <NotesPanel entityType="OPPORTUNITY" entityId={opportunity.id} />
         <AttachmentsPanel entityType="OPPORTUNITY" entityId={opportunity.id} />
       </div>

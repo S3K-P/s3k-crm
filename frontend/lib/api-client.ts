@@ -47,8 +47,31 @@ let organizationId: string | null = null;
 /** Set by the auth provider so a failed refresh can end the session. */
 let onSessionExpired: (() => void) | null = null;
 
+/**
+ * Which session the tab is on, counted rather than named.
+ *
+ * Bumped by every *deliberate* transition — a sign-in, a sign-up, a sign-out —
+ * and never by a refresh, because a rotation replaces a token without
+ * replacing the session. A request captures this before it goes on the wire so
+ * that, when it comes back, it can tell whether the session it belonged to is
+ * still the current one. See the 401 branch of `sendAuthenticated`.
+ */
+let sessionGeneration = 0;
+
 export function setAccessToken(token: string | null): void {
   accessToken = token;
+  sessionGeneration += 1;
+}
+
+/**
+ * Read the current generation.
+ *
+ * For callers that `await` something and then act on the answer: capture this
+ * first, compare it after, and do nothing if it moved. The answer was about a
+ * session that has since been replaced.
+ */
+export function currentSessionGeneration(): number {
+  return sessionGeneration;
 }
 
 export function setOrganizationId(id: string | null): void {
@@ -219,6 +242,9 @@ async function sendAuthenticated(
     });
   };
 
+  // Captured before the request leaves, and compared after — see below.
+  const generation = sessionGeneration;
+
   let response = await send();
 
   if (response.status === 401 && !skipRefresh) {
@@ -226,8 +252,20 @@ async function sendAuthenticated(
     if (refreshed !== null) {
       response = await send();
     } else {
-      accessToken = null;
-      onSessionExpired?.();
+      // Ending *this request's* session, not whichever one is current.
+      //
+      // A request can outlive the session it was issued for: sign out, and an
+      // in-flight call 401s, asks for a refresh, and is refused — correctly,
+      // the cookie is gone. If somebody has signed in again in the meantime,
+      // that refusal is old news, and acting on it signs the new person
+      // straight back out. It is a narrow window and an ugly one, because the
+      // sign-in visibly succeeds and is then undone.
+      //
+      // The request still fails — it did — but it fails alone.
+      if (generation === sessionGeneration) {
+        accessToken = null;
+        onSessionExpired?.();
+      }
       throw await parseError(response);
     }
   }

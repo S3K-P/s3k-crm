@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.products.crm.contacts.models import ContactStatus
+from app.products.crm.shared.schemas import CustomFieldValues
 
 
 class ContactBase(BaseModel):
@@ -40,6 +42,10 @@ class ContactCreate(ContactBase):
 
     #: Promote this contact to primary on its account, demoting the incumbent.
     is_primary: bool = False
+    #: Tenant-defined values, validated against this organization's own field
+    #: definitions. Absent means "apply the configured defaults"; a supplied
+    #: object is merged over them.
+    custom_fields: CustomFieldValues | None = None
 
 
 class ContactUpdate(BaseModel):
@@ -64,6 +70,10 @@ class ContactUpdate(BaseModel):
     postal_code: str | None = Field(default=None, max_length=32)
     country: str | None = Field(default=None, max_length=120)
     is_primary: bool | None = None
+    #: Tenant-defined values. Absent leaves the whole document untouched — an
+    #: empty object is what clears it — so patching one built-in column cannot
+    #: wipe a record's custom fields.
+    custom_fields: CustomFieldValues | None = None
 
 
 class ContactResponse(BaseModel):
@@ -95,6 +105,8 @@ class ContactResponse(BaseModel):
     updated_at: dt.datetime
     created_by_id: uuid.UUID | None
     updated_by_id: uuid.UUID | None
+    #: Never absent: the column is NOT NULL DEFAULT '{}'.
+    custom_fields: dict[str, Any] = Field(default_factory=dict)
 
 
 __all__ = ["ContactCreate", "ContactResponse", "ContactUpdate"]

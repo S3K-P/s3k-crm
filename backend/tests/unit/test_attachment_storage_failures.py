@@ -61,6 +61,9 @@ class FakeStorage:
     """An in-memory ``ObjectStorage`` whose failures are controllable."""
 
     objects: dict[str, StorageObject] = field(default_factory=dict)
+    #: Bytes, kept separately from ``objects`` because ``StorageObject`` is
+    #: metadata — size, type, etag — and deliberately carries no content.
+    contents: dict[str, bytes] = field(default_factory=dict)
     deleted: list[str] = field(default_factory=list)
     fail_on: set[str] = field(default_factory=set)
 
@@ -96,6 +99,17 @@ class FakeStorage:
             raise StorageUnavailableError
         self.deleted.append(key)
         self.objects.pop(key, None)
+        self.contents.pop(key, None)
+
+    async def get_object(self, key: str) -> bytes:
+        if "get_object" in self.fail_on:
+            raise StorageUnavailableError
+        content = self.contents.get(key)
+        if content is None:
+            # A key with no bytes behind it is a failure on this path, not a
+            # ``None`` — the caller holds a row asserting the object exists.
+            raise StorageUnavailableError
+        return content
 
 
 def test_the_double_satisfies_the_storage_protocol() -> None:

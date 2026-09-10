@@ -68,7 +68,22 @@ export const getEmailDeliverySummary = () =>
    ------------------------------------------------------------------ */
 
 /** `meeting_reminder` → `Meeting reminder`. */
+/**
+ * Names that do not survive being de-underscored into a sentence.
+ *
+ * `crm_email` would otherwise read "Crm email", and it is also the one entry
+ * here that is not a template at all: user-authored mail has no template — the
+ * body came from a person — and it appears in this log because an
+ * administrator asking "is our mail going out" wants the sales email in that
+ * answer too.
+ */
+const TEMPLATE_LABELS: Record<string, string> = {
+  crm_email: 'Customer email',
+};
+
 export function templateLabel(template: string): string {
+  const known = TEMPLATE_LABELS[template];
+  if (known) return known;
   const lower = template.replace(/_/g, ' ').toLowerCase();
   return lower.charAt(0).toUpperCase() + lower.slice(1);
 }

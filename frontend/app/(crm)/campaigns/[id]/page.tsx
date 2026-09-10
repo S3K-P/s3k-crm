@@ -9,7 +9,9 @@ import StatusBadge from '@/components/crm/shared/StatusBadge';
 import { humanize, statusVariant } from '@/components/crm/shared/statusVariants';
 import { FormError, ListError } from '@/components/crm/shared/ListStates';
 import AttachmentsPanel from '@/components/crm/shared/AttachmentsPanel';
+import CustomFieldsPanel from '@/components/crm/shared/CustomFieldsPanel';
 import { ActivityTimelinePanel, NotesPanel } from '@/components/crm/shared/RecordPanels';
+import EmailsPanel from '@/components/crm/emails/EmailsPanel';
 import NotConfigured from '@/components/crm/shared/NotConfigured';
 import { useRecord } from '@/components/crm/shared/useRecord';
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
@@ -355,8 +357,11 @@ export default function CampaignDetailPage() {
         </div>
       </div>
 
+      <CustomFieldsPanel entityType="CAMPAIGN" values={campaign.custom_fields} />
+
       <div className="grid gap-6 lg:grid-cols-2">
         <ActivityTimelinePanel entityType="CAMPAIGN" entityId={campaign.id} />
+        <EmailsPanel entityType="CAMPAIGN" entityId={campaign.id} />
         <NotesPanel entityType="CAMPAIGN" entityId={campaign.id} />
         <AttachmentsPanel entityType="CAMPAIGN" entityId={campaign.id} />
       </div>

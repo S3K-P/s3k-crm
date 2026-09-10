@@ -37,6 +37,11 @@ from sqlalchemy.orm import class_mapper
 from app.core.exceptions import NotFoundError
 from app.platform.audit.service import Action as AuditAction
 from app.platform.audit.service import AuditService, audit_for_session
+from app.products.crm.common import CrmEntityType
+from app.products.crm.shared.custom_field_hook import (
+    custom_field_defaults,
+    resolve_custom_fields,
+)
 from app.products.crm.shared.pagination import PageParams
 from app.products.crm.shared.repository import TenantOwnedModel, TenantScopedRepository
 from app.products.crm.shared.visibility import RecordVisibility
@@ -83,6 +88,18 @@ class TenantScopedService[ModelT: TenantOwnedModel]:
 
     #: Human-readable name used in 404 messages.
     entity_name: str = "Record"
+
+    #: Which ``CrmEntityType`` this service's records are, when they support
+    #: tenant-defined fields (Phase E). ``None`` — the default — means the
+    #: entity has none, and every custom-field code path below is skipped
+    #: entirely, so a module that never opted in pays nothing for the feature.
+    #:
+    #: Set on a subclass and custom values are validated on every create and
+    #: update of that entity, here, in the funnel every write already passes
+    #: through. That placement is the guarantee: there is no per-module call to
+    #: forget, and no way to add a write path that stores a custom value
+    #: nothing checked.
+    crm_entity_type: CrmEntityType | None = None
 
     def __init__(self, repository: TenantScopedRepository[ModelT], model: type[ModelT]) -> None:
         self._repository = repository
@@ -166,17 +183,23 @@ class TenantScopedService[ModelT: TenantOwnedModel]:
         params: PageParams,
         filters: Sequence[ColumnElement[bool]] = (),
         visibility: RecordVisibility | None = None,
+        sort_column: ColumnElement[Any] | None = None,
     ) -> tuple[Sequence[ModelT], int]:
+        """One page of rows, plus the total matching count.
+
+        ``sort_column`` overrides the ``sort_by`` name for the one case a name
+        cannot express: ordering by a tenant-defined field. It is built from
+        that field's definition by the caller, never from the request.
+        """
         return await self._repository.list(
             organization_id,
             params=params,
             filters=filters,
             visibility=self._visibility_filter(visibility),
+            sort_column=sort_column,
         )
 
-    def _visibility_filter(
-        self, visibility: RecordVisibility | None
-    ) -> ColumnElement[bool] | None:
+    def _visibility_filter(self, visibility: RecordVisibility | None) -> ColumnElement[bool] | None:
         """Translate a resolved visibility into a predicate, or nothing.
 
         ``None`` means the caller did not ask for record-level narrowing —
@@ -243,6 +266,18 @@ class TenantScopedService[ModelT: TenantOwnedModel]:
         payload.pop("updated_by_id", None)
         payload.pop("id", None)
 
+        if self.crm_entity_type is not None:
+            payload["custom_fields"] = await self._resolve_custom_fields(
+                organization_id=organization_id,
+                submitted=payload.get("custom_fields"),
+                existing=await custom_field_defaults(
+                    self._repository.session,
+                    organization_id=organization_id,
+                    entity_type=self.crm_entity_type,
+                ),
+                creating=True,
+            )
+
         # Ownership defaults to whoever created the record, on any model that
         # has the column. Without this a rep creating a lead and not picking an
         # owner would produce an unowned row — and under record-level
@@ -288,6 +323,18 @@ class TenantScopedService[ModelT: TenantOwnedModel]:
         identical values therefore records nothing — see
         ``AuditService.record_change``.
         """
+        values = dict(values)
+        if self.crm_entity_type is not None and "custom_fields" in values:
+            # Merged against what the record already holds, so a PATCH that
+            # names one custom field does not erase the others — the same
+            # partial-update semantics the built-in columns have.
+            values["custom_fields"] = await self._resolve_custom_fields(
+                organization_id=cast("uuid.UUID", entity.organization_id),
+                submitted=values["custom_fields"],
+                existing=dict(getattr(entity, "custom_fields", None) or {}),
+                creating=False,
+            )
+
         touched = [field for field in values if field not in _AUDIT_IGNORED_COLUMNS]
         before = self._audit_snapshot(entity, fields=touched)
 
@@ -332,6 +379,35 @@ class TenantScopedService[ModelT: TenantOwnedModel]:
             details={"deleted_at": deleted.deleted_at, "soft": True},
         )
         return deleted
+
+    # --- Custom fields -----------------------------------------------------
+
+    async def _resolve_custom_fields(
+        self,
+        *,
+        organization_id: uuid.UUID,
+        submitted: Any,
+        existing: Mapping[str, Any] | None,
+        creating: bool,
+    ) -> dict[str, Any]:
+        """Validate submitted custom values and return the document to store.
+
+        Delegates through :mod:`~app.products.crm.shared.custom_field_hook`,
+        which is what keeps this module free of an import it may not make. The
+        assertion on ``crm_entity_type`` is for the type checker: both callers
+        guard on it, and a subclass that reached here without one would be a
+        programming error rather than a request the user could make.
+        """
+        entity_type = self.crm_entity_type
+        assert entity_type is not None  # noqa: S101 - guarded by both callers
+        return await resolve_custom_fields(
+            self._repository.session,
+            organization_id=organization_id,
+            entity_type=entity_type,
+            submitted=submitted if isinstance(submitted, Mapping) else None,
+            existing=existing,
+            creating=creating,
+        )
 
     # --- Audit internals ---------------------------------------------------
 

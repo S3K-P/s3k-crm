@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from app.core.database import DbSession
 from app.platform.auth.dependencies import Principal, require_permission
 from app.platform.authorization.service import Action as PermissionAction
-from app.products.crm.campaigns.models import CampaignStatus, CampaignType
+from app.products.crm.campaigns.models import Campaign, CampaignStatus, CampaignType
 from app.products.crm.campaigns.schemas import (
     CampaignCreate,
     CampaignMemberCreate,
@@ -19,6 +19,8 @@ from app.products.crm.campaigns.schemas import (
     CampaignUpdate,
 )
 from app.products.crm.campaigns.service import CampaignService
+from app.products.crm.common import CrmEntityType
+from app.products.crm.custom_fields.query import CustomFieldQueryDep
 from app.products.crm.shared.pagination import Page, PageParams, page_params
 
 router = APIRouter()
@@ -39,17 +41,34 @@ async def list_campaigns(
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
     service: ServiceDep,
     params: PageParamsDep,
+    custom: CustomFieldQueryDep,
     search: Annotated[str | None, Query(max_length=255)] = None,
     campaign_status: Annotated[CampaignStatus | None, Query(alias="status")] = None,
     campaign_type: Annotated[CampaignType | None, Query(alias="type")] = None,
     owner_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> Page[CampaignResponse]:
-    """List campaigns with their enrolled-member counts."""
+    """List campaigns with their enrolled-member counts.
+
+    Tenant-defined fields participate: ``?cf_<api_name>=`` filters on one,
+    ``?cf_<api_name>__gte=`` and friends compare, and ``?sort_by=cf_<api_name>``
+    orders by one. Names are resolved against this organization's own
+    definitions before any SQL is built (``custom_fields/query.py``), so an
+    unrecognised one is a 422 rather than a filter on nothing.
+    """
     filters = service.build_filters(
         search=search, status=campaign_status, campaign_type=campaign_type, owner_id=owner_id
     )
+    custom_filters, custom_sort = await custom.resolve(
+        Campaign,
+        organization_id=principal.organization_id,
+        entity_type=CrmEntityType.CAMPAIGN,
+    )
+    filters = [*filters, *custom_filters]
     items, total = await service.list_campaigns(
-        principal.organization_id, params=params, filters=filters
+        principal.organization_id,
+        params=params,
+        filters=filters,
+        sort_column=custom_sort,
     )
     counts = await service.member_counts(principal.organization_id)
 
@@ -135,9 +154,7 @@ async def add_campaign_member(
     return CampaignMemberResponse.model_validate(member)
 
 
-@router.delete(
-    "/{campaign_id}/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT
-)
+@router.delete("/{campaign_id}/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_campaign_member(
     campaign_id: uuid.UUID,
     member_id: uuid.UUID,

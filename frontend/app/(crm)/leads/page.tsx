@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Users, Plus, Pencil, Trash2, Loader2, LayoutList, LayoutGrid, Upload,
+  Users, Plus, Pencil, Trash2, Loader2, LayoutList, LayoutGrid, Upload, GitMerge,
 } from 'lucide-react';
 
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
@@ -12,6 +12,8 @@ import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess, notifyWarning } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
+import MergeDialog from '@/components/crm/dialogs/MergeDialog';
+import SavedViewPicker from '@/components/crm/toolbar/SavedViewPicker';
 import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
@@ -19,6 +21,8 @@ import { humanize, statusVariant } from '@/components/crm/shared/statusVariants'
 import { FormError, ListEmpty, ListError, ResultCount } from '@/components/crm/shared/ListStates';
 import ImportWizard from '@/components/crm/import/ImportWizard';
 import ExportButton from '@/components/crm/toolbar/ExportButton';
+import CustomFieldInputs from '@/components/crm/forms/CustomFieldInputs';
+import { changedValues, type CustomFieldValues } from '@/features/crm/custom-fields';
 import { usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
 import { useQueryFilter } from '@/features/shared/hooks/useQueryFilter';
@@ -99,6 +103,12 @@ export default function LeadsPage() {
   const [importOpen, setImportOpen] = useState(false);
   const mayEdit = can('leads', 'EDIT');
   const mayDelete = can('leads', 'DELETE');
+  // Merging is an edit *and* a deletion, so the control is offered only to
+  // somebody holding both — the same pair the endpoint demands. Hiding it
+  // protects nothing on its own; it stops offering a button that would 403.
+  const mayMerge = mayEdit && mayDelete;
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [mergeOpen, setMergeOpen] = useState(false);
   const mayViewSources = can('lead_sources', 'VIEW');
   const mayViewCampaigns = can('campaigns', 'VIEW');
   const mayViewMembers = can('users', 'VIEW');
@@ -197,6 +207,10 @@ export default function LeadsPage() {
   }, [mayViewCampaigns]);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Custom values are held apart from `form` because they are keyed by tenant
+  // data: folding them into a typed `LeadInput` would mean giving that
+  // interface an index signature, and losing every check on the real columns.
+  const [customValues, setCustomValues] = useState<CustomFieldValues>({});
   const [editing, setEditing] = useState<Lead | null>(null);
   const [form, setForm] = useState<LeadInput>(EMPTY_FORM);
   const [duplicateWarning, setDuplicateWarning] = useState(false);
@@ -204,6 +218,7 @@ export default function LeadsPage() {
   const [boardError, setBoardError] = useState<string | null>(null);
 
   const openAdd = () => {
+    setCustomValues({});
     setEditing(null);
     setForm(EMPTY_FORM);
     setDuplicateWarning(false);
@@ -212,6 +227,7 @@ export default function LeadsPage() {
   };
 
   const openEdit = (row: Lead) => {
+    setCustomValues(row.custom_fields ?? {});
     setEditing(row);
     setForm({
       first_name: row.first_name,
@@ -251,6 +267,12 @@ export default function LeadsPage() {
       product_interest: form.product_interest?.trim() || null,
       expected_deal_size: form.expected_deal_size || null,
       notes: form.notes?.trim() || null,
+      // Only what the user actually touched. Sending the whole document would
+      // be harmless but noisy; sending `{}` when they touched nothing would
+      // *clear* every custom value on the record.
+      ...(Object.keys(changedValues(customValues, editing?.custom_fields)).length > 0
+        ? { custom_fields: changedValues(customValues, editing?.custom_fields) }
+        : {}),
     };
     // Campaign attribution is create-only: `LeadUpdate` does not accept it,
     // so sending it on an edit would be silently discarded.
@@ -325,6 +347,32 @@ export default function LeadsPage() {
 
   const columns = useMemo<ColumnDef<Lead>[]>(
     () => [
+      ...(mayMerge
+        ? [
+            {
+              key: 'select',
+              label: '',
+              minWidth: '36px',
+              render: (row: Lead) => (
+                <input
+                  type="checkbox"
+                  aria-label={`Select ${`${row.first_name} ${row.last_name}`}`}
+                  checked={selectedIds.has(row.id)}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={(event) => {
+                    // A new Set each time: mutating the held one would not
+                    // change its identity and React would not re-render.
+                    const next = new Set(selectedIds);
+                    if (event.target.checked) next.add(row.id);
+                    else next.delete(row.id);
+                    setSelectedIds(next);
+                  }}
+                  className="h-3.5 w-3.5"
+                />
+              ),
+            } satisfies ColumnDef<Lead>,
+          ]
+        : []),
       {
         key: 'first_name',
         label: 'Name',
@@ -398,7 +446,7 @@ export default function LeadsPage() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mayEdit, mayDelete],
+    [mayEdit, mayDelete, mayMerge, selectedIds],
   );
 
   return (
@@ -450,6 +498,19 @@ export default function LeadsPage() {
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <SavedViewPicker
+          entityType="LEAD"
+          current={{ search: search.trim() || null, status: statusFilter || null }}
+          onApply={(params) => {
+            // A view carries filters only; the screen owns its own state, so
+            // applying one means setting that state rather than short-
+            // circuiting the fetch. Anything the view does not mention is
+            // cleared, so switching views cannot leave a stale filter behind.
+            setSearch(typeof params.search === 'string' ? params.search : '');
+            setStatusFilter(typeof params.status === 'string' ? params.status : '');
+            setPage(1);
+          }}
+        />
         <SearchInput
           value={search}
           onChange={(event) => {
@@ -508,6 +569,28 @@ export default function LeadsPage() {
         onImported={reload}
       />
 
+      {mayMerge && mergeCandidates(items, selectedIds).length > 1 && (
+        <div className="ctl mb-3 flex flex-wrap items-center gap-3 rounded-lg px-4 py-2.5">
+          <span className="txt text-[13px] font-semibold">
+            {mergeCandidates(items, selectedIds).length} selected
+          </span>
+          <button
+            type="button"
+            onClick={() => setMergeOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold text-white transition hover:opacity-90"
+            style={{ background: 'var(--accent)' }}
+          >
+            <GitMerge className="h-3.5 w-3.5" /> Merge duplicates
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedIds(new Set())}
+            className="txt-faint text-[12px] underline transition hover:opacity-70"
+          >
+            Clear selection
+          </button>
+        </div>
+      )}
       {status === 'error' && error !== null ? (
         <ListError message={error} onRetry={reload} />
       ) : view === 'table' ? (
@@ -728,8 +811,45 @@ export default function LeadsPage() {
             />
           </FormField>
           <FormError message={saveError} />
+          <CustomFieldInputs
+            entityType="LEAD"
+            values={customValues}
+            onChange={setCustomValues}
+          />
         </div>
       </SlideDrawer>
+      {mergeOpen && mergeCandidates(items, selectedIds).length > 1 && (
+        <MergeDialog
+          open={mergeOpen}
+          onClose={() => setMergeOpen(false)}
+          entity="leads"
+          // The first selected row survives. Which one that is matters, so the
+          // dialog names it and the conflict list lets every field be taken
+          // from any of the others.
+          primary={mergeCandidates(items, selectedIds)[0]}
+          duplicates={mergeCandidates(items, selectedIds).slice(1)}
+          onMerged={() => {
+            setSelectedIds(new Set());
+            reload();
+          }}
+        />
+      )}
     </div>
   );
+}
+
+/**
+ * The selected rows, as the merge dialog wants them.
+ *
+ * Ordered by the table's own order rather than by click order, so "the first
+ * one survives" means the topmost row on screen — which is what a person
+ * reading the list expects, and is stable if they click around.
+ */
+function mergeCandidates(
+  rows: Lead[],
+  selected: Set<string>,
+): { id: string; label: string }[] {
+  return rows
+    .filter((row) => selected.has(row.id))
+    .map((row) => ({ id: row.id, label: `${row.first_name} ${row.last_name}` }));
 }

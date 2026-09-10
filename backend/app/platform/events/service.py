@@ -292,6 +292,16 @@ __all__ = [
     "DrainResult",
     "EventDispatcher",
     "EventHandler",
+    #: Re-exported so a *product* can type the handler it registers.
+    #:
+    #: A handler's signature is ``(session, event)``, so writing one means
+    #: naming this class — and ARCHITECTURE-BOUNDARIES.md forbids a product
+    #: importing ``app.platform.events.models``. Re-exporting through the
+    #: service is how every other Platform type reaches a product, and it
+    #: keeps the rule intact rather than making an exception to it: the model
+    #: module stays private, and what a product may name is what this module
+    #: chooses to publish.
+    "OutboxEvent",
     "PermanentEventError",
     "backoff_delay",
     "clear_handlers",

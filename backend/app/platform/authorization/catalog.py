@@ -56,6 +56,64 @@ PERMISSION_MODULES: Final[tuple[str, ...]] = (
     #: AI company research (Market Insights). A CRM module: it reads CRM data
     #: and its sessions are owned by the rep who ran them.
     "market_insights",
+    #: User-authored mail and the templates it is composed from.
+    #:
+    #: One module for both, rather than ``emails`` and ``email_templates``.
+    #: The two are the same act to a user — you pick a template inside the
+    #: composer — and a role that could send mail but not read the templates
+    #: it offers would be a role nobody would deliberately create.
+    "emails",
+    #: Tenant-defined fields and the picklists they draw options from.
+    #:
+    #: One module for both, for the reason ``emails`` is one module for
+    #: messages and templates: a picklist exists to be a field's option set,
+    #: and a role that could define a field but not the list it offers would be
+    #: a role nobody would deliberately create.
+    #:
+    #: ``VIEW`` here is unusual in being granted to *every* system role, User
+    #: included, and it is worth saying why that is not a widening. Reading the
+    #: definitions is what makes a record form drawable at all — a rep who
+    #: cannot see that "Leads have a Region field" gets a form missing half its
+    #: inputs. It grants sight of the tenant's own configuration and of nothing
+    #: else: a record's custom *values* live in the record and stay behind that
+    #: record's module permission and record-level visibility.
+    "custom_fields",
+    #: Saved list views: a named set of filters, columns and ordering.
+    #:
+    #: What this module governs is the saved *question*, not its answer.
+    #: Holding ``views.VIEW`` grants sight of no record whatsoever — running a
+    #: view goes through the record type's own list endpoint, behind that
+    #: module's permission and record-level visibility, so two colleagues
+    #: opening one shared view legitimately see different rows.
+    #:
+    #: ``VIEW_ALL`` has a second meaning here beyond the usual one: it is what
+    #: lets a manager edit or delete a view somebody else owns. Reusing the
+    #: existing grant rather than inventing a ``views.MANAGE`` that nobody
+    #: would think to grant.
+    #:
+    #: There is deliberately no ``calendar`` or ``merge`` module. The calendar
+    #: shows meetings and tasks and is authorized against ``activities.VIEW``
+    #: and ``tasks.VIEW``; merging is an edit plus a deletion and is authorized
+    #: against the record's own ``EDIT`` *and* ``DELETE``. A permission of
+    #: their own would in both cases be a grant that could be held *without*
+    #: the ones it is built from — which is to say, a way around them.
+    "views",
+    #: Tenant-configured processes over a record's state field (Phase G).
+    #:
+    #: Configuring one is administration in the strongest sense the product
+    #: has: a blueprint decides what everybody *else* in the organization may
+    #: do with a record, which is a wider power than editing any single one. So
+    #: only Admin holds anything but ``VIEW``.
+    #:
+    #: ``VIEW`` goes to every role for the same reason ``custom_fields.VIEW``
+    #: does: a rep whose move was refused has to be able to see the rule that
+    #: stopped them and what would unblock it. Hiding it turns a clear 422 into
+    #: a mystery, and it grants sight of no record.
+    #:
+    #: A transition's ``required_permission`` is checked *in addition to* the
+    #: endpoint's own, so a blueprint can only ever narrow who may make a move
+    #: — never grant somebody one they could not otherwise make.
+    "blueprints",
 )
 
 #: Actions available on every module (doc 04 ``PermissionAction``).
@@ -102,6 +160,12 @@ _CRM_MODULES: Final[tuple[str, ...]] = (
     "dashboard",
     "reports",
     "market_insights",
+    "emails",
+    #: Every role may keep its own views. Sharing one is a decision made per
+    #: view through its ``visibility``, not a permission an administrator
+    #: hands out — a rep who cannot save a list view of their own pipeline is
+    #: a rep the feature does not exist for.
+    "views",
 )
 
 _MANAGER_ACTIONS: Final = (
@@ -127,9 +191,7 @@ _USER_ACTIONS: Final = (
 def _manager_permissions() -> tuple[str, ...]:
     """Full CRM control plus read-only visibility of platform administration."""
     codes = [
-        permission_code(module, action)
-        for module in _CRM_MODULES
-        for action in _MANAGER_ACTIONS
+        permission_code(module, action) for module in _CRM_MODULES for action in _MANAGER_ACTIONS
     ]
     codes.append(permission_code("users", PermissionAction.VIEW))
     codes.append(permission_code("organizations", PermissionAction.VIEW))
@@ -137,14 +199,26 @@ def _manager_permissions() -> tuple[str, ...]:
     #: membership decides who can see whose records, so editing it is an
     #: administrative act.
     codes.append(permission_code("teams", PermissionAction.VIEW))
+    codes.append(permission_code("custom_fields", PermissionAction.VIEW))
+    codes.append(permission_code("blueprints", PermissionAction.VIEW))
     return tuple(codes)
 
 
 def _user_permissions() -> tuple[str, ...]:
     """Day-to-day sales work: read, create and edit **own** records, never delete."""
-    return tuple(
-        permission_code(module, action) for module in _CRM_MODULES for action in _USER_ACTIONS
-    )
+    codes = [permission_code(module, action) for module in _CRM_MODULES for action in _USER_ACTIONS]
+    #: Read-only, and read-only for both non-admin roles: defining a field is
+    #: administration, but *seeing* which fields exist is what makes a lead
+    #: form renderable. Without it every rep's form would be missing whatever
+    #: their own administrator added.
+    codes.append(permission_code("custom_fields", PermissionAction.VIEW))
+    codes.append(permission_code("blueprints", PermissionAction.VIEW))
+    #: A rep deletes their own saved views. ``views.DELETE`` reads alarming
+    #: beside the CRM modules, where it retires customer records — here it
+    #: removes a saved question and touches no record at all, and the service
+    #: still refuses to let anyone delete a colleague's without ``VIEW_ALL``.
+    codes.append(permission_code("views", PermissionAction.DELETE))
+    return tuple(codes)
 
 
 #: Modules whose rows carry an ``owner_id`` that record-level visibility is
@@ -162,6 +236,16 @@ def _user_permissions() -> tuple[str, ...]:
 #: the mechanism the system already has for that, so a manager holding
 #: ``VIEW_ALL`` still sees the team's research and nobody needs a second
 #: permission model.
+#:
+#: ``emails`` is deliberately absent, for the reason ``activities`` is. A
+#: message sent to a customer is part of that customer's history, and scoping
+#: it by its sender would hide a colleague's correspondence from the account
+#: timeline — which is the opposite of what a shared account history is for,
+#: and the specific failure that makes a rep re-introduce themselves to a
+#: customer their colleague emailed last week. The two genuinely private
+#: things here are narrower than a module and are enforced where they belong:
+#: an unsent draft is its author's, and a blind-copy list is its sender's
+#: (``emails/policies.py``).
 OWNER_SCOPED_MODULES: Final[frozenset[str]] = frozenset(
     {"accounts", "contacts", "leads", "opportunities", "tasks", "market_insights"}
 )

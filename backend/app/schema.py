@@ -40,6 +40,7 @@ from app.products.crm.activities import models as activity_models
 from app.products.crm.campaigns import models as campaign_models
 from app.products.crm.contacts import models as contact_models
 from app.products.crm.dashboard import models as dashboard_models
+from app.products.crm.emails import models as crm_email_models
 from app.products.crm.leads import models as lead_models
 from app.products.crm.market_insights import models as market_insight_models
 from app.products.crm.notes import models as note_models
@@ -60,6 +61,7 @@ __all__ = [
     "authorization_models",
     "campaign_models",
     "contact_models",
+    "crm_email_models",
     "dashboard_models",
     "document_models",
     "email_models",

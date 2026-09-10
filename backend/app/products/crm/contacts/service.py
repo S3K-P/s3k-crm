@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError
 from app.products.crm.accounts.models import Account
+from app.products.crm.common import CrmEntityType
 from app.products.crm.contacts.models import Contact, ContactStatus
 from app.products.crm.shared.pagination import PageParams
 from app.products.crm.shared.repository import TenantScopedRepository
@@ -35,13 +36,15 @@ class DuplicateContactEmailError(ConflictError):
     """Another contact in this organization already uses that address."""
 
     code = "duplicate_contact_email"
-    message = (
-        "A contact with that email already exists. Re-submit with allow_duplicate to proceed."
-    )
+    message = "A contact with that email already exists. Re-submit with allow_duplicate to proceed."
 
 
 class ContactService(TenantScopedService[Contact]):
     entity_name = "Contact"
+    #: Opts this entity into tenant-defined fields (Phase E). Declaring it
+    #: is the whole wiring: the base class validates and merges
+    #: ``custom_fields`` on every create and update from here on.
+    crm_entity_type = CrmEntityType.CONTACT
 
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(TenantScopedRepository(session, Contact), Contact)
@@ -83,9 +86,14 @@ class ContactService(TenantScopedService[Contact]):
         params: PageParams,
         filters: Sequence[ColumnElement[bool]] = (),
         visibility: RecordVisibility | None = None,
+        sort_column: ColumnElement[Any] | None = None,
     ) -> tuple[Sequence[Contact], int]:
         return await self.list(
-            organization_id, params=params, filters=filters, visibility=visibility
+            organization_id,
+            params=params,
+            filters=filters,
+            visibility=visibility,
+            sort_column=sort_column,
         )
 
     async def exists(self, contact_id: uuid.UUID, organization_id: uuid.UUID) -> bool:
@@ -189,9 +197,7 @@ class ContactService(TenantScopedService[Contact]):
         )
         return result.scalar_one_or_none() == contact.id
 
-    async def archive_contact(
-        self, contact: Contact, *, actor_id: uuid.UUID | None
-    ) -> Contact:
+    async def archive_contact(self, contact: Contact, *, actor_id: uuid.UUID | None) -> Contact:
         """Soft-delete a contact, clearing it from its account first.
 
         Leaving ``accounts.primary_contact_id`` pointing at an archived row
@@ -211,9 +217,7 @@ class ContactService(TenantScopedService[Contact]):
 
     # --- Internals ---------------------------------------------------------
 
-    async def _require_account(
-        self, account_id: uuid.UUID, organization_id: uuid.UUID
-    ) -> None:
+    async def _require_account(self, account_id: uuid.UUID, organization_id: uuid.UUID) -> None:
         """Reject an account id that is not in the caller's organization."""
         result = await self._session.execute(
             select(Account.id).where(

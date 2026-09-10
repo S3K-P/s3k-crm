@@ -15,6 +15,7 @@
 
 import { api } from '@/lib/api-client';
 import { toQuery, type ListParams, type Page, type RecordMeta } from '@/features/shared/types/api';
+import type { CustomFieldValues } from '@/features/crm/custom-fields';
 
 export type CampaignType =
   | 'EMAIL'
@@ -70,6 +71,12 @@ export interface Campaign extends RecordMeta {
   conversion_rate: string | null;
   roi: string | null;
   member_count: number;
+  /**
+   * Tenant-defined values, keyed by `api_name`. Always present — the column is
+   * `NOT NULL DEFAULT '{}'` — so this is `{}` rather than absent for a record
+   * whose organization has defined no fields.
+   */
+  custom_fields: CustomFieldValues;
 }
 
 export interface CampaignInput {
@@ -85,6 +92,12 @@ export interface CampaignInput {
   lead_source_id?: string | null;
   products?: string | null;
   notes?: string | null;
+  /**
+   * Tenant-defined values. Omit the key entirely to leave the record's existing
+   * document untouched; `{}` clears it. The two are different on the wire, so
+   * never spread a default `{}` into a patch.
+   */
+  custom_fields?: CustomFieldValues;
 }
 
 export interface CampaignListParams extends ListParams {

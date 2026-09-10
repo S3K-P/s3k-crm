@@ -20,7 +20,7 @@ from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.products.crm.common import CrmEntityType, Priority
-from app.products.crm.shared.pagination import PageParams
+from app.products.crm.shared.pagination import MAX_PAGE_SIZE, PageParams
 from app.products.crm.shared.relations import validate_related_entity
 from app.products.crm.shared.repository import TenantScopedRepository
 from app.products.crm.shared.service import TenantScopedService
@@ -87,6 +87,45 @@ class TaskService(TenantScopedService[Task]):
         return await self.list(
             organization_id, params=params, filters=filters, visibility=visibility
         )
+
+    async def due_between(
+        self,
+        organization_id: uuid.UUID,
+        *,
+        start: dt.datetime,
+        end: dt.datetime,
+        visibility: RecordVisibility | None = None,
+        assigned_to_id: uuid.UUID | None = None,
+        limit: int = 2_000,
+    ) -> Sequence[Task]:
+        """Tasks due within ``[start, end)`` (Phase F).
+
+        Goes through :meth:`list` so the caller's record-level visibility is
+        applied at the same single point every other read of this table applies
+        it — a calendar must not become the one screen where a rep sees a
+        colleague's tasks.
+
+        A task with no due date is excluded rather than placed at the range's
+        start: it is not scheduled, and putting it on a day nobody chose would
+        make the grid claim something the record does not say.
+        """
+        filters = [
+            Task.due_date.is_not(None),
+            Task.due_date >= start,
+            Task.due_date < end,
+        ]
+        if assigned_to_id is not None:
+            filters.append(Task.assigned_to_id == assigned_to_id)
+        page = PageParams(
+            page=1,
+            page_size=min(limit, MAX_PAGE_SIZE),
+            sort_by="due_date",
+            sort_dir="asc",
+        )
+        rows, _total = await self.list(
+            organization_id, params=page, filters=filters, visibility=visibility
+        )
+        return rows
 
     async def counts_by_status(self, organization_id: uuid.UUID) -> dict[str, int]:
         """Per-status totals, with every status present even at zero."""

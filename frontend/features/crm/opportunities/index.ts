@@ -9,6 +9,7 @@
 import { api } from '@/lib/api-client';
 import { downloadAndSave } from '@/lib/save-file';
 import { toQuery, withoutPaging, type ListParams, type Page, type RecordMeta } from '@/features/shared/types/api';
+import type { CustomFieldValues } from '@/features/crm/custom-fields';
 
 export interface PipelineStage {
   id: string;
@@ -40,6 +41,12 @@ export interface Opportunity extends RecordMeta {
   lost_at: string | null;
   loss_reason: string | null;
   win_reason: string | null;
+  /**
+   * Tenant-defined values, keyed by `api_name`. Always present — the column is
+   * `NOT NULL DEFAULT '{}'` — so this is `{}` rather than absent for a record
+   * whose organization has defined no fields.
+   */
+  custom_fields: CustomFieldValues;
 }
 
 export interface OpportunityInput {
@@ -55,6 +62,12 @@ export interface OpportunityInput {
   competitor?: string | null;
   products?: string | null;
   notes?: string | null;
+  /**
+   * Tenant-defined values. Omit the key entirely to leave the record's existing
+   * document untouched; `{}` clears it. The two are different on the wire, so
+   * never spread a default `{}` into a patch.
+   */
+  custom_fields?: CustomFieldValues;
 }
 
 export interface OpportunityListParams extends ListParams {

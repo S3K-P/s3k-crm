@@ -88,6 +88,13 @@ _TENANT_SCOPED_STATEMENTS_TO_CLEAN = (
     "DELETE FROM crm.opportunities",
     "DELETE FROM crm.campaign_members",
     "DELETE FROM crm.campaigns",
+    # Messages before threads: the FK cascades, but naming the order keeps it
+    # true if the cascade is ever tightened. Templates last of the three —
+    # a message references one with ON DELETE SET NULL, so the order only
+    # matters for readability, not for the constraint.
+    "DELETE FROM crm.email_messages",
+    "DELETE FROM crm.email_threads",
+    "DELETE FROM crm.email_templates",
     "DELETE FROM crm.notes",
     "DELETE FROM crm.tasks",
     "DELETE FROM crm.activities",
@@ -97,6 +104,19 @@ _TENANT_SCOPED_STATEMENTS_TO_CLEAN = (
     "DELETE FROM crm.pipeline_stages",
     "DELETE FROM crm.pipelines",
     "DELETE FROM crm.accounts",
+    # Transitions before their blueprint: the FK cascades, but naming the
+    # order keeps it true if the cascade is ever tightened.
+    "DELETE FROM crm.blueprint_transitions",
+    "DELETE FROM crm.blueprints",
+    # Saved views reference nothing and nothing references them — a view holds
+    # a question, not rows — so the position here is only for readability.
+    "DELETE FROM crm.saved_views",
+    # Custom fields before the picklists they reference: the foreign key is
+    # RESTRICT, so a definition still pointing at a list would block the list's
+    # deletion, and options before their list because that one cascades.
+    "DELETE FROM crm.custom_field_definitions",
+    "DELETE FROM crm.picklist_options",
+    "DELETE FROM crm.picklists",
     "DELETE FROM platform.audit_logs",
     "DELETE FROM platform.attachments",
     "DELETE FROM platform.notifications",

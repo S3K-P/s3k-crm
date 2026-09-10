@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from typing import Any
 
 from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError
 from app.products.crm.accounts.models import Account, AccountStatus
+from app.products.crm.common import CrmEntityType
 from app.products.crm.opportunities.models import Opportunity
 from app.products.crm.shared.pagination import PageParams
 from app.products.crm.shared.repository import TenantScopedRepository
@@ -41,6 +43,10 @@ class AccountInUseError(ConflictError):
 
 class AccountService(TenantScopedService[Account]):
     entity_name = "Account"
+    #: Opts this entity into tenant-defined fields (Phase E). Declaring it
+    #: is the whole wiring: the base class validates and merges
+    #: ``custom_fields`` on every create and update from here on.
+    crm_entity_type = CrmEntityType.ACCOUNT
 
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(TenantScopedRepository(session, Account), Account)
@@ -76,9 +82,14 @@ class AccountService(TenantScopedService[Account]):
         params: PageParams,
         filters: Sequence[ColumnElement[bool]] = (),
         visibility: RecordVisibility | None = None,
+        sort_column: ColumnElement[Any] | None = None,
     ) -> tuple[Sequence[Account], int]:
         return await self.list(
-            organization_id, params=params, filters=filters, visibility=visibility
+            organization_id,
+            params=params,
+            filters=filters,
+            visibility=visibility,
+            sort_column=sort_column,
         )
 
     async def exists(self, account_id: uuid.UUID, organization_id: uuid.UUID) -> bool:
@@ -104,13 +115,9 @@ class AccountService(TenantScopedService[Account]):
         name = str(values.get("name", "")).strip()
         if not allow_duplicate and await self._name_exists(organization_id, name):
             raise DuplicateAccountError
-        return await self.create(
-            organization_id=organization_id, actor_id=actor_id, values=values
-        )
+        return await self.create(organization_id=organization_id, actor_id=actor_id, values=values)
 
-    async def archive_account(
-        self, account: Account, *, actor_id: uuid.UUID | None
-    ) -> Account:
+    async def archive_account(self, account: Account, *, actor_id: uuid.UUID | None) -> Account:
         """Soft-delete an account once nothing live depends on it."""
         if await self._open_opportunity_count(account) > 0:
             raise AccountInUseError

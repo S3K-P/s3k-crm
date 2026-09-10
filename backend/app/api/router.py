@@ -22,9 +22,19 @@ Path layout follows doc 11:
     /api/v1/crm/*             S3K CRM business resources
     /api/v1/crm/reports       the built-in report library, gated per report
     /api/v1/crm/search        cross-entity search, permission-filtered in-query
+    /api/v1/crm/custom-fields tenant-defined field definitions
+    /api/v1/crm/picklists     the option sets those fields draw from
+    /api/v1/crm/views         saved list views, shared per visibility
+    /api/v1/crm/calendar      meetings and tasks projected onto one timeline
+    /api/v1/crm/merge/*       combining duplicate records
+    /api/v1/crm/blueprints    tenant-configured processes over record states
 """
 
 from __future__ import annotations
+
+import uuid
+from collections.abc import Mapping
+from typing import Any
 
 from fastapi import APIRouter
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,6 +46,7 @@ from app.platform.audit import router as audit_router
 from app.platform.auth import router as auth_router
 from app.platform.authorization import router as authorization_router
 from app.platform.documents import router as documents_router
+from app.platform.documents.storage import build_storage
 from app.platform.email import router as email_router
 from app.platform.email.provider import build_provider
 from app.platform.email.service import (
@@ -55,21 +66,32 @@ from app.platform.products.policies import product_gate
 from app.platform.teams import router as teams_router
 from app.products.crm.accounts import router as accounts_router
 from app.products.crm.activities import router as activities_router
+from app.products.crm.blueprints import router as blueprints_router
+from app.products.crm.calendar import router as calendar_router
 from app.products.crm.campaigns import router as campaigns_router
+from app.products.crm.common import CrmEntityType
 from app.products.crm.contacts import router as contacts_router
+from app.products.crm.custom_fields import router as custom_fields_router
+from app.products.crm.custom_fields.service import CustomFieldValueService
 from app.products.crm.dashboard import router as dashboard_router
+from app.products.crm.emails import router as emails_router
+from app.products.crm.emails.delivery import deliver_crm_email_event
+from app.products.crm.emails.events import CRM_EMAIL_SEND_REQUESTED
 from app.products.crm.imports import router as imports_router
 from app.products.crm.leads import router as leads_router
 from app.products.crm.leads import source_router as lead_sources_router
 from app.products.crm.market_insights import router as market_insights_router
+from app.products.crm.merge import router as merge_router
 from app.products.crm.notes import router as notes_router
 from app.products.crm.opportunities import router as opportunities_router
 from app.products.crm.reports import router as reports_router
 from app.products.crm.search import router as search_router
 from app.products.crm.shared.attachments import crm_entity_access
+from app.products.crm.shared.custom_field_hook import register_custom_field_resolver
 from app.products.crm.shared.provisioning import crm_provisioning_hook
 from app.products.crm.shared.reminders import crm_reminder_source
 from app.products.crm.tasks import router as tasks_router
+from app.products.crm.views import router as views_router
 
 root_router = APIRouter()
 root_router.include_router(health.router)
@@ -92,9 +114,7 @@ api_router.include_router(
     authorization_router.router, prefix="/roles", tags=["platform:authorization"]
 )
 api_router.include_router(audit_router.router, prefix="/audit-logs", tags=["platform:audit"])
-api_router.include_router(
-    email_router.router, prefix="/email-deliveries", tags=["platform:email"]
-)
+api_router.include_router(email_router.router, prefix="/email-deliveries", tags=["platform:email"])
 # The AI gateway (ADR-016). Not behind the CRM product gate: ``/ai/status``
 # answers whether AI is connected at all, which the AI section needs in order
 # to render its "not connected" state, and prompt configuration is
@@ -149,6 +169,58 @@ register_provisioning_hook(crm_provisioning_hook)
 register_reminder_source(crm_reminder_source)
 
 
+def register_custom_fields() -> None:
+    """Teach the shared CRM service how to validate tenant-defined values.
+
+    The fourth instance of the same inversion, and the one with the widest
+    reach. ``TenantScopedService`` is the funnel every CRM entity write passes
+    through, so that is where a record's ``custom_fields`` has to be checked —
+    but ``crm/shared`` sits *below* the modules and may not import
+    ``custom_fields``, which subclasses it. So the shared layer holds a
+    registry and this module, already permitted to see everything, fills it in.
+
+    A service is built per call rather than once, because it is bound to the
+    request's own session: sharing one across requests would mean validating
+    against another transaction's view of the definitions.
+
+    Registered at import, before any router is mounted, and the registry
+    refuses rather than permits until it is — so there is no window in which a
+    record write could store an unvalidated custom value.
+    """
+
+    async def _resolve(
+        session: AsyncSession,
+        *,
+        organization_id: uuid.UUID,
+        entity_type: CrmEntityType,
+        submitted: Mapping[str, Any] | None,
+        existing: Mapping[str, Any] | None,
+        creating: bool,
+    ) -> dict[str, Any]:
+        return await CustomFieldValueService(session).resolve(
+            organization_id=organization_id,
+            entity_type=entity_type,
+            submitted=submitted,
+            existing=existing,
+            creating=creating,
+        )
+
+    async def _defaults(
+        session: AsyncSession,
+        *,
+        organization_id: uuid.UUID,
+        entity_type: CrmEntityType,
+    ) -> dict[str, Any]:
+        return await CustomFieldValueService(session).defaults_for(
+            organization_id=organization_id, entity_type=entity_type
+        )
+
+    register_custom_field_resolver(_resolve, _defaults)
+
+
+register_custom_fields()
+
+
 def register_event_handlers() -> None:
     """Attach every outbox handler to the dispatcher.
 
@@ -190,6 +262,27 @@ def register_event_handlers() -> None:
         tenant_scoped=False,
     )
 
+    # User-authored CRM mail. Built here for the reason the provider is: the
+    # worker has no FastAPI application and therefore no `app.state`, so the
+    # storage client the API keeps there has to be constructed again for this
+    # process. `None` when object storage is unconfigured, which is not an
+    # error — it only matters for a message that actually has attachments, and
+    # the handler fails that one loudly rather than sending it incomplete.
+    storage = build_storage(get_settings())
+
+    async def _deliver_crm_email(session: AsyncSession, event: OutboxEvent) -> None:
+        await deliver_crm_email_event(session, event, provider=provider, storage=storage)
+
+    register_handler(
+        CRM_EMAIL_SEND_REQUESTED,
+        _deliver_crm_email,
+        # A message a person wrote against a customer record always belongs to
+        # an organization. One that arrived without one is a bug, and it must
+        # dead-letter rather than run unscoped — an unscoped send would read
+        # the message row with RLS off.
+        tenant_scoped=True,
+    )
+
 
 register_event_handlers()
 
@@ -207,9 +300,7 @@ register_event_handlers()
 # permissions their role grants.
 crm_router = APIRouter(dependencies=[product_gate(CRM_PRODUCT_CODE)])
 
-crm_router.include_router(
-    dashboard_router.router, prefix="/crm/dashboard", tags=["crm:dashboard"]
-)
+crm_router.include_router(dashboard_router.router, prefix="/crm/dashboard", tags=["crm:dashboard"])
 crm_router.include_router(accounts_router.router, prefix="/crm/accounts", tags=["crm:accounts"])
 crm_router.include_router(contacts_router.router, prefix="/crm/contacts", tags=["crm:contacts"])
 crm_router.include_router(
@@ -225,10 +316,52 @@ crm_router.include_router(
 )
 crm_router.include_router(tasks_router.router, prefix="/crm/tasks", tags=["crm:tasks"])
 crm_router.include_router(notes_router.router, prefix="/crm/notes", tags=["crm:notes"])
+# Mail a person wrote, and the templates it is composed from. Two prefixes on
+# one permission module: a template is not a message and does not belong under
+# `/crm/emails/{id}`, where it would collide with a message id.
+crm_router.include_router(emails_router.router, prefix="/crm/emails", tags=["crm:emails"])
+crm_router.include_router(
+    emails_router.templates_router,
+    prefix="/crm/email-templates",
+    tags=["crm:emails"],
+)
+# Tenant-defined fields and the picklists they draw from. Two prefixes on one
+# permission module: a picklist is not a field and does not belong under
+# `/crm/custom-fields/{id}`, where it would collide with a field id.
+crm_router.include_router(
+    custom_fields_router.router, prefix="/crm/custom-fields", tags=["crm:custom-fields"]
+)
+crm_router.include_router(
+    custom_fields_router.picklists_router,
+    prefix="/crm/picklists",
+    tags=["crm:custom-fields"],
+)
 crm_router.include_router(
     market_insights_router.router,
     prefix="/crm/market-insights",
     tags=["crm:market-insights"],
+)
+# Saved list views. A view names filters over a record type and holds no rows,
+# so `views.VIEW` reaches no record: running one goes through that record
+# type's own endpoint, behind its own permission and record-level visibility.
+crm_router.include_router(views_router.router, prefix="/crm/views", tags=["crm:views"])
+# The calendar names no permission of its own — it would either duplicate
+# `activities.VIEW` and `tasks.VIEW` or, worse, become a way to read records
+# around them. It decides per source inside the handler (calendar/policies.py).
+crm_router.include_router(
+    calendar_router.router, prefix="/crm/calendar", tags=["crm:calendar"]
+)
+# Merge chooses its entity from a path parameter, so the permission it needs is
+# not known when the route is declared — the shape imports already use. It
+# authorizes against the named entity's module inside the handler, and demands
+# both EDIT and DELETE there: a merge changes one record and retires others.
+crm_router.include_router(merge_router.router, prefix="/crm/merge", tags=["crm:merge"])
+# Tenant-configured processes. Only the configuration is served here; a
+# blueprint is *applied* on the lead and opportunity state-change paths those
+# modules already own, so there is no second way to move a record and no second
+# place the rules live.
+crm_router.include_router(
+    blueprints_router.router, prefix="/crm/blueprints", tags=["crm:blueprints"]
 )
 # Reports and search share a shape: neither can name its permission when the
 # route is declared. Search spans four modules at once; a report names the one

@@ -10,11 +10,14 @@ import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
+import SavedViewPicker from '@/components/crm/toolbar/SavedViewPicker';
 import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
 import { FormError, ListEmpty, ListError, ResultCount } from '@/components/crm/shared/ListStates';
 import ExportButton from '@/components/crm/toolbar/ExportButton';
+import CustomFieldInputs from '@/components/crm/forms/CustomFieldInputs';
+import { changedValues, type CustomFieldValues } from '@/features/crm/custom-fields';
 import { usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
 import { listAccounts, type Account } from '@/features/crm/accounts';
@@ -216,6 +219,10 @@ function OpportunitiesPageContent() {
   };
 
   const [drawerOpen, setDrawerOpen] = useState(prefill.account_id !== '');
+  // Custom values are held apart from `form` because they are keyed by tenant
+  // data: folding them into a typed `OpportunityInput` would mean giving that
+  // interface an index signature, and losing every check on the real columns.
+  const [customValues, setCustomValues] = useState<CustomFieldValues>({});
   const [editing, setEditing] = useState<Opportunity | null>(null);
   const [form, setForm] = useState<OpportunityInput>(
     prefill.account_id ? { ...EMPTY_FORM, ...prefill } : EMPTY_FORM,
@@ -266,6 +273,7 @@ function OpportunitiesPageContent() {
       : EMPTY_CONTACTS;
 
   const openAdd = () => {
+    setCustomValues({});
     setEditing(null);
     setForm({ ...EMPTY_FORM, stage_id: openStages[0]?.id ?? '' });
     clearError();
@@ -273,6 +281,7 @@ function OpportunitiesPageContent() {
   };
 
   const openEdit = (row: Opportunity) => {
+    setCustomValues(row.custom_fields ?? {});
     setEditing(row);
     setForm({
       name: row.name,
@@ -303,6 +312,12 @@ function OpportunitiesPageContent() {
       deal_value: form.deal_value || null,
       expected_close_date: form.expected_close_date || null,
       notes: form.notes?.trim() || null,
+      // Only what the user actually touched. Sending the whole document would
+      // be harmless but noisy; sending `{}` when they touched nothing would
+      // *clear* every custom value on the record.
+      ...(Object.keys(changedValues(customValues, editing?.custom_fields)).length > 0
+        ? { custom_fields: changedValues(customValues, editing?.custom_fields) }
+        : {}),
     };
     // `stage_id` is only meaningful at creation: a PATCH deliberately ignores
     // it so a stage move cannot skip history recording.
@@ -523,6 +538,19 @@ function OpportunitiesPageContent() {
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <SavedViewPicker
+          entityType="OPPORTUNITY"
+          current={{ search: search.trim() || null, stage_id: stageFilter || null }}
+          onApply={(params) => {
+            // A view carries filters only; the screen owns its own state, so
+            // applying one means setting that state rather than short-
+            // circuiting the fetch. Anything the view does not mention is
+            // cleared, so switching views cannot leave a stale filter behind.
+            setSearch(typeof params.search === 'string' ? params.search : '');
+            setStageFilter(typeof params.stage_id === 'string' ? params.stage_id : '');
+            setPage(1);
+          }}
+        />
         <SearchInput
           value={search}
           onChange={(event) => {
@@ -757,6 +785,11 @@ function OpportunitiesPageContent() {
             />
           </FormField>
           <FormError message={saveError} />
+          <CustomFieldInputs
+            entityType="OPPORTUNITY"
+            values={customValues}
+            onChange={setCustomValues}
+          />
         </div>
       </SlideDrawer>
     </div>

@@ -5,11 +5,13 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 from decimal import Decimal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.products.crm.common import Priority
 from app.products.crm.leads.models import LeadSourceStatus, LeadStatus
+from app.products.crm.shared.schemas import CustomFieldValues
 
 
 class LeadCreate(BaseModel):
@@ -28,6 +30,10 @@ class LeadCreate(BaseModel):
     product_interest: str | None = Field(default=None, max_length=255)
     notes: str | None = None
     campaign_id: uuid.UUID | None = None
+    #: Tenant-defined values, validated against this organization's own field
+    #: definitions. Absent means "apply the configured defaults"; a supplied
+    #: object is merged over them.
+    custom_fields: CustomFieldValues | None = None
 
 
 class LeadUpdate(BaseModel):
@@ -48,6 +54,10 @@ class LeadUpdate(BaseModel):
     product_interest: str | None = Field(default=None, max_length=255)
     notes: str | None = None
     ai_score: int | None = Field(default=None, ge=0, le=100)
+    #: Tenant-defined values. Absent leaves the whole document untouched — an
+    #: empty object is what clears it — so patching one built-in column cannot
+    #: wipe a record's custom fields.
+    custom_fields: CustomFieldValues | None = None
 
 
 class LeadStatusChange(BaseModel):
@@ -133,6 +143,8 @@ class LeadResponse(BaseModel):
     updated_at: dt.datetime
     created_by_id: uuid.UUID | None
     updated_by_id: uuid.UUID | None
+    #: Never absent: the column is NOT NULL DEFAULT '{}'.
+    custom_fields: dict[str, Any] = Field(default_factory=dict)
 
 
 class LeadConversionResponse(BaseModel):
