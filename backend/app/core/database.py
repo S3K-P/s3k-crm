@@ -244,6 +244,9 @@ async def get_db_session(request: Request) -> AsyncIterator[AsyncSession]:
     without a tenant context still get a session, but with no organization
     setting applied — RLS then matches zero rows, which is the intended
     fail-closed behaviour.
+
+    **When the commit happens is part of the contract**, and the answer is
+    "before the client is told the write succeeded". See :data:`DbSession`.
     """
     session_factory: async_sessionmaker[AsyncSession] = request.app.state.session_factory
     context = get_tenant_context()
@@ -254,4 +257,31 @@ async def get_db_session(request: Request) -> AsyncIterator[AsyncSession]:
         yield session
 
 
-DbSession = Annotated[AsyncSession, Depends(get_db_session)]
+#: A transactional session that commits **before** the response is sent.
+#:
+#: ``scope="function"`` is the whole of that guarantee and is not optional.
+#:
+#: FastAPI keeps two exit stacks per request. A dependency with ``yield``
+#: defaults to the *request* stack, which is closed after
+#: ``await response(scope, receive, send)`` — after the bytes have gone to the
+#: client. For an ordinary dependency that is harmless. For this one it means
+#: the ``COMMIT`` runs after the caller has already been told ``201 Created``,
+#: so a client that reads back immediately can race it and see the state from
+#: before its own write. It is a small window, it widens under load, and it is
+#: the kind of defect that reads as "the UI sometimes doesn't refresh".
+#:
+#: The *function* stack is closed before the response is sent. Putting the
+#: session on it makes the ordering the API already implies true: when a write
+#: endpoint returns success, the transaction is durable, and any subsequent
+#: request — from that client or any other — observes it.
+#:
+#: Two consequences worth knowing:
+#:
+#: * A background task must not use this session. It is closed by the time one
+#:   runs, which is correct — a task that needs the database should open its
+#:   own, as the ARQ worker already does.
+#: * An error raised while committing now surfaces as a 500 instead of being
+#:   logged after a success was already reported. That is a strict improvement:
+#:   a failed commit *is* a failed request, and telling the caller otherwise
+#:   was the more serious bug of the two.
+DbSession = Annotated[AsyncSession, Depends(get_db_session, scope="function")]

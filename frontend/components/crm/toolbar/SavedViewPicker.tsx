@@ -51,7 +51,17 @@ interface SavedViewPickerProps {
   current: ListParams;
   /** Apply a view's filters to the screen. */
   onApply: (params: ListParams) => void;
-  /** True while the screen still has its own filters from the URL. */
+  /**
+   * True when the screen's filters came from the URL rather than from the
+   * user, which suppresses the default view.
+   *
+   * No list screen passes this today: the only URL parameters any of them
+   * read (`?account_id=`) open the *create* drawer rather than filtering the
+   * list, so there is nothing for a default view to override. It is part of
+   * the contract rather than removed because the first screen to gain a real
+   * URL filter needs it — without it, opening a shared link would apply
+   * somebody's saved preference over the filter the link was sent for.
+   */
   hasExplicitFilters?: boolean;
   className?: string;
 }
@@ -71,6 +81,13 @@ export default function SavedViewPicker({
   const [views, setViews] = useState<SavedView[] | null>(null);
   const [selected, setSelected] = useState<string>('');
   const [saving, setSaving] = useState(false);
+  // A small inline form rather than `window.prompt`: the native dialog blocks
+  // the event loop, cannot be styled or themed, is unreachable to a screen
+  // reader in the way the rest of the app is, and is invisible to an
+  // end-to-end test without a dialog handler nobody remembers to add.
+  const [naming, setNaming] = useState(false);
+  const [draftName, setDraftName] = useState('');
+  const [shared, setShared] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
 
@@ -122,8 +139,8 @@ export default function SavedViewPicker({
   };
 
   const save = async () => {
-    const name = window.prompt('Name this view');
-    if (!name?.trim()) return;
+    const name = draftName.trim();
+    if (!name) return;
 
     setSaving(true);
     try {
@@ -144,9 +161,12 @@ export default function SavedViewPicker({
         filters,
         sort_by: (current.sort_by as string | null) ?? null,
         sort_dir: (current.sort_dir as 'asc' | 'desc' | undefined) ?? null,
-        visibility: 'PRIVATE' as ViewVisibility,
+        visibility: (shared ? 'ORGANIZATION' : 'PRIVATE') as ViewVisibility,
       });
       setSelected(created.id);
+      setNaming(false);
+      setDraftName('');
+      setShared(false);
       notifySuccess('View saved', created.name);
       reload();
     } catch (caught) {
@@ -238,23 +258,66 @@ export default function SavedViewPicker({
           </>
         )}
 
-        {mayCreate && (
+        {mayCreate && !naming && (
           <button
             type="button"
-            onClick={() => void save()}
-            disabled={saving}
-            className="ctl bd flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-semibold transition hover:opacity-80 disabled:opacity-50"
+            onClick={() => setNaming(true)}
+            className="ctl bd flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px] font-semibold transition hover:opacity-80"
             title="Save the current filters as a view"
           >
-            {saving ? (
-              <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />
-            ) : (
-              <BookmarkPlus className="h-3.5 w-3.5" />
-            )}
+            <BookmarkPlus className="h-3.5 w-3.5" />
             Save view
           </button>
         )}
       </div>
+
+      {mayCreate && naming && (
+        <form
+          className="mt-2 flex flex-wrap items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void save();
+          }}
+        >
+          <input
+            autoFocus
+            aria-label="Name this view"
+            value={draftName}
+            onChange={(event) => setDraftName(event.target.value)}
+            placeholder="Name this view…"
+            maxLength={120}
+            className="ctl max-w-[220px] px-3 py-1.5 text-[12px]"
+          />
+          <label className="flex items-center gap-1.5 text-[12px]">
+            <input
+              type="checkbox"
+              checked={shared}
+              onChange={(event) => setShared(event.target.checked)}
+              className="h-3.5 w-3.5"
+            />
+            <span className="txt">Share with everyone</span>
+          </label>
+          <button
+            type="submit"
+            disabled={saving || !draftName.trim()}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
+            style={{ background: 'var(--accent)' }}
+          >
+            {saving && <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />}
+            Save
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setNaming(false);
+              setDraftName('');
+            }}
+            className="txt-faint text-[12px] underline transition hover:opacity-70"
+          >
+            Cancel
+          </button>
+        </form>
+      )}
     </div>
   );
 }

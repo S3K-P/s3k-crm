@@ -21,7 +21,9 @@ test.describe('the daily journey', () => {
     await page.getByRole('button', { name: /new lead|add lead/i }).first().click();
     await page.getByLabel(/first name/i).fill('Casey');
     await page.getByLabel(/last name/i).fill(leadSurname);
-    await page.getByRole('button', { name: /^(save|create)/i }).click();
+    // Anchored at both ends: the list screen also carries the saved-view
+    // toolbar, whose "Save view" button an unanchored /^save/ would match too.
+    await page.getByRole('button', { name: /^(save|create)$/i }).click();
 
     // Back on the list, with the new record on it.
     await expect(page.getByText(leadSurname).first()).toBeVisible();

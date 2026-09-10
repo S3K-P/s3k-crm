@@ -426,10 +426,10 @@ function ContactsPageContent() {
         onImported={reload}
       />
 
-      {mayMerge && selectedIds.size > 1 && (
+      {mayMerge && mergeCandidates(items, selectedIds).length > 1 && (
         <div className="ctl mb-3 flex flex-wrap items-center gap-3 rounded-lg px-4 py-2.5">
           <span className="txt text-[13px] font-semibold">
-            {selectedIds.size} selected
+            {mergeCandidates(items, selectedIds).length} selected
           </span>
           <button
             type="button"
@@ -569,7 +569,7 @@ function ContactsPageContent() {
           />
         </div>
       </SlideDrawer>
-      {mergeOpen && selectedIds.size > 1 && (
+      {mergeOpen && mergeCandidates(items, selectedIds).length > 1 && (
         <MergeDialog
           open={mergeOpen}
           onClose={() => setMergeOpen(false)}

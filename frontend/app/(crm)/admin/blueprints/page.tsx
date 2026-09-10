@@ -448,8 +448,14 @@ function TransitionList({
 
       {mayEdit && (
         <div className="flex flex-wrap items-end gap-2 pt-2">
+          {/* Named explicitly. `FormField` wraps its label *around* the control,
+              so a select's accessible name is the label's text followed by the
+              selected option's — "To" announces as "ToChoose…", which is not a
+              name anybody can act on. The visible word is contained in the name
+              given here, as WCAG's label-in-name rule requires. */}
           <FormField label="From" className="w-[150px]">
             <FormSelect
+              aria-label="From state"
               value={from}
               onChange={(event) => setFrom(event.target.value)}
               options={stateOptions}
@@ -457,6 +463,7 @@ function TransitionList({
           </FormField>
           <FormField label="To" className="w-[150px]">
             <FormSelect
+              aria-label="To state"
               value={to}
               onChange={(event) => setTo(event.target.value)}
               placeholder="Choose…"

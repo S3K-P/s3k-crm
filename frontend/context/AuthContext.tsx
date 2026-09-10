@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation';
 import {
   api,
   apiRequest,
+  currentSessionGeneration,
   forgetRestoredSession,
   restoreSession,
   setAccessToken,
@@ -138,9 +139,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     const restore = async () => {
+      // The probe is slow enough to be overtaken. The login form is not behind
+      // `RequireAuth`, so somebody can sign in while this is still on the wire
+      // — and after a sign-out that answer is "nobody is signed in", which is
+      // true of the session that has just ended and false of the one that
+      // replaced it. Acting on it signs the new person straight back out,
+      // seconds after they watched their own sign-in succeed.
+      const generation = currentSessionGeneration();
       try {
         const session = await restoreSession();
         if (cancelled) return;
+        // Overtaken: `login` has already installed a session and this answer
+        // is about the previous one. Nothing to do, either way.
+        if (generation !== currentSessionGeneration()) return;
         if (session === null) {
           clearSession();
           return;
@@ -153,7 +164,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setOrganizationId(readStoredOrganization() ?? session.organization_id);
         await loadCurrentUser();
       } catch {
-        if (!cancelled) clearSession();
+        if (!cancelled && generation === currentSessionGeneration()) clearSession();
       } finally {
         if (!cancelled) setLoading(false);
       }

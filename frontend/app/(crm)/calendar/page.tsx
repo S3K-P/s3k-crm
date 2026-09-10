@@ -133,7 +133,12 @@ export default function CalendarPage() {
           </div>
           <div>
             <h1 className="font-display txt text-[22px] font-extrabold">Calendar</h1>
-            <p className="txt-muted mt-0.5 text-[13px]">{describeWindow(scale, focus)}</p>
+            <p
+              data-testid="calendar-window"
+              className="txt-muted mt-0.5 text-[13px]"
+            >
+              {describeWindow(scale, focus)}
+            </p>
           </div>
         </div>
 
