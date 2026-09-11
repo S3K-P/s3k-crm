@@ -2,7 +2,7 @@
 
 import { Zap } from 'lucide-react';
 
-import AiUnavailable from '@/components/crm/ai/AiUnavailable';
+import AiFeaturePending from '@/components/crm/ai/AiFeaturePending';
 
 /* ============================================================
    NEXT BEST ACTION
@@ -20,7 +20,7 @@ import AiUnavailable from '@/components/crm/ai/AiUnavailable';
 
 export default function NextBestActionPage() {
   return (
-    <AiUnavailable
+    <AiFeaturePending
       icon={Zap}
       title="Next Best Action"
       subtitle="Which deals to work on next, and why."

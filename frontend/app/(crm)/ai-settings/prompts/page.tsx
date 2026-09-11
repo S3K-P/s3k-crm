@@ -16,7 +16,9 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 import NotConfigured from '@/components/crm/shared/NotConfigured';
 import AiEmptyState from '@/components/crm/ai/shared/AiEmptyState';
+import AiConnectionNotice from '@/components/crm/ai/AiConnectionNotice';
 import { describeApiError } from '@/features/shared/hooks/useCollection';
+import { useAiStatus } from '@/features/ai/useAiStatus';
 import {
   getPromptConfig,
   publishPrompt,
@@ -46,6 +48,7 @@ const MAX_PROMPT_LENGTH = 20_000;
 export default function AIPromptsPage() {
   const { can, loading: authLoading, isAuthenticated, activeOrganizationId } = useAuth();
   const isAdmin = can('ai', 'ADMIN');
+  const { status: aiStatus, error: aiStatusError } = useAiStatus();
 
   const [config, setConfig] = useState<PromptConfig | null>(null);
   const [draft, setDraft] = useState('');
@@ -129,6 +132,15 @@ export default function AIPromptsPage() {
 
   return (
     <Frame>
+      {/* Editing works whatever the connection state; this only tells the
+          administrator whether the prompt they publish can actually run. */}
+      <AiConnectionNotice
+        status={aiStatus}
+        error={aiStatusError}
+        consequence="The prompt can still be edited and published; research will not run until this is resolved."
+        hideWhenReady
+      />
+
       {loading && (
         <div className="surface bd rounded-2xl border p-6" aria-busy="true">
           <div

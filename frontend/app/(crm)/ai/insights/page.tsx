@@ -2,7 +2,7 @@
 
 import { BrainCircuit } from 'lucide-react';
 
-import AiUnavailable from '@/components/crm/ai/AiUnavailable';
+import AiFeaturePending from '@/components/crm/ai/AiFeaturePending';
 
 /* ============================================================
    AI INSIGHTS
@@ -20,7 +20,7 @@ import AiUnavailable from '@/components/crm/ai/AiUnavailable';
 
 export default function AiInsightsPage() {
   return (
-    <AiUnavailable
+    <AiFeaturePending
       icon={BrainCircuit}
       title="AI Insights"
       subtitle="Ask questions about your pipeline in plain language."

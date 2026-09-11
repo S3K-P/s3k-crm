@@ -66,11 +66,6 @@ export interface ResearchSessionDetail extends ResearchSession {
   sources: ResearchSource[];
 }
 
-export interface AiStatus {
-  configured: boolean;
-  model: string | null;
-}
-
 export interface ResearchListParams extends ListParams {
   account_id?: string | null;
   status?: ResearchStatus | null;
@@ -116,7 +111,8 @@ export const archiveResearch = (id: string) => api.delete<void>(`${BASE}/${id}`)
    Gateway status and prompt configuration
    ------------------------------------------------------------------ */
 
-export const getAiStatus = () => api.get<AiStatus>('/ai/status');
+/** The gateway's status lives with the rest of the AI connection client. */
+export { getAiStatus, type AiStatus } from '@/features/ai/status';
 
 export interface PromptVersion {
   id: string;
@@ -164,6 +160,8 @@ export const publishPrompt = (
 export const RESEARCH_ERROR_MESSAGES: Record<string, string> = {
   ai_not_configured:
     'AI is not connected. An administrator needs to configure an AI provider before research can run.',
+  ai_authentication_failed:
+    'The AI provider rejected its credential. An administrator needs to update the AI provider key.',
   ai_temporarily_unavailable:
     'The AI service was busy and did not respond in time. Trying again usually works.',
   ai_provider_error: 'The AI provider could not complete this research.',

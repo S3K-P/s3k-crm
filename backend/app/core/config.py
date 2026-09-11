@@ -31,6 +31,10 @@ LogLevel = Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]
 #: without; they differ in cost, and in how faithfully sources come back.
 AiProvider = Literal["anthropic", "gemini"]
 
+#: Why ``ai_configured`` is false. ``credential_for_other_provider``: a key is
+#: set, but for the vendor ``AI_PROVIDER`` did not select.
+AiConfigurationIssue = Literal["missing_credential", "credential_for_other_provider"]
+
 
 class ConfigurationError(RuntimeError):
     """Raised when application configuration is missing or invalid."""
@@ -333,6 +337,11 @@ class Settings(BaseSettings):
     ai_max_continuations: int = Field(default=4, ge=0, le=10)
     #: Research turns started per user per hour. Applied in Redis.
     ai_rate_limit_per_hour: int = Field(default=40, ge=1, le=1000)
+    #: Ceiling on one connection test (``POST /ai/health``). Far below
+    #: ``ai_request_timeout_seconds``: the test asks for a one-word reply, so a
+    #: provider that has not answered in this long is not answering, and an
+    #: administrator waiting on a button deserves a verdict rather than a spinner.
+    ai_health_check_timeout_seconds: float = Field(default=20.0, gt=0, le=120.0)
 
     # --- Observability (ADR-018) -------------------------------------------
     log_level: LogLevel = "INFO"
@@ -365,6 +374,23 @@ class Settings(BaseSettings):
         """
         key = self.ai_credential
         return bool(key and key.get_secret_value().strip())
+
+    @property
+    def ai_configuration_issue(self) -> AiConfigurationIssue | None:
+        """Why AI is not configured, or ``None`` when it is.
+
+        Separates the two ways a deployment ends up without AI, because they
+        need different fixes and the first is the one that actually happens:
+        a Gemini key is set, ``AI_PROVIDER`` is left at its ``anthropic``
+        default, and the gateway looks for a key that was never provided. The
+        answer names environment variables, never a value.
+        """
+        if self.ai_configured:
+            return None
+        other = self.anthropic_api_key if self.ai_provider == "gemini" else self.gemini_api_key
+        if other is not None and other.get_secret_value().strip():
+            return "credential_for_other_provider"
+        return "missing_credential"
 
     @property
     def storage_configured(self) -> bool:

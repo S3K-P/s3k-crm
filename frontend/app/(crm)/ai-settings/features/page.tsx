@@ -2,11 +2,11 @@
 
 import { Layers } from 'lucide-react';
 
-import AiUnavailable from '@/components/crm/ai/AiUnavailable';
+import AiFeaturePending from '@/components/crm/ai/AiFeaturePending';
 
 export default function AIFeaturesPage() {
   return (
-    <AiUnavailable
+    <AiFeaturePending
       icon={Layers}
       title="Features Configuration"
       subtitle="Which AI capabilities are enabled per CRM module."

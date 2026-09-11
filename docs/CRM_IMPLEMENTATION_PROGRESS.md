@@ -383,7 +383,7 @@ UI, and should be scoped separately once layouts (41) exist.
 
 | # | Scope | Audit items | Status |
 |---|---|---|---|
-| **Checkpoint 1** | AI connection + verification | 1, 2, 3 (+ AiUnavailable fix) | ⏳ Next |
+| **Checkpoint 1** | AI connection + verification | 1, 2, 3 (+ AiUnavailable fix) | ✅ Done |
 | **Checkpoint 2** | Account 360 + Contacts + Deals + relationships | 12, 17, 19 (stage admin), 11/13–16 regression | Planned |
 | **Checkpoint 3** | Activities + Timeline + Notes + Files + Email CRM | 22, 24, 27 (+ 20, 25, 26 regression) | Planned |
 | **Checkpoint 4** | Form builder + drag/drop + custom fields + conditional fields + Kanban + bulk/inline editing + import mapping | 31–36, 41, 46–49, 51, 54 | Planned |
@@ -397,19 +397,184 @@ Keep the "unset means not connected, never faked output" AI rule. Pass the
 backend suite, Ruff, mypy, typecheck, lint, build and E2E. Update this file.
 Commit on `claude/crm-zoho-gaps`.
 
+## Checkpoint 1 — Completed (2026-09-11)
+
+Continued and finished by a second session after the first ran out of tokens
+mid-checkpoint (immediately before frontend typecheck/lint). This section
+records independent verification of that session's work, not just its claims.
+
+### Files changed
+
+Backend:
+- `backend/app/application.py` — logs the resolved AI configuration once at
+  boot (provider, model, `configured`, `issue`; never the key).
+- `backend/app/core/config.py` — `AiConfigurationIssue` literal,
+  `Settings.ai_configuration_issue` property (distinguishes "no key at all"
+  from "a key exists, but for the other provider"), `ai_health_check_timeout_seconds`.
+- `backend/app/platform/ai/provider.py` — `AiAuthenticationError` (distinct
+  from `AiNotConfiguredError`: a refused key is a different fix than a
+  missing one), `AiConnectionState` enum, `ConnectionCheck` /
+  `ConnectionCheckProvider`, `classify_anthropic_error` /
+  `classify_gemini_error`, `.check()` on both providers (one minimal real
+  request, no retries, bounded by `asyncio.wait_for`), `build_provider()`
+  (the one place `AI_PROVIDER` is read to pick a class).
+- `backend/app/platform/ai/service.py` — `AiConnectionService` (cheap
+  `.status()` read from a Redis-cached verdict; `.check()` runs a real probe
+  and writes the verdict + an audit entry); `AiGatewayService.run_turn` now
+  records a verdict from every real research call too, so a working feature
+  call also proves the connection.
+- `backend/app/platform/ai/router.py`, `schemas.py` — `AiStatusResponse`
+  gained `provider`, `state`, `reason`, `checked_at`, `check_source`,
+  `latency_ms`, `error_code`; new `POST /ai/health` (`ai.ADMIN`, reuses the
+  existing `ai` permission module — no catalog change needed).
+- `backend/tests/integration/test_market_insights.py` — updated the
+  `/ai/status` shape assertion.
+- `backend/tests/unit/test_ai_connection.py` (new) — 48 tests: configuration/
+  issue detection, Anthropic/Gemini error classification, `.check()` against
+  scripted clients (success, empty response, refused key, timeout), the
+  service's verdict caching (Redis TTL, key/model rotation invalidates the
+  old verdict, fails open if Redis is down), and that no secret ever reaches
+  a log, a Redis value, or a returned object.
+
+Frontend:
+- `frontend/features/ai/status.ts` (new) — the one client for
+  `GET /ai/status` / `POST /ai/health`, plus presentation helpers
+  (`describeNotConfigured`, `describeErrorCode`, `formatCheckedAt`).
+- `frontend/features/ai/useAiStatus.ts` (new) — module-level shared store
+  (`useSyncExternalStore`) so every AI screen reads one cached answer instead
+  of each issuing its own request.
+- `frontend/components/crm/ai/AiConnectionNotice.tsx` (new) — the single
+  place that turns a status into a message; separates "not configured" /
+  "credential rejected" / "provider failing" / "ready", never conflating them.
+- `frontend/components/crm/ai/AiFeaturePending.tsx` (new) — replaces
+  `AiUnavailable.tsx` (deleted) for the 9 screens with no feature behind them
+  yet; reports the real connection state instead of a hardcoded claim, and
+  says "this feature is coming next" when AI is actually connected.
+- `frontend/app/(crm)/ai-settings/{agents,automations,copilot,features,knowledge,page,security-analytics}/page.tsx`,
+  `ai/insights/page.tsx`, `ai/next-best-action/page.tsx` — migrated to
+  `AiFeaturePending`.
+- `frontend/app/(crm)/ai-settings/providers/page.tsx` — rebuilt from a
+  placeholder into a real screen: live provider/model/state, an admin-only
+  "Test AI connection" button (`POST /ai/health`), and the exact environment
+  variables to set.
+- `frontend/app/(crm)/ai-settings/prompts/page.tsx`,
+  `frontend/app/(crm)/ai/market-insights/page.tsx` — now use
+  `AiConnectionNotice`/`useAiStatus` instead of their own ad hoc status fetch.
+- `frontend/features/ai/market-insights/index.ts` — `AiStatus`/`getAiStatus`
+  now re-exported from `features/ai/status.ts` (one definition, not two).
+
+### Root cause (confirmed, not just re-asserted)
+
+Two independent causes, both present on this branch before the fix:
+
+1. **9 of 12 AI screens rendered a hardcoded "AI is not connected" regardless
+   of configuration** (`AiUnavailable.tsx`, deleted). Setting a key changed
+   nothing on them because no feature exists behind them — verified by
+   reading the deleted component and its callers directly.
+2. **The one screen that did check (Market Insights) reported `configured:
+   false` whenever `GEMINI_API_KEY` was set without `AI_PROVIDER=gemini`**,
+   because `AI_PROVIDER` defaults to `anthropic` and the gateway looked for
+   `ANTHROPIC_API_KEY`. Confirmed by `test_a_gemini_key_under_the_default_provider_is_not_configured`
+   and reproduced by hand: `Settings(gemini_api_key=…)` alone leaves
+   `ai_configured` `False` with `ai_configuration_issue ==
+   "credential_for_other_provider"`.
+
+The fix separates "not configured" (no key at all) from "credential rejected"
+(a key exists and the provider refused it) from "provider failing" (a real
+call errored) from "AI is connected" (a real call answered) — four states
+that were previously all collapsed into one boolean.
+
+### Tests
+
+- `backend/tests/unit` (no Postgres/Redis required): **842 passed**, incl. the
+  48 new `test_ai_connection.py` cases.
+- `backend/tests/integration/test_market_insights.py`: collects cleanly (44
+  tests), **not executed** — see Environment limitations below.
+- Frontend: no unit/component test runner configured in this repo
+  (`package.json` has no `test` script); coverage is typecheck + build +
+  Playwright E2E (`test:e2e`, also blocked — see below).
+
+### Static analysis
+
+- **Ruff** (`uv run ruff check app tests migrations`, matching CI): clean.
+- **mypy** (`uv run mypy app`, matching CI's `mypy app` — not `mypy .`, which
+  the previous session apparently did not run: `mypy .` surfaces ~126
+  pre-existing errors in `tests/`, none introduced by this checkpoint, that
+  CI does not check): clean, 299 source files.
+- **Frontend `tsc --noEmit`**: clean.
+- **Frontend `eslint .`**: clean.
+- **Frontend `next build`**: succeeds; all 53 routes generate, including
+  every `/ai*` and `/ai-settings/*` page.
+
+### Real AI connection verification
+
+**Not performed against a live provider — no credential is available in this
+environment**, and per the standing rule, that is reported honestly rather
+than assumed or faked:
+- No `backend/.env` existed before this checkpoint; no `ANTHROPIC_API_KEY` or
+  `GEMINI_API_KEY` is set anywhere in the environment.
+- A local-only `backend/.env` was created from `.env.example` (git-ignored,
+  confirmed via `.gitignore` lines 40/43; not staged; contains no real
+  secrets — both AI keys are blank, exactly as in the example) solely so the
+  application could import for the unit-test run above. It does not enable
+  live AI and was not required for anything else in this checkpoint.
+- The code path was instead verified with real logic against **scripted**
+  provider clients (no network): `AnthropicResearchProvider.check()` and
+  `GeminiResearchProvider.check()` send the exact minimal request
+  (`HEALTH_CHECK_PROMPT`, `HEALTH_CHECK_MAX_TOKENS`, no tools, no retries,
+  `asyncio.wait_for`-bounded) and are asserted to classify a real success, an
+  empty response, a refused key, and a timeout correctly; `AiConnectionService`
+  is exercised end to end (`.check()` → Redis verdict → `.status()` reads it
+  back) with a `StubCheck` standing in for the network call. This proves the
+  backend → provider-selection → request-shape → response-classification
+  chain; it does not prove any specific vendor's API answers today.
+
+**To perform the live check**, whoever has a real key should:
+1. Put exactly one of these in `backend/.env` (git-ignored):
+   `AI_PROVIDER=anthropic` + `ANTHROPIC_API_KEY=…`, or
+   `AI_PROVIDER=gemini` + `GEMINI_API_KEY=…` (or `GOOGLE_API_KEY`).
+2. Bring up Postgres + Redis (`docker compose up -d`, blocked in this session
+   — see below) and start the API.
+3. `GET /api/v1/ai/status` → expect `{"configured": true, "state":
+   "CONFIGURED", ...}`.
+4. As an org admin, `POST /api/v1/ai/health` → expect `{"state":
+   "AVAILABLE", "responded_model": "…", ...}`. This is the actual real round
+   trip; `/ai/status` alone never calls a model.
+5. Optionally run a Market Insights research call and confirm `/ai/status`
+   now reports `state: "AVAILABLE"`, `check_source: "feature_call"`.
+
+### Environment limitations
+
+- **Docker was unavailable in this session**: `com.docker.service` is
+  `STOPPED`, which (per prior experience in this environment) requires admin
+  rights this session does not have; `Docker Desktop.exe` was not running
+  either. This blocked:
+  - `docker compose up -d` (Postgres/Redis/MinIO), and therefore the full
+    1684-test backend suite and `backend/tests/integration/test_market_insights.py`
+    specifically (44 tests, syntax-checked via `--collect-only` but not run).
+  - Any live server to hit `/ai/status` or `/ai/health` over HTTP.
+  - Playwright E2E (`npm run test:e2e`).
+- Nothing above was faked or assumed to pass. Everything that does not need
+  Docker was run to completion (see Tests/Static analysis).
+- This worktree also had no `frontend/.env.local`; the frontend build does
+  not require one (`NEXT_PUBLIC_API_BASE_URL` only matters for the running
+  dev server hitting a real backend).
+
+### Accidental-change / secret check
+
+- `git diff --stat` scoped to exactly the files listed above; no unrelated
+  file touched.
+- Diff scanned for credential-shaped strings (`sk-ant-…`, `AIza…`,
+  `api_key = "…"`); none found.
+- `backend/.env` created for local testing is git-ignored and was not staged.
+- No leftover references to the deleted `AiUnavailable` anywhere in
+  `frontend/`.
+
 ## Next Exact Step
 
-**Checkpoint 1, task 1: make AI status real everywhere.**
-
-1. Backend: add `provider` to `AiStatusResponse`
-   (`backend/app/platform/ai/schemas.py`, `router.py`). Add admin-only
-   `GET /ai/health` doing one minimal call through the configured provider.
-   Add integration tests with a stub provider.
-2. Frontend: add `useAiStatus()` in `frontend/features/ai/`. Rewrite
-   `frontend/components/crm/ai/AiUnavailable.tsx` to take the live status and
-   separate "not configured" from "not built yet". Remove the stale "no AI
-   gateway" text. Show provider/model on `ai-settings/providers`.
-3. Environment: create `backend/.env` from `backend/.env.example` with
-   `AI_PROVIDER` and the matching key. Restart, and confirm
-   `GET /api/v1/ai/status` → `configured: true`. Then confirm one Market
-   Insights research call succeeds end to end.
+**Checkpoint 2: Account 360 + Contacts + Deals + relationships** (audit items
+12, 17, 19; regression on 11/13–16). See "Recommended Implementation Order"
+above. Suggested first task: the aggregate `GET /crm/accounts/{id}/overview`
+endpoint (summary header: open pipeline value, won revenue, last activity,
+open tasks, next meeting) that #12 calls for, since the frontend work for
+Account 360 and the "Make primary" contact action (#17) both build on it.
