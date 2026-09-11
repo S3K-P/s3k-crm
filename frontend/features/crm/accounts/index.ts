@@ -23,6 +23,7 @@ export interface Account extends RecordMeta {
   name: string;
   industry: string | null;
   website: string | null;
+  phone: string | null;
   company_size: string | null;
   annual_revenue: string | null;
   status: AccountStatus;
@@ -48,6 +49,7 @@ export interface AccountInput {
   name: string;
   industry?: string | null;
   website?: string | null;
+  phone?: string | null;
   company_size?: string | null;
   annual_revenue?: string | null;
   status?: AccountStatus;
@@ -101,3 +103,48 @@ export const updateAccount = (id: string, body: Partial<AccountInput>) =>
   api.patch<Account>(`/crm/accounts/${id}`, body);
 
 export const archiveAccount = (id: string) => api.delete<void>(`/crm/accounts/${id}`);
+
+/* ------------------------------------------------------------------
+   Account 360: the summary header and the unified timeline
+   ------------------------------------------------------------------ */
+
+export interface AccountOverview {
+  contacts_count: number;
+  open_deals_count: number;
+  open_pipeline_value: string;
+  /** Set only when every open deal shares one currency. */
+  open_pipeline_currency: string | null;
+  won_deals_count: number;
+  won_revenue: string;
+  won_revenue_currency: string | null;
+  open_tasks_count: number;
+  last_activity_at: string | null;
+  next_meeting_id: string | null;
+  next_meeting_title: string | null;
+  next_meeting_at: string | null;
+  owner_name: string | null;
+  primary_contact_name: string | null;
+  primary_contact_title: string | null;
+}
+
+export const getAccountOverview = (id: string) =>
+  api.get<AccountOverview>(`/crm/accounts/${id}/overview`);
+
+/** A small fixed vocabulary — see `backend/app/products/crm/accounts/overview.py`. */
+export type AccountTimelineEntryKind =
+  | 'activity'
+  | 'deal_created'
+  | 'stage_changed'
+  | 'contact_created';
+
+export interface AccountTimelineEntry {
+  kind: AccountTimelineEntryKind;
+  occurred_at: string;
+  title: string;
+  detail: string | null;
+  entity_type: string;
+  entity_id: string;
+}
+
+export const getAccountTimeline = (id: string, limit = 50) =>
+  api.get<AccountTimelineEntry[]>(`/crm/accounts/${id}/timeline?limit=${limit}`);

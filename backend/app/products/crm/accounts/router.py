@@ -8,6 +8,7 @@ including any permission list the frontend may hold — influences the outcome.
 from __future__ import annotations
 
 import uuid
+from dataclasses import asdict
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response, status
@@ -18,7 +19,9 @@ from app.platform.authorization.service import Action as PermissionAction
 from app.products.crm.accounts.models import Account, AccountStatus
 from app.products.crm.accounts.schemas import (
     AccountCreate,
+    AccountOverviewResponse,
     AccountResponse,
+    AccountTimelineEntryResponse,
     AccountUpdate,
 )
 from app.products.crm.accounts.service import AccountService
@@ -165,6 +168,46 @@ async def get_account(
         account_id, principal.organization_id, visibility=visible_to(principal)
     )
     return AccountResponse.model_validate(account)
+
+
+@router.get("/{account_id}/overview", response_model=AccountOverviewResponse)
+async def get_account_overview(
+    account_id: uuid.UUID,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
+    service: ServiceDep,
+) -> AccountOverviewResponse:
+    """The Account 360 summary header: contacts, pipeline, tasks, owner.
+
+    A handful of aggregate queries regardless of how many contacts or deals
+    the account has — see ``AccountOverviewRepository`` — and every count is
+    narrowed to what this caller may see, the same as the underlying lists.
+    """
+    account = await service.get_or_404(
+        account_id, principal.organization_id, visibility=visible_to(principal)
+    )
+    overview = await service.overview(account, principal)
+    # `AccountOverview` is a `slots=True` dataclass, so it has no `__dict__`;
+    # `asdict` reads `__dataclass_fields__` instead.
+    return AccountOverviewResponse(**asdict(overview))
+
+
+@router.get("/{account_id}/timeline", response_model=list[AccountTimelineEntryResponse])
+async def get_account_timeline(
+    account_id: uuid.UUID,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
+    service: ServiceDep,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> list[AccountTimelineEntryResponse]:
+    """Everything recorded against this account, merged and newest first.
+
+    Combines logged activities, deal creation, deal stage changes and contact
+    creation. Notes are excluded — see ``accounts/overview.py`` for why.
+    """
+    account = await service.get_or_404(
+        account_id, principal.organization_id, visibility=visible_to(principal)
+    )
+    entries = await service.timeline(account, principal, limit=limit)
+    return [AccountTimelineEntryResponse(**asdict(entry)) for entry in entries]
 
 
 @router.patch("/{account_id}", response_model=AccountResponse)

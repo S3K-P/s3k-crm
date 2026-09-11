@@ -60,6 +60,7 @@ const EMPTY_FORM: AccountInput = {
   name: '',
   industry: '',
   website: '',
+  phone: '',
   company_size: '',
   status: 'ACTIVE',
   city: '',
@@ -132,6 +133,7 @@ export default function AccountsPage() {
       name: row.name,
       industry: row.industry ?? '',
       website: row.website ?? '',
+      phone: row.phone ?? '',
       company_size: row.company_size ?? '',
       status: row.status,
       city: row.city ?? '',
@@ -149,6 +151,7 @@ export default function AccountsPage() {
       name: form.name.trim(),
       industry: form.industry?.trim() || null,
       website: form.website?.trim() || null,
+      phone: form.phone?.trim() || null,
       company_size: form.company_size?.trim() || null,
       status: form.status,
       city: form.city?.trim() || null,
@@ -478,6 +481,14 @@ export default function AccountsPage() {
               value={form.website ?? ''}
               onChange={(event) => setForm({ ...form, website: event.target.value })}
               placeholder="acme.com"
+            />
+          </FormField>
+          <FormField label="Phone">
+            <FormInput
+              type="tel"
+              value={form.phone ?? ''}
+              onChange={(event) => setForm({ ...form, phone: event.target.value })}
+              placeholder="+1 555 123 4567"
             />
           </FormField>
           <FormField label="Company size">

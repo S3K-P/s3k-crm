@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Building2, Loader2, Plus } from 'lucide-react';
 
@@ -10,23 +11,32 @@ import { ListError } from '@/components/crm/shared/ListStates';
 import AttachmentsPanel from '@/components/crm/shared/AttachmentsPanel';
 import CustomFieldsPanel from '@/components/crm/shared/CustomFieldsPanel';
 import { ActivityTimelinePanel, NotesPanel } from '@/components/crm/shared/RecordPanels';
+import Tabs, { type TabDef } from '@/components/crm/shared/Tabs';
 import EmailsPanel from '@/components/crm/emails/EmailsPanel';
 import {
   AccountContactsPanel,
   AccountOpportunitiesPanel,
 } from '@/components/crm/shared/RelatedLists';
+import AccountSummary from '@/components/crm/accounts/AccountSummary';
+import AccountTimeline from '@/components/crm/accounts/AccountTimeline';
 import { useRecord } from '@/components/crm/shared/useRecord';
 import { usePermissions } from '@/context/AuthContext';
 import { getAccount, type Account } from '@/features/crm/accounts';
 
 /* ============================================================
-   ACCOUNT DETAIL
+   ACCOUNT 360
 
    Loads the account named by the route `[id]` from the API. An
    id belonging to another organization returns 404 from the
    backend and is presented here as "not found" — identical to
    an id that never existed, which is what stops the page from
    confirming another tenant's records exist.
+
+   Tabbed rather than one long scroll: Overview carries the
+   summary header and the account's own fields, and each related
+   record type — contacts, deals, activities, emails, notes,
+   files, the unified timeline — gets its own tab so none of them
+   have to compete for space or attention.
    ============================================================ */
 
 function Field({ label, value }: { label: string; value: string | null }) {
@@ -49,6 +59,15 @@ export default function AccountDetailPage() {
   const { status, data, error, reload } = useRecord<Account>(getAccount, id, {
     errorMessage: 'Could not load this account.',
   });
+
+  /* Bumped after a contact is promoted to primary, so the summary header's
+     figure — read from a separate endpoint — stays in step with the change
+     the Contacts tab just made. */
+  const [summaryRefreshToken, setSummaryRefreshToken] = useState(0);
+  const handlePrimaryChanged = () => {
+    setSummaryRefreshToken((n) => n + 1);
+    reload();
+  };
 
   if (status === 'loading') {
     return (
@@ -89,6 +108,88 @@ export default function AccountDetailPage() {
 
   const account = data;
 
+  const tabs: TabDef[] = [
+    {
+      id: 'overview',
+      label: 'Overview',
+      content: (
+        <div className="space-y-6">
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="surface bd rounded-2xl border p-5">
+              <SectionHeader title="Company details" />
+              <div className="space-y-4 pt-2">
+                <Field label="Website" value={account.website} />
+                <Field label="Phone" value={account.phone} />
+                <Field label="Industry" value={account.industry} />
+                <Field label="Company size" value={account.company_size} />
+                <Field label="Source" value={account.source} />
+              </div>
+            </div>
+
+            <div className="surface bd rounded-2xl border p-5">
+              <SectionHeader title="Address" />
+              <div className="space-y-4 pt-2">
+                <Field label="Street" value={account.address_line1} />
+                <Field
+                  label="City, state"
+                  value={[account.city, account.state].filter(Boolean).join(', ') || null}
+                />
+                <Field label="Postal code" value={account.postal_code} />
+                <Field label="Country" value={account.country} />
+              </div>
+            </div>
+          </div>
+
+          {account.description && (
+            <div className="surface bd rounded-2xl border p-5">
+              <SectionHeader title="Description" />
+              <p className="txt whitespace-pre-wrap pt-1 text-[13.5px]">{account.description}</p>
+            </div>
+          )}
+
+          <CustomFieldsPanel entityType="ACCOUNT" values={account.custom_fields} />
+        </div>
+      ),
+    },
+    {
+      id: 'contacts',
+      label: 'Contacts',
+      content: (
+        <AccountContactsPanel account={account} onPrimaryChanged={handlePrimaryChanged} />
+      ),
+    },
+    {
+      id: 'deals',
+      label: 'Deals',
+      content: <AccountOpportunitiesPanel accountId={account.id} />,
+    },
+    {
+      id: 'activities',
+      label: 'Activities',
+      content: <ActivityTimelinePanel entityType="ACCOUNT" entityId={account.id} />,
+    },
+    {
+      id: 'emails',
+      label: 'Emails',
+      content: <EmailsPanel entityType="ACCOUNT" entityId={account.id} />,
+    },
+    {
+      id: 'notes',
+      label: 'Notes',
+      content: <NotesPanel entityType="ACCOUNT" entityId={account.id} />,
+    },
+    {
+      id: 'files',
+      label: 'Files',
+      content: <AttachmentsPanel entityType="ACCOUNT" entityId={account.id} />,
+    },
+    {
+      id: 'timeline',
+      label: 'Timeline',
+      content: <AccountTimeline accountId={account.id} />,
+    },
+  ];
+
   return (
     <div className="space-y-6 p-6 lg:p-8">
       <button
@@ -109,45 +210,12 @@ export default function AccountDetailPage() {
             {account.industry ?? 'No industry recorded'}
           </p>
         </div>
-        <div className="ml-auto">
-          <StatusBadge
-            label={humanize(account.status)}
-            variant={statusVariant(account.status)}
-          />
+        <div className="ml-auto flex items-center gap-2">
+          <StatusBadge label={humanize(account.status)} variant={statusVariant(account.status)} />
         </div>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
-        <div className="surface bd rounded-2xl border p-5">
-          <SectionHeader title="Company details" />
-          <div className="space-y-4 pt-2">
-            <Field label="Website" value={account.website} />
-            <Field label="Industry" value={account.industry} />
-            <Field label="Company size" value={account.company_size} />
-            <Field label="Source" value={account.source} />
-          </div>
-        </div>
-
-        <div className="surface bd rounded-2xl border p-5">
-          <SectionHeader title="Address" />
-          <div className="space-y-4 pt-2">
-            <Field label="Street" value={account.address_line1} />
-            <Field
-              label="City, state"
-              value={[account.city, account.state].filter(Boolean).join(', ') || null}
-            />
-            <Field label="Postal code" value={account.postal_code} />
-            <Field label="Country" value={account.country} />
-          </div>
-        </div>
-      </div>
-
-      {account.description && (
-        <div className="surface bd rounded-2xl border p-5">
-          <SectionHeader title="Description" />
-          <p className="txt whitespace-pre-wrap pt-1 text-[13.5px]">{account.description}</p>
-        </div>
-      )}
+      <AccountSummary accountId={account.id} refreshToken={summaryRefreshToken} />
 
       {/* Both actions carry this account's id through to the create form, so
           the account it belongs to is already chosen when the drawer opens
@@ -173,19 +241,7 @@ export default function AccountDetailPage() {
         )}
       </div>
 
-      <CustomFieldsPanel entityType="ACCOUNT" values={account.custom_fields} />
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <AccountContactsPanel accountId={account.id} />
-        <AccountOpportunitiesPanel accountId={account.id} />
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <ActivityTimelinePanel entityType="ACCOUNT" entityId={account.id} />
-        <EmailsPanel entityType="ACCOUNT" entityId={account.id} />
-        <NotesPanel entityType="ACCOUNT" entityId={account.id} />
-        <AttachmentsPanel entityType="ACCOUNT" entityId={account.id} />
-      </div>
+      <Tabs tabs={tabs} />
     </div>
   );
 }

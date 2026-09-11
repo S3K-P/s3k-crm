@@ -618,6 +618,9 @@ function OpportunitiesPageContent() {
           columns={kanbanColumns}
           data={items}
           groupBy={(opportunity) => opportunity.stage_id}
+          getItemId={(opportunity) => opportunity.id}
+          canDrag={(opportunity) => mayEdit && !isClosed(opportunity)}
+          onCardDrop={(opportunity, stageId) => void handleStageChange(opportunity, stageId)}
           renderCard={(opportunity) => (
             <div className="surface bd rounded-xl border p-3">
               <button

@@ -43,7 +43,7 @@ blueprints ✅, QA/reliability work ✅, DB indexes/performance work ✅.
 
 ## Executive Summary
 
-**75 features audited: 33 ✅ COMPLETE · 22 🟡 PARTIAL · 20 🔴 MISSING.**
+**75 features audited: 34 ✅ COMPLETE · 22 🟡 PARTIAL · 19 🔴 MISSING** (Checkpoint 2 moved primary contacts to complete and Kanban drag-and-drop from missing to partial; see the Checkpoints table below for what each checkpoint changed).
 
 - **The CRM core is solid.** Accounts, contacts, leads, deals, pipeline,
   activities, tasks, meetings, notes, attachments, email, search, saved views,
@@ -97,12 +97,12 @@ root. `BE` = `backend/app/products/crm/`, `PF` = `backend/app/platform/`,
 | # | Feature | Status | Existing Implementation | Missing/Required Work | Dependencies |
 |---|---|---|---|---|---|
 | 11 | Accounts | ✅ | `BE/accounts/*`; CRUD + CSV export; soft delete, `merged_into_id`; `FE/app/(crm)/accounts/*`. | — | — |
-| 12 | Account 360 | 🟡 | `FE/app/(crm)/accounts/[id]/page.tsx` shows details, address, custom fields, contacts, opportunities, activity timeline, emails, notes, attachments. | No summary header (open pipeline value, won revenue, last activity, open tasks, next meeting). No tasks/upcoming panel. No AI summary. Needs an aggregate endpoint (e.g. `GET /crm/accounts/{id}/overview`). | #4, #16, #21, #24 |
+| 12 | Account 360 | 🟡 | **Checkpoint 2:** tabbed (`Overview`/`Contacts`/`Deals`/`Activities`/`Emails`/`Notes`/`Files`/`Timeline`) via `FE/components/crm/shared/Tabs.tsx`. Summary header (`FE/components/crm/accounts/AccountSummary.tsx`) reads `GET /crm/accounts/{id}/overview` (`BE/accounts/overview.py`, `service.py:overview`): open pipeline value, won revenue, contacts count, open tasks count, next meeting, owner name, primary contact — all record-visibility-scoped, no N+1. Company details now include phone (`crm.accounts.phone`, migration `20260914_0100`). | Still no dedicated open-tasks/upcoming *list* panel on the Account page — only the count. No AI summary (Checkpoint 7). | #4, #16, #21, #24 |
 | 13 | Contacts | ✅ | `BE/contacts/*`; CRUD, export, merge; `FE/app/(crm)/contacts/*`. | — | — |
 | 14 | Contacts ↔ Accounts | ✅ | `crm.contacts.account_id`; `AccountContactsPanel` (`FE/components/crm/shared/RelatedLists.tsx`); create-from-account prefill. | — | — |
 | 15 | Deals | ✅ | `BE/opportunities/*` (CRUD, export, stage change, reopen, history). | — | — |
 | 16 | Deals ↔ Accounts | ✅ | `crm.opportunities.account_id` (NOT NULL); `AccountOpportunitiesPanel`, `ContactOpportunitiesPanel`. | — | — |
-| 17 | Primary contacts | 🟡 | `accounts.primary_contact_id`, `opportunities.primary_contact_id`; `POST /crm/contacts/{id}/primary`; client `makeContactPrimary` in `FE/features/crm/contacts/index.ts`. | The UI never calls `makeContactPrimary`, and the account page doesn't show the primary contact. Add "Make primary" to the account's contacts panel and show a badge. | #12, #14 |
+| 17 | Primary contacts | ✅ | **Checkpoint 2:** the Account 360 Contacts tab (`FE/components/crm/shared/RelatedLists.tsx:AccountContactsPanel`) is a real table with a star badge on the primary row and a "Make primary" action calling the existing `makeContactPrimary`/`POST /crm/contacts/{id}/primary`. Updates instantly (optimistic, then confirmed by the account summary's refetch) and is now audit-logged (`BE/contacts/service.py:set_primary` records an `accounts`-module `AuditLog` entry). | — | #12, #14 |
 | 18 | Deal pipeline | ✅ | Per-tenant `crm.pipeline_stages` provisioned at signup; Kanban + table views; `FE/app/(crm)/pipeline-journey/*`. | — | — |
 | 19 | Deal stages | 🟡 | Stage moves via `POST /crm/opportunities/{id}/stage` (state machine + blueprint), `/reopen`, `/history`; `GET /stages`. | Stages are **read-only** for tenants (`admin/crm-settings/page.tsx` says so). Need stage CRUD/reorder/probability admin. | #18, #55 |
 | 20 | Activities | ✅ | `BE/activities/*`; types CALL/EMAIL/MEETING/NOTE/TASK; polymorphic `related_entity_*`. | — | — |
@@ -149,7 +149,7 @@ root. `BE` = `backend/app/products/crm/`, `PF` = `backend/app/platform/`,
 | 51 | Import field mapping | ✅ | Mapping step (CSV header → field) in the wizard; `mapping` JSON validated in `imports/router.py`. | Map to custom fields; saved mapping templates. | #28 |
 | 52 | Export | ✅ | `GET /crm/{accounts,contacts,leads,opportunities}/export` (CSV-injection safe, `shared/csv_export.py`); `ExportButton`. | — | — |
 | 53 | Kanban | ✅ | `FE/components/crm/kanban/KanbanBoard.tsx` on leads (by status) and opportunities (by stage); moves via row actions through the state-machine endpoints. | — | — |
-| 54 | Kanban drag-and-drop | 🔴 | Board has no drag handlers. | Add DnD calling the same `status`/`stage` endpoints, reverting on 422 (blueprint/state-machine refusal). | #53, #55 |
+| 54 | Kanban drag-and-drop | 🟡 | **Checkpoint 2:** the Opportunities board (`FE/components/crm/kanban/KanbanBoard.tsx`) supports native HTML5 drag-and-drop, calling the same `handleStageChange` the existing dropdown uses — same blueprint validation, same win/lost confirmation, same revert-on-422. No new dependency: `@dnd-kit` stays deferred to the checkpoint where fields and dashboards need sortable lists too, so it is chosen once. | The Leads board (same `KanbanBoard` component) was not wired for drag-and-drop — only the stage/status dropdown works there. Native drag-and-drop has no keyboard equivalent; the dropdown remains as the accessible path on both boards. | #53, #55 |
 
 ### E. Automation
 
@@ -323,14 +323,14 @@ There are two causes; which one a person sees depends on the screen.
 ## Completed Functionality
 
 Accounts (11), Contacts (13), Contacts↔Accounts (14), Deals (15),
-Deals↔Accounts (16), Deal pipeline (18), Activities (20), Tasks (21),
-Meetings (23), Notes (25), Files/attachments (26), Custom fields (28), Field
-types (29), Picklists (30), Required/optional (37), Default values (38), Field
-validation (39), Global search (42), Sorting (44), Saved views (45), Import
-(50), Import field mapping (51), Export (52), Kanban (53), Blueprints (55),
-Dashboards (62), Dashboard widgets (63), Dashboard builder (64), Permissions
-(68), Tenant isolation (69), Audit logging (70), Error handling (73),
-Regression testing (74). **33 in total.**
+Deals↔Accounts (16), Primary contacts (17), Deal pipeline (18), Activities
+(20), Tasks (21), Meetings (23), Notes (25), Files/attachments (26), Custom
+fields (28), Field types (29), Picklists (30), Required/optional (37), Default
+values (38), Field validation (39), Global search (42), Sorting (44), Saved
+views (45), Import (50), Import field mapping (51), Export (52), Kanban (53),
+Blueprints (55), Dashboards (62), Dashboard widgets (63), Dashboard builder
+(64), Permissions (68), Tenant isolation (69), Audit logging (70), Error
+handling (73), Regression testing (74). **34 in total.**
 
 Also present, though not in the audit list: calendar, record merge, lead
 conversion, lead sources, campaigns, teams/departments, invitations, password
@@ -339,20 +339,20 @@ reset, app catalogue/enablement, Market Insights.
 ## Partial Functionality
 
 AI connection (1), AI provider configuration (2), AI health/status (3), AI
-Account Intelligence (5), Account 360 (12), Primary contacts (17), Deal stages
-(19), Calls (22), Timeline (24), Emails (27), Form builder (31), DnD field
-ordering (33), Advanced filtering (43), Column customization (46), Bulk actions
-(49), Notifications (59), Reports (61), CRM analytics (66), Roles (67), Security
-(71), Performance (72), E2E testing (75). **22 in total.**
+Account Intelligence (5), Account 360 (12), Deal stages (19), Calls (22),
+Timeline (24), Emails (27), Form builder (31), DnD field ordering (33),
+Advanced filtering (43), Column customization (46), Bulk actions (49), Kanban
+drag-and-drop (54), Notifications (59), Reports (61), CRM analytics (66), Roles
+(67), Security (71), Performance (72), E2E testing (75). **22 in total.**
 
 ## Missing Functionality
 
 AI Account Summary (4), AI Next-Best-Action (6), AI email generation (7), AI
 meeting→CRM (8), Natural-language commands (9), AI prioritization (10), DnD form
 editing (32), Sections (34), Section ordering (35), Conditional visibility (36),
-Custom modules (40), Record layouts (41), Inline editing (47), Bulk editing (48),
-Kanban DnD (54), Workflow engine (56), Workflow rules (57), Workflow actions
-(58), Follow-up automation (60), Dashboard DnD (65). **20 in total.**
+Custom modules (40), Record layouts (41), Inline editing (47), Bulk editing
+(48), Workflow engine (56), Workflow rules (57), Workflow actions (58),
+Follow-up automation (60), Dashboard DnD (65). **19 in total.**
 
 ---
 
@@ -384,7 +384,7 @@ UI, and should be scoped separately once layouts (41) exist.
 | # | Scope | Audit items | Status |
 |---|---|---|---|
 | **Checkpoint 1** | AI connection + verification | 1, 2, 3 (+ AiUnavailable fix) | ✅ Done |
-| **Checkpoint 2** | Account 360 + Contacts + Deals + relationships | 12, 17, 19 (stage admin), 11/13–16 regression | Planned |
+| **Checkpoint 2** | Account 360 + Contacts + Deals + relationships | 12, 17, 54, 11/13–16/18 regression | ✅ Done |
 | **Checkpoint 3** | Activities + Timeline + Notes + Files + Email CRM | 22, 24, 27 (+ 20, 25, 26 regression) | Planned |
 | **Checkpoint 4** | Form builder + drag/drop + custom fields + conditional fields + Kanban + bulk/inline editing + import mapping | 31–36, 41, 46–49, 51, 54 | Planned |
 | **Checkpoint 5** | Search + Reports + Dashboards + Dashboard builder | 43, 61, 65, 66 (+ 42, 62–64 regression) | Planned |
@@ -570,11 +570,189 @@ than assumed or faked:
 - No leftover references to the deleted `AiUnavailable` anywhere in
   `frontend/`.
 
+## Checkpoint 2 — Completed (2026-09-14)
+
+Account 360, the account-overview aggregate, the primary-contact UI, and
+Kanban drag-and-drop. Audited the existing accounts/contacts/opportunities
+modules first (§"Audit the existing implementation" in the checkpoint brief);
+most of the *data model* was already there — the account/contact/deal
+relationships, primary-contact promotion, stage history, blueprint-guarded
+stage moves — and this checkpoint is mostly a frontend consolidation plus one
+new backend read model, not new CRUD.
+
+### What was already there (extended, not rebuilt)
+
+- `crm.contacts.account_id`, `crm.opportunities.account_id`,
+  `crm.opportunities.primary_contact_id` — real foreign keys, already used by
+  `AccountContactsPanel`/`AccountOpportunitiesPanel`/`ContactOpportunitiesPanel`.
+- `POST /crm/contacts/{id}/primary` (`ContactService.set_primary`) — the
+  "exactly one primary contact" invariant was already correct (a single
+  transactional UPDATE on the account row); the frontend client
+  (`makeContactPrimary`) existed too. The only real gap was that nothing in
+  the UI called it.
+- `POST /crm/opportunities/{id}/stage` — blueprint validation, win/loss
+  handling, and `opportunity_stage_history` were already complete and already
+  used by a stage dropdown, both on the deal detail page and on the existing
+  (non-draggable) Kanban board.
+- Contact role/title/status/phone — `job_title`, `department`, `status`,
+  `phone`, `mobile` already existed on `Contact`; nothing to add there.
+
+### What was built
+
+**Backend:**
+- `backend/app/products/crm/accounts/models.py`, `schemas.py` — added
+  `phone` (the one Account 360 field the model was missing); migration
+  `backend/migrations/versions/20260914_0100_account_phone.py`.
+- `backend/app/products/crm/accounts/overview.py` (new) — a "dedicated read
+  model" (ARCHITECTURE-BOUNDARIES.md rule 6, the same pattern
+  `dashboard/repository.py` established): `AccountOverviewRepository`
+  (contacts count, open/won deal count+value+currency, open tasks count,
+  owner name via the Platform's `organizations_for_session().member_directory`
+  — never a direct `platform.users` read — primary contact, next meeting),
+  and `merge_timeline_entries`, a pure function merging four independent
+  timeline sources newest-first.
+- `backend/app/products/crm/accounts/service.py` — `AccountService.overview()`
+  and `.timeline()`, each resolving `RecordVisibility` per sub-module
+  (contacts/opportunities/tasks) exactly as the list endpoints do, so the
+  summary can never show more than the caller's own lists would.
+- `backend/app/products/crm/accounts/router.py` — `GET
+  /crm/accounts/{id}/overview` and `GET /crm/accounts/{id}/timeline`.
+- `backend/app/products/crm/contacts/service.py` — `set_primary` now writes
+  an `accounts`-module `AuditLog` entry (before/after `primary_contact_id`),
+  closing the "record history" ask; `record_change` no-ops when nothing
+  changed, so re-promoting the incumbent writes nothing.
+- Notes are deliberately **excluded** from the unified timeline: their
+  visibility (private/team/organization) is the notes module's own policy,
+  and re-deriving it in a new read model would be a second, easier-to-get-
+  wrong copy of a security check that already exists correctly. Verified with
+  a dedicated test (`test_timeline_excludes_notes`).
+
+**Frontend:**
+- `frontend/app/(crm)/accounts/[id]/page.tsx` — rebuilt around the existing
+  `Tabs` component (already used by `admin/custom-fields` and
+  `NbaDetailsDrawer`, not new): `Overview` / `Contacts` / `Deals` /
+  `Activities` / `Emails` / `Notes` / `Files` / `Timeline`. `Overview` keeps
+  company details (now with Phone), address, description and custom fields;
+  every other tab is one existing panel, unchanged, just no longer
+  stacked on one page.
+- `frontend/components/crm/accounts/AccountSummary.tsx` (new) — the KPI strip
+  (`KpiCard`, already used elsewhere) reading `GET .../overview`: open
+  pipeline, won revenue, contacts, open tasks, owner, primary contact, next
+  meeting.
+- `frontend/components/crm/accounts/AccountTimeline.tsx` (new) — renders the
+  merged timeline with a per-kind icon and a link to the record each entry is
+  about.
+- `frontend/components/crm/shared/RelatedLists.tsx` —
+  `AccountContactsPanel` rebuilt as a real table (Name/Role/Email/Status) with
+  a star badge on the primary contact and a "Make primary" action per row
+  (optimistic update, no page reload); `AccountOpportunitiesPanel` rebuilt as
+  a table (Deal/Amount/Stage) with a "New deal" action. `ContactOpportunitiesPanel`
+  (used by the Contact detail page) is unchanged.
+- `frontend/components/crm/kanban/KanbanBoard.tsx` — added optional native
+  HTML5 drag-and-drop (`onCardDrop`, `getItemId`, `canDrag`), wired into the
+  Opportunities page's board so a drop calls the *same* `handleStageChange`
+  the existing dropdown calls — same blueprint validation, same win/loss
+  confirmation dialog, same revert-on-422. No new dependency: `@dnd-kit` stays
+  deferred to the checkpoint where custom fields and dashboards also need
+  sortable lists, so it gets chosen once for all three. Native drag-and-drop
+  has no keyboard equivalent, so the existing dropdown remains as the
+  accessible fallback on both boards; the Leads board was not wired for drop
+  (out of scope — this checkpoint's brief named Deals throughout).
+- `frontend/app/(crm)/accounts/page.tsx`, `frontend/features/crm/accounts/index.ts`
+  — Phone added to the list/edit form and the API client; `AccountOverview`/
+  `AccountTimelineEntry` types and `getAccountOverview`/`getAccountTimeline`
+  added.
+
+### Tests
+
+- `backend/tests/unit/test_account_timeline.py` (new, **runs without
+  Postgres**): 5 tests for `merge_timeline_entries` — newest-first merge
+  across sources, the limit cutoff, an empty source, no sources, and a tie at
+  the same timestamp. All pass.
+- `backend/tests/integration/test_account_relationships.py` (new, 13 tests,
+  **requires Postgres — not executed, see Environment limitations**):
+  overview aggregates match real created data; won revenue counts only
+  closed-won deals; owner/primary-contact name resolution; an empty account
+  reports zeros, not errors; promoting a contact demotes the incumbent; a
+  contact with no account cannot be made primary; the timeline merges all
+  three non-activity sources and respects `limit`; notes are excluded; **a
+  rep's overview/timeline count only what the rep can see, not what an admin
+  added to the same account** (the record-visibility property Checkpoint 2
+  §13 requires, checked the same way
+  `test_the_dashboard_counts_only_what_the_rep_can_open` checks it for the
+  org-wide dashboard); another organization's account is 404 on both new
+  routes; a random id is 404, not 500.
+- Verified via `pytest --collect-only`: 13 items, no syntax errors.
+- Existing tests: not weakened or deleted. Full backend unit suite re-run
+  after every change (see Static analysis below).
+
+### Static analysis
+
+- **Ruff** (`app tests migrations`): clean.
+- **mypy** (`app`, matching CI): clean, 300 source files.
+- **Frontend `tsc --noEmit`**: clean.
+- **Frontend `eslint .`**: caught one real issue during development —
+  `RelatedLists.tsx` was syncing local state from a prop inside a
+  `useEffect` (`react-hooks/set-state-in-effect`); fixed by computing the
+  optimistic override without an effect at all. Clean after the fix.
+- **Frontend `next build`**: succeeds; all 53 routes generate.
+- **Backend `pytest tests/unit`**: **849 passed** (848 pre-existing + the new
+  timeline-merge file), 0 failed.
+
+### A bug caught before it ran
+
+`AccountOverview`/`TimelineEntry` are `@dataclass(frozen=True, slots=True)`.
+The router's first draft built the response with `**overview.__dict__` —
+which raises `AttributeError` at runtime on any slotted dataclass, since
+`slots=True` removes the per-instance `__dict__` entirely. mypy does not
+catch this (attribute access on `__dict__` typechecks fine); it would have
+surfaced only when `GET /accounts/{id}/overview` was actually called. Fixed
+with `dataclasses.asdict(...)` before it was ever exercised — see
+`backend/app/products/crm/accounts/router.py`.
+
+### Environment limitations
+
+- **Docker was unavailable in this session** (same constraint as Checkpoint
+  1: `com.docker.service` is `STOPPED`). This blocked
+  `backend/tests/integration/test_account_relationships.py` (13 tests,
+  syntax-checked via `--collect-only`, not executed) and any live-server
+  check of the two new routes over HTTP.
+- **The Browser preview tooling could not reach this worktree.** `preview_start`
+  resolved `.claude/launch.json` and ran `next dev` against a *different*
+  worktree (`zoho-s3k-gap-analysis-686c6b`) than the one this session's file
+  edits and git history live in (`s3k-crm-local-setup-0f83a7`) — the dev
+  server it launched failed immediately with "couldn't find next/package.json"
+  because it resolved the *other* worktree's `frontend/app`. This is a
+  session-level plumbing mismatch (this session entered
+  `s3k-crm-local-setup-0f83a7` via `EnterWorktree` mid-task; the Browser
+  preview subsystem still points at the worktree the session was launched
+  in), not a bug in the code being reviewed here. It means no live click-
+  through of the new tabs, the "Make primary" button, or Kanban drag-and-drop
+  was possible in this session. Verification for the UI work is therefore
+  static only: `tsc`, `eslint`, `next build`, and manual code review — no
+  screenshot, no browser console check. **Recommended before trusting this
+  checkpoint's frontend in production:** open `/accounts/{id}` in a real
+  browser against a running backend and click through all eight tabs, the
+  "Make primary" action, and a drag on the Opportunities board.
+- Nothing above was faked or assumed to pass.
+
+### Accidental-change / secret check
+
+- `git diff --stat` scoped to exactly 11 modified + 5 new files, all named
+  above; nothing unrelated touched.
+- Diff scanned for credential-shaped strings; none found.
+- `git diff --check`: no whitespace errors (only pre-existing LF→CRLF
+  conversion notices, not errors).
+
 ## Next Exact Step
 
-**Checkpoint 2: Account 360 + Contacts + Deals + relationships** (audit items
-12, 17, 19; regression on 11/13–16). See "Recommended Implementation Order"
-above. Suggested first task: the aggregate `GET /crm/accounts/{id}/overview`
-endpoint (summary header: open pipeline value, won revenue, last activity,
-open tasks, next meeting) that #12 calls for, since the frontend work for
-Account 360 and the "Make primary" contact action (#17) both build on it.
+**Checkpoint 3: Activities + Timeline + Notes + Files + Email CRM** (audit
+items 22, 24, 27; regression on 20, 25, 26). Candidates for the first task,
+per "Recommended Implementation Order": give Calls their own fields
+(direction, duration, result picklist) and a "Log call" quick action distinct
+from the generic activity logger (#22); or extend the now-real Account
+timeline pattern (`accounts/overview.py`'s `merge_timeline_entries`) to
+Contacts, Leads and Opportunities, which currently still show
+activities-only timelines (#24) — the merge function and the four query
+patterns it combines are already written and could be generalized rather
+than re-derived per entity.

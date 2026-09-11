@@ -23,6 +23,7 @@ from sqlalchemy import ColumnElement, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError
+from app.platform.audit.service import Action as AuditAction
 from app.products.crm.accounts.models import Account
 from app.products.crm.common import CrmEntityType
 from app.products.crm.contacts.models import Contact, ContactStatus
@@ -174,6 +175,14 @@ class ContactService(TenantScopedService[Contact]):
         if contact.account_id is None:
             raise NotFoundError("This contact is not attached to an account.")
 
+        previous = await self._session.execute(
+            select(Account.primary_contact_id).where(
+                Account.id == contact.account_id,
+                Account.organization_id == contact.organization_id,
+            )
+        )
+        previous_contact_id = previous.scalar_one_or_none()
+
         await self._session.execute(
             update(Account)
             .where(
@@ -183,6 +192,25 @@ class ContactService(TenantScopedService[Contact]):
             .values(primary_contact_id=contact.id, updated_by_id=actor_id)
         )
         await self._session.flush()
+
+        # Recorded against the *account* — ``primary_contact_id`` is the
+        # account's own field — even though this call lives on
+        # ContactService, which is why the module/entity_type are named
+        # explicitly here rather than taken from ``self.audit_module``.
+        # ``record_change`` no-ops when before == after, so promoting the
+        # contact that is already primary writes nothing.
+        await self.audit.record_change(
+            organization_id=contact.organization_id,
+            action=AuditAction.UPDATED,
+            module="accounts",
+            entity_type=CrmEntityType.ACCOUNT,
+            entity_id=contact.account_id,
+            actor_id=actor_id,
+            before={
+                "primary_contact_id": str(previous_contact_id) if previous_contact_id else None
+            },
+            after={"primary_contact_id": str(contact.id)},
+        )
         return contact
 
     async def is_primary(self, contact: Contact) -> bool:

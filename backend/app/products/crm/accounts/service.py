@@ -10,6 +10,7 @@ Beyond generic CRUD this enforces two rules from the plan (P2-W11-BE-03/04):
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from collections.abc import Sequence
 from typing import Any
@@ -18,7 +19,14 @@ from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError
+from app.platform.auth.dependencies import Principal
 from app.products.crm.accounts.models import Account, AccountStatus
+from app.products.crm.accounts.overview import (
+    AccountOverview,
+    AccountOverviewRepository,
+    TimelineEntry,
+    merge_timeline_entries,
+)
 from app.products.crm.common import CrmEntityType
 from app.products.crm.opportunities.models import Opportunity
 from app.products.crm.shared.pagination import PageParams
@@ -100,6 +108,83 @@ class AccountService(TenantScopedService[Account]):
         repository.
         """
         return await self._repository.exists(account_id, organization_id)
+
+    async def overview(self, account: Account, principal: Principal) -> AccountOverview:
+        """The Account 360 summary: real aggregates, each scoped exactly as
+        the underlying list endpoint would scope it for this caller (§13) —
+        a custom role holding ``opportunities.VIEW_ALL`` but not
+        ``contacts.VIEW_ALL`` must see every deal and only their own contacts.
+        """
+        repo = AccountOverviewRepository(self._session)
+        contacts_visibility = RecordVisibility.for_module(principal, "contacts")
+        opportunities_visibility = RecordVisibility.for_module(principal, "opportunities")
+        tasks_visibility = RecordVisibility.for_module(principal, "tasks")
+
+        contacts_count = await repo.contacts_count(
+            account.id, account.organization_id, contacts_visibility
+        )
+        (
+            open_count,
+            open_value,
+            open_currencies,
+            won_count,
+            won_value,
+            won_currencies,
+        ) = await repo.deal_summary(account.id, account.organization_id, opportunities_visibility)
+        open_tasks = await repo.open_tasks_count(
+            account.id, account.organization_id, tasks_visibility
+        )
+        last_activity = await repo.activity_entries(account.id, account.organization_id, limit=1)
+        owner_name = await repo.owner_name(account.organization_id, account.owner_id)
+        primary_contact = await repo.primary_contact(
+            account.organization_id, account.primary_contact_id
+        )
+        meeting = await repo.next_meeting(
+            account.id, account.organization_id, now=dt.datetime.now(dt.UTC)
+        )
+
+        return AccountOverview(
+            contacts_count=contacts_count,
+            open_deals_count=open_count,
+            open_pipeline_value=open_value,
+            # A single currency in play is named; several have no one symbol,
+            # and picking one would misstate the sum (dashboard/service.py
+            # makes the same call for the org-wide figure).
+            open_pipeline_currency=open_currencies[0] if len(open_currencies) == 1 else None,
+            won_deals_count=won_count,
+            won_revenue=won_value,
+            won_revenue_currency=won_currencies[0] if len(won_currencies) == 1 else None,
+            open_tasks_count=open_tasks,
+            last_activity_at=last_activity[0].occurred_at if last_activity else None,
+            next_meeting_id=meeting[0] if meeting else None,
+            next_meeting_title=meeting[1] if meeting else None,
+            next_meeting_at=meeting[2] if meeting else None,
+            owner_name=owner_name,
+            primary_contact_name=primary_contact.full_name if primary_contact else None,
+            primary_contact_title=primary_contact.job_title if primary_contact else None,
+        )
+
+    async def timeline(
+        self, account: Account, principal: Principal, *, limit: int = 50
+    ) -> list[TimelineEntry]:
+        """Every event this caller may see against this account, newest first."""
+        repo = AccountOverviewRepository(self._session)
+        contacts_visibility = RecordVisibility.for_module(principal, "contacts")
+        opportunities_visibility = RecordVisibility.for_module(principal, "opportunities")
+
+        activities = await repo.activity_entries(account.id, account.organization_id)
+        deals_created = await repo.deal_created_entries(
+            account.id, account.organization_id, opportunities_visibility
+        )
+        stage_changes = await repo.stage_changed_entries(
+            account.id, account.organization_id, opportunities_visibility
+        )
+        contacts_created = await repo.contact_created_entries(
+            account.id, account.organization_id, contacts_visibility
+        )
+        return merge_timeline_entries(
+            activities, deals_created, stage_changes, contacts_created, limit=limit
+        )
 
     # --- Commands ----------------------------------------------------------
 
