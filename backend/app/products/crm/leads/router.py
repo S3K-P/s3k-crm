@@ -16,6 +16,8 @@ from app.products.crm.leads.models import Lead, LeadStatus
 from app.products.crm.leads.schemas import (
     ConversionMatchAccount,
     ConversionMatchContact,
+    LeadBulkStatusChange,
+    LeadBulkUpdate,
     LeadConversionResponse,
     LeadConversionSuggestions,
     LeadConvertRequest,
@@ -29,6 +31,7 @@ from app.products.crm.leads.schemas import (
 from app.products.crm.leads.service import LeadService
 from app.products.crm.shared.csv_export import collect_rows, csv_response
 from app.products.crm.shared.pagination import Page, PageParams, page_params
+from app.products.crm.shared.schemas import BulkIdsRequest, BulkOperationResult
 from app.products.crm.shared.visibility import RecordVisibility
 
 router = APIRouter()
@@ -147,6 +150,63 @@ async def lead_status_counts(
 ) -> LeadStatusCounts:
     """Per-status totals backing the kanban column headers."""
     return LeadStatusCounts(counts=await service.counts_by_status(principal.organization_id))
+
+
+@router.post("/bulk-update", response_model=BulkOperationResult)
+async def bulk_update_leads(
+    payload: LeadBulkUpdate,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.EDIT))],
+    service: ServiceDep,
+) -> BulkOperationResult:
+    """Patch the same fields on many leads. ``status`` is not among them.
+
+    ``LeadBulkUpdate.values`` is a ``LeadUpdate`` — the exact schema the
+    single-record PATCH accepts, which already excludes ``status`` — so a
+    bulk edit cannot bypass the transition endpoint's blueprint checks by
+    construction. See :meth:`~app.products.crm.shared.service.TenantScopedService.bulk_update`.
+    """
+    values = payload.values.model_dump(exclude_unset=True)
+    if values.get("email") is not None:
+        values["email"] = str(values["email"])
+    return await service.bulk_update(
+        payload.ids,
+        principal.organization_id,
+        actor_id=principal.user_id,
+        values=values,
+        visibility=visible_to(principal),
+    )
+
+
+@router.post("/bulk-delete", response_model=BulkOperationResult)
+async def bulk_delete_leads(
+    payload: BulkIdsRequest,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.DELETE))],
+    service: ServiceDep,
+) -> BulkOperationResult:
+    return await service.bulk_delete(
+        payload.ids,
+        principal.organization_id,
+        actor_id=principal.user_id,
+        visibility=visible_to(principal),
+    )
+
+
+@router.post("/bulk-status", response_model=BulkOperationResult)
+async def bulk_change_lead_status(
+    payload: LeadBulkStatusChange,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.EDIT))],
+    service: ServiceDep,
+) -> BulkOperationResult:
+    """Move many leads through the pipeline — the same rules as one drag."""
+    return await service.bulk_change_status(
+        payload.ids,
+        principal.organization_id,
+        new_status=payload.status,
+        actor_id=principal.user_id,
+        lost_reason=payload.lost_reason,
+        principal=principal,
+        visibility=visible_to(principal),
+    )
 
 
 @router.post("", response_model=LeadResponse, status_code=status.HTTP_201_CREATED)

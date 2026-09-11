@@ -10,6 +10,7 @@ import { downloadAndSave } from '@/lib/save-file';
 import {
   toQuery,
   withoutPaging,
+  type BulkOperationResult,
   type ListParams,
   type Page,
   type RecordMeta,
@@ -111,6 +112,13 @@ export const updateAccount = (id: string, body: Partial<AccountInput>) =>
   api.patch<Account>(`/crm/accounts/${id}`, body);
 
 export const archiveAccount = (id: string) => api.delete<void>(`/crm/accounts/${id}`);
+
+/** Each id is validated and saved independently — see `features/crm/leads`. */
+export const bulkUpdateAccounts = (ids: string[], values: Partial<AccountInput>) =>
+  api.post<BulkOperationResult>('/crm/accounts/bulk-update', { ids, values });
+
+export const bulkDeleteAccounts = (ids: string[]) =>
+  api.post<BulkOperationResult>('/crm/accounts/bulk-delete', { ids });
 
 /* ------------------------------------------------------------------
    Account 360: the summary header and the unified timeline

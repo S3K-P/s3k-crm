@@ -6,12 +6,21 @@ already exists rather than a parallel one — the property the module docstring
 turns on.
 
 Adding a fourth importable entity is an entry here plus nothing else.
+
+**Custom-field mapping (Checkpoint 4).** ``entity_type`` lets a mapping target
+a tenant-defined field too, not only a built-in column: the wizard offers
+``custom:<api_name>`` alongside every schema field, resolved against this
+organization's *active* custom-field definitions for the entity — the same
+authority :mod:`app.products.crm.layouts.catalog` resolves a layout field
+against, and the same ``custom:`` prefix, so the two features share one
+vocabulary for "a field that isn't a built-in column" instead of inventing a
+second.
 """
 
 from __future__ import annotations
 
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -20,8 +29,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.products.crm.accounts.schemas import AccountCreate
 from app.products.crm.accounts.service import AccountService
+from app.products.crm.common import CrmEntityType
 from app.products.crm.contacts.schemas import ContactCreate
 from app.products.crm.contacts.service import ContactService
+from app.products.crm.custom_fields.models import CustomFieldDefinition
+from app.products.crm.custom_fields.repository import CustomFieldDefinitionRepository
+from app.products.crm.layouts.catalog import CUSTOM_FIELD_KEY_PREFIX, custom_field_key
 from app.products.crm.leads.schemas import LeadCreate
 from app.products.crm.leads.service import LeadService
 
@@ -50,6 +63,8 @@ class ImportableEntity:
     duplicate_field: str
     #: Builds the service from a session and returns its create method.
     create: Callable[[AsyncSession], CreateCallable]
+    #: Which ``CrmEntityType`` this slug's custom fields are defined under.
+    entity_type: CrmEntityType
 
 
 def _accounts(session: AsyncSession) -> CreateCallable:
@@ -74,6 +89,7 @@ IMPORTABLE: dict[str, ImportableEntity] = {
             schema=LeadCreate,
             duplicate_field="email",
             create=_leads,
+            entity_type=CrmEntityType.LEAD,
         ),
         ImportableEntity(
             slug="accounts",
@@ -82,6 +98,7 @@ IMPORTABLE: dict[str, ImportableEntity] = {
             schema=AccountCreate,
             duplicate_field="name",
             create=_accounts,
+            entity_type=CrmEntityType.ACCOUNT,
         ),
         ImportableEntity(
             slug="contacts",
@@ -90,13 +107,14 @@ IMPORTABLE: dict[str, ImportableEntity] = {
             schema=ContactCreate,
             duplicate_field="email",
             create=_contacts,
+            entity_type=CrmEntityType.CONTACT,
         ),
     )
 }
 
 
 def field_names(entity: ImportableEntity) -> list[str]:
-    """Columns a CSV may map onto, in the schema's own order."""
+    """Built-in columns a CSV may map onto, in the schema's own order."""
     return list(entity.schema.model_fields)
 
 
@@ -123,10 +141,33 @@ def owner_defaulted_fields(entity: ImportableEntity) -> list[str]:
     ]
 
 
+async def custom_field_targets(
+    session: AsyncSession, entity: ImportableEntity, organization_id: uuid.UUID
+) -> Sequence[CustomFieldDefinition]:
+    """This organization's active custom fields for ``entity``, importable as
+    ``custom:<api_name>`` mapping targets.
+
+    Only active definitions: retired fields are not rendered, required or
+    validated anywhere else in the product, and offering one in the mapping
+    step would let an importer aim a column at a field that will refuse every
+    value with "no longer active" — a worse experience than not offering it.
+    """
+    return await CustomFieldDefinitionRepository(session).for_entity(
+        organization_id, entity.entity_type, include_inactive=False
+    )
+
+
+def is_custom_field_target(field: str) -> bool:
+    return field.startswith(CUSTOM_FIELD_KEY_PREFIX)
+
+
 __all__ = [
     "IMPORTABLE",
     "ImportableEntity",
+    "custom_field_key",
+    "custom_field_targets",
     "field_names",
+    "is_custom_field_target",
     "owner_defaulted_fields",
     "required_fields",
 ]

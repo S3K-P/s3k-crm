@@ -8,7 +8,14 @@
 
 import { api } from '@/lib/api-client';
 import { downloadAndSave } from '@/lib/save-file';
-import { toQuery, withoutPaging, type ListParams, type Page, type RecordMeta } from '@/features/shared/types/api';
+import {
+  toQuery,
+  withoutPaging,
+  type BulkOperationResult,
+  type ListParams,
+  type Page,
+  type RecordMeta,
+} from '@/features/shared/types/api';
 import type { CustomFieldValues } from '@/features/crm/custom-fields';
 
 export type LeadStatus =
@@ -190,3 +197,27 @@ export const convertLead = (
 ) => api.post<LeadConversionResult>(`/crm/leads/${id}/convert`, body);
 
 export const archiveLead = (id: string) => api.delete<void>(`/crm/leads/${id}`);
+
+/* ------------------------------------------------------------------
+   Bulk operations (Checkpoint 4)
+
+   Each call is many single-record writes, not one blanket UPDATE — see
+   `TenantScopedService.bulk_update` — so `values` here is the same
+   `Partial<LeadInput>` a single PATCH accepts. `status` is not a `LeadInput`
+   field (see the type above), which is what makes it impossible for a bulk
+   update to bypass the transition endpoint's blueprint checks: the type
+   system, not a runtime check, is the guarantee.
+   ------------------------------------------------------------------ */
+
+export const bulkUpdateLeads = (ids: string[], values: Partial<LeadInput>) =>
+  api.post<BulkOperationResult>('/crm/leads/bulk-update', { ids, values });
+
+export const bulkDeleteLeads = (ids: string[]) =>
+  api.post<BulkOperationResult>('/crm/leads/bulk-delete', { ids });
+
+export const bulkChangeLeadStatus = (ids: string[], status: LeadStatus, lostReason?: string) =>
+  api.post<BulkOperationResult>('/crm/leads/bulk-status', {
+    ids,
+    status,
+    lost_reason: lostReason ?? null,
+  });

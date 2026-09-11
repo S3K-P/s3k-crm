@@ -18,6 +18,7 @@ from app.platform.auth.dependencies import Principal, require_permission
 from app.platform.authorization.service import Action as PermissionAction
 from app.products.crm.accounts.models import Account, AccountStatus
 from app.products.crm.accounts.schemas import (
+    AccountBulkUpdate,
     AccountCreate,
     AccountOverviewResponse,
     AccountResponse,
@@ -29,6 +30,7 @@ from app.products.crm.common import CrmEntityType
 from app.products.crm.custom_fields.query import CustomFieldQueryDep
 from app.products.crm.shared.csv_export import collect_rows, csv_response
 from app.products.crm.shared.pagination import Page, PageParams, page_params
+from app.products.crm.shared.schemas import BulkIdsRequest, BulkOperationResult
 from app.products.crm.shared.visibility import RecordVisibility
 
 router = APIRouter()
@@ -138,6 +140,35 @@ async def export_accounts(
         },
     )
     return csv_response(rows, AccountResponse, entity_plural="accounts")
+
+
+@router.post("/bulk-update", response_model=BulkOperationResult)
+async def bulk_update_accounts(
+    payload: AccountBulkUpdate,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.EDIT))],
+    service: ServiceDep,
+) -> BulkOperationResult:
+    return await service.bulk_update(
+        payload.ids,
+        principal.organization_id,
+        actor_id=principal.user_id,
+        values=payload.values.model_dump(exclude_unset=True),
+        visibility=visible_to(principal),
+    )
+
+
+@router.post("/bulk-delete", response_model=BulkOperationResult)
+async def bulk_delete_accounts(
+    payload: BulkIdsRequest,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.DELETE))],
+    service: ServiceDep,
+) -> BulkOperationResult:
+    return await service.bulk_delete(
+        payload.ids,
+        principal.organization_id,
+        actor_id=principal.user_id,
+        visibility=visible_to(principal),
+    )
 
 
 @router.post("", response_model=AccountResponse, status_code=status.HTTP_201_CREATED)

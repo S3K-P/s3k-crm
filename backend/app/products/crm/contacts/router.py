@@ -19,6 +19,7 @@ from app.platform.authorization.service import Action as PermissionAction
 from app.products.crm.common import CrmEntityType
 from app.products.crm.contacts.models import Contact, ContactStatus
 from app.products.crm.contacts.schemas import (
+    ContactBulkUpdate,
     ContactCreate,
     ContactResponse,
     ContactUpdate,
@@ -27,7 +28,11 @@ from app.products.crm.contacts.service import ContactService
 from app.products.crm.custom_fields.query import CustomFieldQueryDep
 from app.products.crm.shared.csv_export import collect_rows, csv_response
 from app.products.crm.shared.pagination import Page, PageParams, page_params
-from app.products.crm.shared.schemas import TimelineEntryResponse
+from app.products.crm.shared.schemas import (
+    BulkIdsRequest,
+    BulkOperationResult,
+    TimelineEntryResponse,
+)
 from app.products.crm.shared.visibility import RecordVisibility
 
 router = APIRouter()
@@ -137,6 +142,35 @@ async def export_contacts(
         },
     )
     return csv_response(rows, ContactResponse, entity_plural="contacts")
+
+
+@router.post("/bulk-update", response_model=BulkOperationResult)
+async def bulk_update_contacts(
+    payload: ContactBulkUpdate,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.EDIT))],
+    service: ServiceDep,
+) -> BulkOperationResult:
+    return await service.bulk_update(
+        payload.ids,
+        principal.organization_id,
+        actor_id=principal.user_id,
+        values=payload.values.model_dump(exclude_unset=True),
+        visibility=visible_to(principal),
+    )
+
+
+@router.post("/bulk-delete", response_model=BulkOperationResult)
+async def bulk_delete_contacts(
+    payload: BulkIdsRequest,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.DELETE))],
+    service: ServiceDep,
+) -> BulkOperationResult:
+    return await service.bulk_delete(
+        payload.ids,
+        principal.organization_id,
+        actor_id=principal.user_id,
+        visibility=visible_to(principal),
+    )
 
 
 @router.post("", response_model=ContactResponse, status_code=status.HTTP_201_CREATED)

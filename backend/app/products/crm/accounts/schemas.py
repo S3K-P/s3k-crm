@@ -74,6 +74,13 @@ class AccountUpdate(BaseModel):
     custom_fields: CustomFieldValues | None = None
 
 
+class AccountBulkUpdate(BaseModel):
+    """Patch the same fields on many accounts at once (Checkpoint 4)."""
+
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    values: AccountUpdate
+
+
 class AccountResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -148,6 +155,7 @@ class AccountTimelineEntryResponse(BaseModel):
 
 
 __all__ = [
+    "AccountBulkUpdate",
     "AccountCreate",
     "AccountOverviewResponse",
     "AccountResponse",

@@ -11,6 +11,7 @@ import { downloadAndSave } from '@/lib/save-file';
 import {
   toQuery,
   withoutPaging,
+  type BulkOperationResult,
   type ListParams,
   type Page,
   type RecordMeta,
@@ -150,3 +151,29 @@ export const archiveOpportunity = (id: string) =>
 /** Every event this caller may see against this deal, newest first. */
 export const getOpportunityTimeline = (id: string, limit = 50) =>
   api.get<TimelineEntry[]>(`/crm/opportunities/${id}/timeline?limit=${limit}`);
+
+/* ------------------------------------------------------------------
+   Bulk operations (Checkpoint 4) — see `features/crm/leads`'s own
+   section for the shared reasoning: each call is many single-record
+   writes, not one blanket UPDATE. Unlike `LeadInput`, `OpportunityInput`
+   still carries `stage_id` (it is shared between create and update on this
+   side), so the *frontend* type alone does not rule it out of a bulk edit —
+   the caller (the bulk-edit field picker) simply never offers it. The
+   guarantee that actually holds regardless is the backend's: `PATCH
+   .../bulk-update` validates against `OpportunityUpdate`, which has no
+   `stage_id` field at all, so a value sent anyway is dropped before it
+   reaches a row. A bulk stage move instead runs every deal through the
+   identical `changeStage` rules — closed-deal refusal, the missing-reason
+   check, blueprint validation.
+   ------------------------------------------------------------------ */
+
+export const bulkUpdateOpportunities = (ids: string[], values: Partial<OpportunityInput>) =>
+  api.post<BulkOperationResult>('/crm/opportunities/bulk-update', { ids, values });
+
+export const bulkDeleteOpportunities = (ids: string[]) =>
+  api.post<BulkOperationResult>('/crm/opportunities/bulk-delete', { ids });
+
+export const bulkChangeStage = (
+  ids: string[],
+  body: { stage_id: string; note?: string | null; loss_reason?: string | null; win_reason?: string | null },
+) => api.post<BulkOperationResult>('/crm/opportunities/bulk-stage', { ids, ...body });

@@ -34,7 +34,7 @@ from typing import Any, TypeVar, cast
 from sqlalchemy import ColumnElement, Text
 from sqlalchemy.orm import class_mapper
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import AppError, NotFoundError
 from app.platform.audit.service import Action as AuditAction
 from app.platform.audit.service import AuditService, audit_for_session
 from app.products.crm.common import CrmEntityType
@@ -44,6 +44,7 @@ from app.products.crm.shared.custom_field_hook import (
 )
 from app.products.crm.shared.pagination import PageParams
 from app.products.crm.shared.repository import TenantOwnedModel, TenantScopedRepository
+from app.products.crm.shared.schemas import BulkOperationFailure, BulkOperationResult
 from app.products.crm.shared.visibility import RecordVisibility
 
 ModelT = TypeVar("ModelT", bound=TenantOwnedModel)
@@ -267,6 +268,15 @@ class TenantScopedService[ModelT: TenantOwnedModel]:
         payload.pop("id", None)
 
         if self.crm_entity_type is not None:
+            # Everything else the caller submitted, before the resolved
+            # `custom_fields` document replaces the raw one below — a
+            # published layout's conditional rules (Checkpoint 4) may read any
+            # of these built-in values. Snapshotting `payload` here rather
+            # than after is a documented, narrow limitation: a rule reading
+            # `owner_id` would not yet see the create-defaulted value assigned
+            # further down, since that default is applied to whoever actually
+            # created the record and no real layout condition targets it.
+            record_context = {k: v for k, v in payload.items() if k != "custom_fields"}
             payload["custom_fields"] = await self._resolve_custom_fields(
                 organization_id=organization_id,
                 submitted=payload.get("custom_fields"),
@@ -276,6 +286,7 @@ class TenantScopedService[ModelT: TenantOwnedModel]:
                     entity_type=self.crm_entity_type,
                 ),
                 creating=True,
+                record_context=record_context,
             )
 
         # Ownership defaults to whoever created the record, on any model that
@@ -325,6 +336,19 @@ class TenantScopedService[ModelT: TenantOwnedModel]:
         """
         values = dict(values)
         if self.crm_entity_type is not None and "custom_fields" in values:
+            # The record's built-in values as this write will leave them: its
+            # current columns, overridden by whatever this PATCH also touches
+            # — so a rule reading, say, a status this same request is not
+            # changing still sees it, and one reading a column this request
+            # *is* changing sees the new value, not the stale one still on
+            # `entity`. Custom fields are excluded on both sides: the
+            # replacement document is what `_resolve_custom_fields` computes
+            # right below, and a stale/raw copy of it here would be wrong the
+            # moment either differs from the final answer.
+            record_context = {
+                **self._built_in_snapshot(entity),
+                **{k: v for k, v in values.items() if k != "custom_fields"},
+            }
             # Merged against what the record already holds, so a PATCH that
             # names one custom field does not erase the others — the same
             # partial-update semantics the built-in columns have.
@@ -333,6 +357,7 @@ class TenantScopedService[ModelT: TenantOwnedModel]:
                 submitted=values["custom_fields"],
                 existing=dict(getattr(entity, "custom_fields", None) or {}),
                 creating=False,
+                record_context=record_context,
             )
 
         touched = [field for field in values if field not in _AUDIT_IGNORED_COLUMNS]
@@ -380,6 +405,86 @@ class TenantScopedService[ModelT: TenantOwnedModel]:
         )
         return deleted
 
+    # --- Bulk writes (Checkpoint 4) -----------------------------------------
+    #
+    # Both loop the *single-record* path — ``update``/``soft_delete`` above —
+    # rather than issuing one UPDATE/DELETE statement over the whole id list.
+    # That costs N round trips instead of one, and it is the only way to keep
+    # every guarantee the single-record path already makes: per-record
+    # permission and visibility (a caller cannot bulk-edit a record their role
+    # or ownership would not let them edit one at a time), full custom-field
+    # validation, and one audit entry per record rather than a single entry
+    # that cannot say which of fifty records actually changed. A field this
+    # method could silently corrupt at scale — a status or stage governed by a
+    # blueprint state machine — is refused by construction: callers pass
+    # ``values`` built from each entity's own ``*Update`` schema, which already
+    # excludes those columns (``LeadUpdate`` excludes ``status``,
+    # ``OpportunityUpdate`` excludes ``stage_id``) in favour of the dedicated
+    # transition endpoints, which know how to bulk-move records through a
+    # blueprint one at a time — see e.g. ``LeadService.bulk_change_status``.
+
+    async def bulk_update(
+        self,
+        ids: Sequence[uuid.UUID],
+        organization_id: uuid.UUID,
+        *,
+        actor_id: uuid.UUID | None,
+        values: dict[str, Any],
+        visibility: RecordVisibility | None = None,
+    ) -> BulkOperationResult:
+        """Apply the same partial update to every id, independently.
+
+        Never partial-silent: every id in ``ids`` ends up in exactly one of
+        ``succeeded`` or ``failed`` (with a reason), and a record already
+        outside the caller's visibility or permission fails with the same
+        message :meth:`get_or_404` would give a single request — "not found",
+        never a leaked "you may not edit this one".
+        """
+        succeeded: list[uuid.UUID] = []
+        failed: list[BulkOperationFailure] = []
+        for entity_id in ids:
+            try:
+                entity = await self.get_or_404(entity_id, organization_id, visibility=visibility)
+                await self._bulk_update_one(entity, actor_id=actor_id, values=dict(values))
+                succeeded.append(entity_id)
+            except AppError as exc:
+                failed.append(BulkOperationFailure(id=entity_id, reason=exc.message))
+        return BulkOperationResult(succeeded=succeeded, failed=failed)
+
+    async def _bulk_update_one(
+        self, entity: ModelT, *, actor_id: uuid.UUID | None, values: dict[str, Any]
+    ) -> ModelT:
+        """The single-record write ``bulk_update`` applies to one id.
+
+        A hook rather than a direct call to :meth:`update`, so a subclass
+        whose real update path adds a rule beyond the generic one —
+        ``OpportunityService.update_open`` refuses to patch a closed deal —
+        can point bulk updates at it too. Without this, a bulk edit would
+        silently reopen the one business rule its single-record PATCH already
+        enforces.
+        """
+        return await self.update(entity, actor_id=actor_id, values=values)
+
+    async def bulk_delete(
+        self,
+        ids: Sequence[uuid.UUID],
+        organization_id: uuid.UUID,
+        *,
+        actor_id: uuid.UUID | None,
+        visibility: RecordVisibility | None = None,
+    ) -> BulkOperationResult:
+        """Archive every id, independently. See :meth:`bulk_update`."""
+        succeeded: list[uuid.UUID] = []
+        failed: list[BulkOperationFailure] = []
+        for entity_id in ids:
+            try:
+                entity = await self.get_or_404(entity_id, organization_id, visibility=visibility)
+                await self.soft_delete(entity, actor_id=actor_id)
+                succeeded.append(entity_id)
+            except AppError as exc:
+                failed.append(BulkOperationFailure(id=entity_id, reason=exc.message))
+        return BulkOperationResult(succeeded=succeeded, failed=failed)
+
     # --- Custom fields -----------------------------------------------------
 
     async def _resolve_custom_fields(
@@ -389,6 +494,7 @@ class TenantScopedService[ModelT: TenantOwnedModel]:
         submitted: Any,
         existing: Mapping[str, Any] | None,
         creating: bool,
+        record_context: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Validate submitted custom values and return the document to store.
 
@@ -407,7 +513,24 @@ class TenantScopedService[ModelT: TenantOwnedModel]:
             submitted=submitted if isinstance(submitted, Mapping) else None,
             existing=existing,
             creating=creating,
+            record_context=record_context,
         )
+
+    def _built_in_snapshot(self, entity: ModelT) -> dict[str, Any]:
+        """``entity``'s current built-in column values, unmasked and unhashed.
+
+        Unlike :meth:`_audit_snapshot`, a ``Text`` column is not summarised
+        here — this feeds a Checkpoint 4 layout rule's *evaluation*, never a
+        response body or a log, so there is no exposure to guard against, and
+        summarising a description field to a hash would make a condition
+        written against it (`"notes" contains "urgent"`) unable to ever match.
+        """
+        mapper = class_mapper(cast("type[Any]", self._model))
+        return {
+            attribute.key: getattr(entity, attribute.key, None)
+            for attribute in mapper.column_attrs
+            if attribute.key not in {"custom_fields", "search_vector"}
+        }
 
     # --- Audit internals ---------------------------------------------------
 

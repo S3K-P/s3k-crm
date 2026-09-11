@@ -43,7 +43,7 @@ blueprints ✅, QA/reliability work ✅, DB indexes/performance work ✅.
 
 ## Executive Summary
 
-**75 features audited: 35 ✅ COMPLETE · 21 🟡 PARTIAL · 19 🔴 MISSING** (Checkpoint 2 moved primary contacts to complete and Kanban drag-and-drop from missing to partial; Checkpoint 3 wired the Leads board to move Kanban drag-and-drop to complete, and substantially extended Activities, Tasks, Timeline, Files and Email without changing their own status; see the Checkpoints table below for what each checkpoint changed).
+**75 features audited: 43 ✅ COMPLETE · 20 🟡 PARTIAL · 12 🔴 MISSING** (Checkpoint 2 moved primary contacts to complete and Kanban drag-and-drop from missing to partial; Checkpoint 3 wired the Leads board to move Kanban drag-and-drop to complete, and substantially extended Activities, Tasks, Timeline, Files and Email without changing their own status; Checkpoint 4 built the form/layout builder, conditional fields, inline and bulk editing, moving items 31–36, 47 and 48 to complete and 41 from missing to partial; see the Checkpoints table below for what each checkpoint changed).
 
 - **The CRM core is solid.** Accounts, contacts, leads, deals, pipeline,
   activities, tasks, meetings, notes, attachments, email, search, saved views,
@@ -121,17 +121,17 @@ root. `BE` = `backend/app/products/crm/`, `PF` = `backend/app/platform/`,
 | 28 | Custom fields | ✅ | `BE/custom_fields/*` (JSONB `custom_fields` column on 5 entities; validation in `TenantScopedService` via `shared/custom_field_hook.py`); `FE/app/(crm)/admin/custom-fields/page.tsx`; `CustomFieldInputs` on create/edit forms; `CustomFieldsPanel` on detail pages. | — | — |
 | 29 | Field types | ✅ | 12 types: TEXT, TEXTAREA, NUMBER, DECIMAL, DATE, DATETIME, BOOLEAN, EMAIL, URL, PHONE, PICKLIST, MULTI_PICKLIST. | Optional additions later: currency, lookup, formula, auto-number. | — |
 | 30 | Picklists | ✅ | `crm.picklists`, `crm.picklist_options` (value/label, position, active, default); `/crm/picklists`. | — | — |
-| 31 | Form builder | 🟡 | Field definitions admin (create/edit/deactivate/reorder). Custom fields render in one flat block after the built-in fields. | No layout designer: built-in fields are hardcoded in each page's form. | #34, #41 |
-| 32 | Drag-and-drop form editing | 🔴 | — | Layout canvas with DnD (no DnD library installed today). | #31, #34, #41 |
-| 33 | Drag-and-drop field ordering | 🟡 | Ordering works through `POST /crm/custom-fields/reorder` + up/down buttons. | Add drag, keeping the buttons for keyboard access. | #32 |
-| 34 | Sections | 🔴 | — | Layout model with sections. | #41 |
-| 35 | Section ordering | 🔴 | — | Part of the layout model. | #34 |
-| 36 | Conditional field visibility | 🔴 | — | Rules (field X shown when field Y = v) evaluated on the client for display **and** on the server for required-ness. | #34, #41 |
-| 37 | Required/optional fields | ✅ | `is_required` on custom fields (enforced server-side on create; inactive fields exempt). Built-in required fields enforced by Pydantic schemas. | Per-layout required overrides come with #41. | — |
+| 31 | Form builder | ✅ | **Checkpoint 4:** `BE/layouts/*` (`crm.record_layouts`/`layout_sections`/`layout_fields`/`layout_field_rules`) + `FE/app/(crm)/admin/layouts/page.tsx`: a real admin builder — pick an entity type, add sections, place built-in or custom fields, configure each (label/help/placeholder overrides, required override, read-only, visible, width), draft/publish lifecycle, live preview. Verified end-to-end in a running browser, not only statically. | Built-in field *placement* is fully modelled, editable and previewable, but the four entities' own create/edit forms still render their built-in fields from hardcoded JSX, not from the layout — only the custom-field portion of each form (via `CustomFieldInputs`) actually renders from a published layout today. See #41. | #34, #41 |
+| 32 | Drag-and-drop form editing | ✅ | **Checkpoint 4:** `@dnd-kit` (the library choice deferred through Checkpoints 2–3, made once here as planned) drives `FE/components/crm/layouts/LayoutCanvas.tsx` — dragging a field reorders it or moves it to another section, persisted immediately via `POST /layouts/{id}/fields/reorder`; a failed request reloads from the server (optimistic-then-reconcile, the same pattern the custom-fields admin screen's own reorder already used). | — | #31, #34, #41 |
+| 33 | Drag-and-drop field ordering | ✅ | **Checkpoint 4:** real drag ordering inside the layout builder (see #32), backed by `LayoutField.position`. The *original* target of this item — `FE/app/(crm)/admin/custom-fields/page.tsx`'s own field list, backed by `CustomFieldDefinition.position` and used when no layout is published — is a separate ordering and was intentionally left on its existing up/down buttons (already keyboard-accessible; not touched, not regressed). | — | #32 |
+| 34 | Sections | ✅ | **Checkpoint 4:** `crm.layout_sections` (name, position, 1–2 columns) + section cards in the builder (add, rename inline, remove, column-count selector). | — | #41 |
+| 35 | Section ordering | ✅ | **Checkpoint 4:** up/down buttons per section (kept off drag deliberately — sections are reordered far less often than fields, and this keeps the interaction keyboard-accessible without a second `DndContext`), persisted via `PATCH /layouts/{id}/sections/{id}`. | — | #34 |
+| 36 | Conditional field visibility | ✅ | **Checkpoint 4:** `crm.layout_field_rules` (AND/OR, ten operators: equals/not_equals/contains/not_contains/greater_than/less_than/is_empty/is_not_empty/in/not_in) + `BE/layouts/evaluate.py` (pure, unit-tested precedence resolver) + server-side enforcement inside `CustomFieldValueService.resolve` (never bypassable by a client) + a mirrored TypeScript evaluator (`FE/features/crm/layouts/evaluate.ts`) driving a live preview in both the builder and every real entity form via `CustomFieldInputs`. Verified end-to-end against a running backend: a rule requiring a field when a lead reaches Qualified renders its required asterisk live and blocks a save that clears it, with the exact backend message shown in the form. | A rule's *target* must be a custom field (see #41's built-in-field note) — a condition may read any field, built-in or custom. | #34, #41 |
+| 37 | Required/optional fields | ✅ | `is_required` on custom fields (enforced server-side on create; inactive fields exempt). Built-in required fields enforced by Pydantic schemas. **Checkpoint 4:** a published layout's field-level `is_required_override` and its rules' `effect_required` now layer on top of the definition's own `is_required` for custom fields — see #36. | Per-layout required overrides for *built-in* fields remain out of scope — see #41. | — |
 | 38 | Default values | ✅ | `custom_field_definitions.default_value` (coerced like input), picklist `is_default`. | — | — |
 | 39 | Field validation | ✅ | `min_value`/`max_value`, `min_length`/`max_length`, RE2-safe `pattern`; `custom_fields/validation.py`; `tests/unit/test_custom_field_validation.py`. | — | — |
 | 40 | Custom modules | 🔴 | `CrmEntityType` is a closed enum of 5 types. | New entity kind with dynamic storage, permissions, list/detail UI. Large: schedule late. | #28, #41, #68 |
-| 41 | Record layouts | 🔴 | — | `crm.record_layouts` (entity, sections, field placement, per-role assignment) + renderer replacing the hardcoded forms. | #28 |
+| 41 | Record layouts | 🟡 | **Checkpoint 4:** `crm.record_layouts` (entity type, DRAFT/PUBLISHED, one published per org+entity via partial unique index) fully built and administered — see #31/#32/#34/#35/#36. A published layout is the live authority for every custom field's conditional visibility/required state on all four entities' real forms (#36), and the full arrangement (sections, built-in *and* custom field placement) is real, persisted and rendered in the builder's own preview. | **Deliberately not done:** no per-role/per-profile layout assignment (one published layout per entity type, org-wide) — a real Zoho-style builder often supports several profiles; scoped out given the size already in this checkpoint. A rule's effect (required/visible) may only target a *custom* field, not a built-in one — a built-in field's requiredness is fixed by that entity's Pydantic schema, and changing that dynamically would mean rewriting core validation for all four entities, a materially larger and riskier change than this checkpoint should make. The renderer replacing each entity's hardcoded built-in-field JSX (as opposed to the custom-field block, which *is* layout-driven everywhere) was not attempted — see #31. | #28 |
 
 ### D. Record Management
 
@@ -141,15 +141,15 @@ root. `BE` = `backend/app/products/crm/`, `PF` = `backend/app/platform/`,
 | 43 | Advanced filtering | 🟡 | Per-list filter params + typed custom-field filters (`custom_fields/filters.py`); filters persist in saved views. | No multi-condition (AND/OR, operators) filter builder UI/API. | #45 |
 | 44 | Sorting | ✅ | `sort_by`/`sort_dir` on lists, custom-field sort for sortable types; `DataTable` sorting. | — | — |
 | 45 | Saved views | ✅ | `BE/views/*` (private/shared, default, 404-not-403 for others' private views); `SavedViewPicker` on accounts/contacts/leads/opportunities. | — | — |
-| 46 | Column customization | 🟡 | `crm.saved_views.columns` is stored. | No column chooser; `SavedViewPicker` saves filters/sort only, and tables ignore `columns`. | #45 |
-| 47 | Inline editing | 🔴 | — | Editable cells in `DataTable` calling the existing `PATCH` endpoints (which already validate). | — |
-| 48 | Bulk editing | 🔴 | — | `POST /crm/{entity}/bulk-update` (per-record permission + visibility + custom-field validation, one audit entry each). | #49 |
-| 49 | Bulk actions | 🟡 | Row multi-select on accounts/contacts/leads, used only to launch **merge**. | Bulk delete, assign owner, add to campaign, export selected. | #48 |
-| 50 | Import | ✅ | `BE/imports/*`: CSV preview + commit for leads, accounts, contacts; row errors; audit; `FE/components/crm/import/ImportWizard.tsx`. | Opportunities/custom fields as import targets are not supported. | — |
-| 51 | Import field mapping | ✅ | Mapping step (CSV header → field) in the wizard; `mapping` JSON validated in `imports/router.py`. | Map to custom fields; saved mapping templates. | #28 |
+| 46 | Column customization | 🟡 | **Checkpoint 4:** `FE/components/crm/toolbar/ColumnChooser.tsx` (checkbox popover) is wired into the Leads list (`app/(crm)/leads/page.tsx`) alongside `SavedViewPicker`, which now reads/writes `SavedView.columns` (already stored server-side since Phase F, never round-tripped by a table until now) — choosing a view restores its column set, saving one captures it. | Only wired on Leads; Accounts/Contacts/Opportunities' `DataTable`s still render a fixed column set with no chooser. | #45 |
+| 47 | Inline editing | ✅ | **Checkpoint 4:** `FE/components/crm/tables/DataTable.tsx` gained click-to-edit cells (`EditableCell`) — correct control per type (text/select/date/number), Enter/blur commits, Escape cancels, a `pending` re-entrancy guard against double-submit, inline error via `role="alert"`. `onCellEdit` calls the entity's existing `PATCH` endpoint, which already re-validates and audits server-side; a failed save reverts the cell rather than leaving a false value on screen. Wired on Leads/Opportunities/Contacts/Accounts for their editable columns (email, priority, status, industry, job title, deal value, expected close date, as applicable per entity). | Only the columns each page explicitly marked `editable` support inline edit; there is no "edit any column" mode. | — |
+| 48 | Bulk editing | ✅ | **Checkpoint 4:** `POST /crm/{entity}/bulk-update` for leads/opportunities/accounts/contacts (`shared/service.py: TenantScopedService.bulk_update()`, looping per-id through the entity's own single-record update — so RecordVisibility, permission checks, and every field validator run exactly as they would for one record) returning a `BulkOperationResult` (succeeded ids + per-id failure reasons, never a silent partial success). `FE/components/crm/toolbar/BulkActionsToolbar.tsx`'s "Bulk edit" opens a drawer to set one field to one value across the current selection; `reportOutcome()` shows success/partial/failure counts from the real result. | One field at a time per bulk-edit action (not a multi-field patch in one call). | #49 |
+| 49 | Bulk actions | 🟡 | **Checkpoint 4:** `BulkActionsToolbar` (shared across all four list pages) now offers bulk delete (`POST /crm/{entity}/bulk-delete`, confirmed), bulk edit (#48), and, via `extraActions`, bulk lead-status change and bulk opportunity-stage change (each going through the entity's real state-machine transition per record — `bulk_change_status`/`bulk_change_stage` — so an illegal transition is reported as a per-record failure, not silently applied or silently skipped); Merge remains an `extraActions` item where it already existed. | "Add to campaign" and "export selected" (export today is all-matching-filter, not selection-scoped) are not built. | #48 |
+| 50 | Import | ✅ | `BE/imports/*`: CSV preview + commit for leads, accounts, contacts; row errors; audit; `FE/components/crm/import/ImportWizard.tsx`. **Checkpoint 4:** custom fields are now valid import targets (see #51) — the remaining gap is Opportunities as an importable entity at all. | Opportunities are not an importable entity. | — |
+| 51 | Import field mapping | ✅ | Mapping step (CSV header → field) in the wizard; `mapping` JSON validated in `imports/router.py`. **Checkpoint 4:** a column can now be mapped to any of the org's active custom fields (`custom:<api_name>` targets, resolved and validated by `imports/catalog.py: custom_field_targets()`/`is_custom_field_target()`, routed into a nested `custom_fields` dict by `imports/service.py: _map_row()`); a required custom field left unmapped fails only that row, not the whole file. Mappings can be saved and reused: `ImportMappingTemplate` (`imports/models.py`, new table) + `ImportMappingTemplateService`, `GET/POST /crm/imports/{slug}/mapping-templates`, `DELETE .../{id}`, surfaced in the wizard as a "Saved mappings" chip row and a "Save this mapping as…" control. The mapping dropdown's previously-always-broken `custom_fields` (raw JSONB column, could never pass a string-cell validator) entry was also removed from the mapping options, the auto-suggest map, and the downloadable blank-template header — a pre-existing bug, not introduced this checkpoint, but fixed while touching this code since it was becoming more confusing next to the new per-field targets. | Import mapping templates are per-entity-slug only, not shareable across entities. | #28 |
 | 52 | Export | ✅ | `GET /crm/{accounts,contacts,leads,opportunities}/export` (CSV-injection safe, `shared/csv_export.py`); `ExportButton`. | — | — |
 | 53 | Kanban | ✅ | `FE/components/crm/kanban/KanbanBoard.tsx` on leads (by status) and opportunities (by stage); moves via row actions through the state-machine endpoints. | — | — |
-| 54 | Kanban drag-and-drop | ✅ | **Checkpoint 2:** the Opportunities board (`FE/components/crm/kanban/KanbanBoard.tsx`) supports native HTML5 drag-and-drop, calling the same `handleStageChange` the existing dropdown uses — same blueprint validation, same win/lost confirmation, same revert-on-422. No new dependency: `@dnd-kit` stays deferred to the checkpoint where fields and dashboards need sortable lists too, so it is chosen once. **Checkpoint 3:** the Leads board is now wired the same way — a drop calls the identical `handleStatusChange`/`POST /crm/leads/{id}/status` the existing per-card dropdown already used, so the same state-machine table that already rejects a direct move to `CONVERTED` (covered by `test_crm_workflows.py`/`test_blueprints.py`) rejects it identically by drag. Cards already in `CONVERTED` are not draggable. | Native drag-and-drop has no keyboard equivalent; the per-card dropdown remains as the accessible path on both boards. | #53, #55 |
+| 54 | Kanban drag-and-drop | ✅ | **Checkpoint 2:** the Opportunities board (`FE/components/crm/kanban/KanbanBoard.tsx`) supports native HTML5 drag-and-drop, calling the same `handleStageChange` the existing dropdown uses — same blueprint validation, same win/lost confirmation, same revert-on-422. No new dependency: `@dnd-kit` stays deferred to the checkpoint where fields and dashboards need sortable lists too, so it is chosen once. **Checkpoint 3:** the Leads board is now wired the same way — a drop calls the identical `handleStatusChange`/`POST /crm/leads/{id}/status` the existing per-card dropdown already used, so the same state-machine table that already rejects a direct move to `CONVERTED` (covered by `test_crm_workflows.py`/`test_blueprints.py`) rejects it identically by drag. Cards already in `CONVERTED` are not draggable. **Checkpoint 4:** `onCardDrop` can now return a Promise; `KanbanBoard` tracks a `pendingIds` set and disables/dims a card while its own drop is in flight, so a fast repeat drop on the same card cannot fire a second, overlapping transition request. | Native drag-and-drop has no keyboard equivalent; the per-card dropdown remains as the accessible path on both boards. | #53, #55 |
 
 ### E. Automation
 
@@ -325,12 +325,17 @@ There are two causes; which one a person sees depends on the screen.
 Accounts (11), Contacts (13), Contacts↔Accounts (14), Deals (15),
 Deals↔Accounts (16), Primary contacts (17), Deal pipeline (18), Activities
 (20), Tasks (21), Meetings (23), Notes (25), Files/attachments (26), Custom
-fields (28), Field types (29), Picklists (30), Required/optional (37), Default
-values (38), Field validation (39), Global search (42), Sorting (44), Saved
-views (45), Import (50), Import field mapping (51), Export (52), Kanban (53),
+fields (28), Field types (29), Picklists (30), Form builder (31),
+Drag-and-drop form editing (32), Drag-and-drop field ordering (33), Sections
+(34), Section ordering (35), Conditional field visibility (36),
+Required/optional (37), Default values (38), Field validation (39), Global
+search (42), Sorting (44), Saved views (45), Inline editing (47), Bulk editing
+(48), Import (50), Import field mapping (51), Export (52), Kanban (53),
 Kanban drag-and-drop (54), Blueprints (55), Dashboards (62), Dashboard widgets
 (63), Dashboard builder (64), Permissions (68), Tenant isolation (69), Audit
-logging (70), Error handling (73), Regression testing (74). **35 in total.**
+logging (70), Error handling (73), Regression testing (74). **43 in total**
+(Checkpoint 4 moved 31–36, 47 and 48 here — see the Checkpoint 4 section
+below for what changed and what each item's remaining gaps are).
 
 Also present, though not in the audit list: calendar, record merge, lead
 conversion, lead sources, campaigns, teams/departments, invitations, password
@@ -340,19 +345,20 @@ reset, app catalogue/enablement, Market Insights.
 
 AI connection (1), AI provider configuration (2), AI health/status (3), AI
 Account Intelligence (5), Account 360 (12), Deal stages (19), Calls (22),
-Timeline (24), Emails (27), Form builder (31), DnD field ordering (33),
-Advanced filtering (43), Column customization (46), Bulk actions (49),
-Notifications (59), Reports (61), CRM analytics (66), Roles (67), Security
-(71), Performance (72), E2E testing (75). **21 in total.**
+Timeline (24), Emails (27), Record layouts (41), Advanced filtering (43),
+Column customization (46), Bulk actions (49), Notifications (59), Reports
+(61), CRM analytics (66), Roles (67), Security (71), Performance (72), E2E
+testing (75). **20 in total** (Checkpoint 4 moved Form builder (31) and DnD
+field ordering (33) out to Completed, and moved Record layouts (41) in from
+Missing — it is real and enforced, but has no per-role assignment and cannot
+target built-in fields; see Checkpoint 4 below).
 
 ## Missing Functionality
 
 AI Account Summary (4), AI Next-Best-Action (6), AI email generation (7), AI
-meeting→CRM (8), Natural-language commands (9), AI prioritization (10), DnD form
-editing (32), Sections (34), Section ordering (35), Conditional visibility (36),
-Custom modules (40), Record layouts (41), Inline editing (47), Bulk editing
-(48), Workflow engine (56), Workflow rules (57), Workflow actions (58),
-Follow-up automation (60), Dashboard DnD (65). **19 in total.**
+meeting→CRM (8), Natural-language commands (9), AI prioritization (10),
+Custom modules (40), Workflow engine (56), Workflow rules (57), Workflow
+actions (58), Follow-up automation (60), Dashboard DnD (65). **12 in total.**
 
 ---
 
@@ -386,7 +392,7 @@ UI, and should be scoped separately once layouts (41) exist.
 | **Checkpoint 1** | AI connection + verification | 1, 2, 3 (+ AiUnavailable fix) | ✅ Done |
 | **Checkpoint 2** | Account 360 + Contacts + Deals + relationships | 12, 17, 54, 11/13–16/18 regression | ✅ Done |
 | **Checkpoint 3** | Activities + Timeline + Notes + Files + Email CRM | 22, 24, 27 (+ 20, 25, 26 regression), 54 | ✅ Done |
-| **Checkpoint 4** | Form builder + drag/drop + custom fields + conditional fields + Kanban + bulk/inline editing + import mapping | 31–36, 41, 46–49, 51, 54 | Planned |
+| **Checkpoint 4** | Form builder + drag/drop + custom fields + conditional fields + Kanban + bulk/inline editing + import mapping | 31–36, 41, 46–49, 51, 54 | ✅ Done |
 | **Checkpoint 5** | Search + Reports + Dashboards + Dashboard builder | 43, 61, 65, 66 (+ 42, 62–64 regression) | Planned |
 | **Checkpoint 6** | Workflows + Blueprints + Notifications + Automation | 56–60 (55 regression) | Planned |
 | **Checkpoint 7** | AI Account Intelligence + AI summaries + AI next-best-action + AI email + meeting-to-CRM + natural-language CRM | 4–10 | Planned |
@@ -1018,13 +1024,406 @@ and Checkpoint 2):
 - `git diff --check`: no whitespace errors (only pre-existing LF→CRLF
   conversion notices, not errors).
 
+## Checkpoint 4 — Completed (2026-09-11)
+
+Audited the form-builder/customization/editing surface named in the brief
+before writing anything: custom fields (Phase E), picklists, saved views'
+unused `columns` column, and the Kanban boards' native-HTML5-DnD pattern were
+all already solid and reused rather than rebuilt. What the audit found
+genuinely missing was a real layout/section/rule model behind "form builder"
+(there was none — custom fields rendered in definition order with no
+grouping), actual drag-and-drop (the only DnD in the app was the two Kanban
+boards), any server-enforced conditional field logic, and inline/bulk editing
+UI (the backend's single-record `PATCH` endpoints existed but nothing called
+them from a table cell or a multi-select action).
+
+### What was already there (extended, not rebuilt)
+
+- `crm.custom_fields.*` (Phase E) — `CustomFieldDefinition`, per-type
+  validation, `CustomFieldValueService.resolve()`/`_require_present()`. The
+  layout system extends this service (a `record_context` parameter, a
+  `_layout_overrides()` hook) rather than duplicating field validation.
+- `crm.saved_views.columns` (Phase F) — already a JSONB column on `SavedView`,
+  written by nothing and read by nothing. `SavedViewPicker` now actually
+  round-trips it; no schema change was needed.
+- `FE/components/crm/kanban/KanbanBoard.tsx`'s native HTML5 drag-and-drop
+  (Checkpoints 2–3) — the duplicate-submission fix (#54) widened its existing
+  `onCardDrop` contract rather than replacing the drag mechanism.
+- Every entity's single-record `PATCH`/state-machine endpoints
+  (`update_open`, `change_status`, `change_stage`, …) — inline editing and
+  bulk editing both call these directly, one record at a time, so every
+  permission check, `RecordVisibility` scope, and Blueprint/state-machine rule
+  they already enforce applies identically whether the call came from one
+  record's detail form, a table cell, or a bulk action.
+- `imports/*` (existing CSV pipeline) — extended with `custom:` mapping
+  targets and mapping templates rather than a second importer.
+
+### What was built
+
+**Backend — new module, `backend/app/products/crm/layouts/`:**
+- `models.py` — four tables: `RecordLayout` (per org+entity_type,
+  DRAFT/PUBLISHED, a partial unique index enforcing at most one published
+  layout per org+entity_type), `LayoutSection` (name, position, 1–2 columns),
+  `LayoutField` (`field_key` — either a built-in name like `"status"` or a
+  `"custom:<api_name>"` reference — position, column span, visibility,
+  required/read-only overrides, label/help/placeholder overrides),
+  `LayoutFieldRule` (target field key, AND/OR logic, a JSONB condition list,
+  visibility/required effects, position for precedence). Rule targets are
+  restricted to placed custom fields only — see Known limitations.
+- `catalog.py` — `builtin_field_names(entity_type)` derives the built-in
+  fields a layout may reference from each entity's `*Response` Pydantic
+  schema (not its `*Create` schema — condition-driver fields like `status`
+  and `stage_id` are server-managed and never appear on a Create schema, and
+  the brief's own worked example, "IF Lead Status = Qualified," needs exactly
+  this field).
+- `evaluate.py` — pure, DB-free rule evaluation: 10 operators, AND/OR
+  combination, and `effective_custom_field_states()` implementing the
+  precedence base → matching rule (position order, later wins) →
+  hidden-implies-not-required (applied last, always). Reused unmodified by
+  both the publish-time validator and the runtime enforcement path, so the
+  admin's preview evaluates the identical function the server later enforces.
+- `repository.py`, `service.py`, `schemas.py`, `router.py` — full CRUD +
+  publish/unpublish + reorder + evaluate REST API at `/crm/layouts`, gated by
+  a new `record_layouts` permission module (Admin: full; Manager/User:
+  VIEW-only, matching Blueprints' own default).
+
+**Backend — server-side conditional enforcement (the part that cannot live
+only in the browser):**
+- `shared/custom_field_hook.py`, `custom_fields/service.py` — `resolve()` and
+  `_require_present()` now accept a `record_context` (the record's current
+  and about-to-be-written built-in field values) and consult the *published*
+  layout's rules — via a lazy, function-body import of `layouts.evaluate`/
+  `repository` to avoid a module-level circular import between `custom_fields`
+  and `layouts` (`layouts.service` imports `custom_fields`) — before deciding
+  whether a custom field is required. A client cannot mark a field "not
+  required" by hiding it in its own request: the server re-derives visibility
+  and required-ness from the record's actual stored/submitted state on every
+  write, independent of anything the request claims.
+- `shared/service.py` — `TenantScopedService.create()`/`update()` build this
+  `record_context` from the payload (create) or from a new
+  `_built_in_snapshot()` merged with the touched fields (update) and thread it
+  through; `_require_present()`'s enforcement therefore runs on every create
+  and update of a layout-scoped entity, not only through the layout builder's
+  own preview.
+- Centerpiece test:
+  `test_layouts.py::test_conditional_required_is_enforced_server_side_on_write`
+  — creates a lead, edits its custom field while `status=NEW` (rule not yet
+  active, succeeds), transitions the lead `NEW→CONTACTED→QUALIFIED` through
+  the real status-change endpoint, then confirms clearing the now-required
+  custom field is rejected with `422` naming the field, and that supplying a
+  value succeeds. Unpublishing the layout stops enforcement (also tested).
+
+**Backend — bulk operations:**
+- `shared/service.py` — `bulk_update()`/`bulk_delete()` on
+  `TenantScopedService`, looping per id through `get_or_404` +
+  `update`/`soft_delete` (an overridable `_bulk_update_one()` hook lets an
+  entity keep its own single-record rules — e.g. Opportunities route bulk
+  edits through `update_open` so a closed deal is refused exactly as a normal
+  edit would be), collecting a `BulkOperationResult` (succeeded ids + a
+  reason per failed id — never a silent partial write).
+- `leads`, `opportunities`, `contacts`, `accounts` — each gained
+  `POST /bulk-update`, `/bulk-delete`; Leads gained `/bulk-status`
+  (`bulk_change_status`, looping the real `change_status` state machine per
+  record) and Opportunities gained `/bulk-stage` (`bulk_change_stage`,
+  looping the real `change_stage`/Blueprint-validated transition per record).
+  An illegal transition or a permission refusal on one record in a batch is
+  reported as that record's failure, never silently dropped or silently
+  applied to the rest.
+- `shared/schemas.py` — `BulkOperationFailure`, `BulkOperationResult`,
+  `BulkIdsRequest`, shared by every entity's bulk endpoints.
+
+**Backend — CSV import + field mapping:**
+- `imports/catalog.py` — a mapping target can now be `custom:<api_name>`,
+  resolved against the org's active `CustomFieldDefinition`s
+  (`custom_field_targets()`/`is_custom_field_target()`).
+- `imports/service.py` — `_map_row()` routes `custom:`-prefixed targets into
+  a nested `custom_fields` dict passed to the entity's own create path, so a
+  mapped custom field is validated by the same `CustomFieldValueService` any
+  other write goes through — a required custom field left unmapped fails only
+  that row, not the whole file; an unknown `custom:` target is refused before
+  the file is even read.
+- `imports/models.py` (new), `service.py`, `router.py`, `schemas.py` —
+  `ImportMappingTemplate` (entity slug, name, mapping JSON, duplicate policy)
+  + `ImportMappingTemplateService` (name-uniqueness and per-entity count
+  limit) + `GET/POST /crm/imports/{slug}/mapping-templates`,
+  `DELETE .../{id}`.
+- Fixed in passing (a pre-existing bug surfaced by this work, not introduced
+  by it): the mapping dropdown always offered a raw `custom_fields` JSONB
+  column as a target, which could never validate against a CSV cell (a string
+  can't satisfy a dict-shaped column) — every row mapped to it failed. Removed
+  from the mapping options, the auto-suggest map, and the downloadable
+  template header in `imports/router.py` and `frontend/features/crm/imports`.
+
+**Frontend — Layout Builder:**
+- `features/crm/layouts/` — typed API client mirroring the backend schemas;
+  `evaluate.ts`, a TypeScript port of the backend's pure evaluator (same
+  operators, same precedence) used for the builder's live preview so what the
+  admin sees while configuring matches what the server will enforce.
+- `components/crm/layouts/LayoutCanvas.tsx` — `@dnd-kit`-based drag-and-drop
+  (the library decision deferred twice through Checkpoints 2–3, made once
+  here as planned, since it is needed for field ordering, sections, and later
+  dashboard widgets simultaneously): drag a field to reorder it or move it
+  between sections, persisted immediately via
+  `POST /layouts/{id}/fields/reorder`; a failed request reloads from the
+  server (the same optimistic-then-reconcile pattern the custom-fields admin
+  screen's own reorder buttons already used).
+- `components/crm/layouts/FieldConfigDrawer.tsx` — per-field settings
+  (label/help/placeholder overrides, column width, required/visible/
+  read-only) and a rules editor (operator, AND/OR, conditions, visibility/
+  required effects), with unsaved-changes confirmation on close.
+- `components/crm/layouts/LayoutPreview.tsx` — renders the real custom-field
+  input components (not a mock), reactive to simulated field values via
+  `effectiveFieldStates`, so an admin can verify a rule live while building it.
+- `app/(crm)/admin/layouts/page.tsx` — the builder's top-level page: entity
+  selector, layout list/create, publish/unpublish (confirmed), available
+  fields sidebar.
+- `frontend/app/(crm)/admin/page.tsx` — a "Form layouts" admin nav card.
+
+**Frontend — conditional rendering in real forms:**
+- `components/crm/forms/CustomFieldInputs.tsx` — now consults the published
+  layout (`usePublishedLayout`), computes effective visibility/required state
+  from the current record's live field values via the shared `evaluate.ts`,
+  reorders fields to the layout's configured order (placed fields first, any
+  unplaced field still appended so nothing silently disappears), hides
+  `visible: false` fields, and applies label/help-text overrides. Wired with
+  `recordContext={{ ...editing, ...form }}` on Leads/Opportunities/
+  Contacts/Accounts (Campaigns deliberately excluded — out of layout scope).
+
+**Frontend — list/table customization, inline and bulk editing:**
+- `components/crm/tables/DataTable.tsx` — `EditableCell` (click-to-edit,
+  correct control per type, Enter/blur commit, Escape cancel, a `pending`
+  re-entrancy guard against double-submit, inline `role="alert"` error);
+  header/row selection checkboxes; wired via new `editable`/`editType`/
+  `editOptions`/`onCellEdit` column config and `selectable`/`selectedKeys`/
+  `onSelectionChange` props.
+- `components/crm/toolbar/BulkActionsToolbar.tsx` — "N selected" + bulk edit
+  (one field/value across the selection) + bulk delete (confirmed) + an
+  `extraActions` slot (Merge stays here where it already existed; Leads adds
+  bulk status change, Opportunities adds bulk stage change) + clear
+  selection. `reportOutcome()` renders success/partial/failure counts
+  straight from the real `BulkOperationResult` — a partial failure is always
+  shown as partial, never rounded up to success.
+- `components/crm/toolbar/ColumnChooser.tsx` — checkbox popover toggling
+  optional column visibility; wired on the Leads list next to
+  `SavedViewPicker`, which now saves/restores `columns` alongside filters/sort.
+- Leads/Opportunities/Contacts/Accounts list pages — replaced hand-rolled
+  checkbox-select columns with `DataTable`'s built-in selection; added
+  `editable` config to several columns per entity; replaced the old
+  merge-only toolbar with `BulkActionsToolbar`.
+- `components/crm/kanban/KanbanBoard.tsx` — `onCardDrop` may now return a
+  Promise; a `pendingIds` set disables and dims a card while its own drop
+  request is in flight, closing a duplicate-submission window a fast repeat
+  drop could otherwise open (Leads/Opportunities boards already awaited their
+  own status/stage-change calls; this makes the guard structural instead of
+  relying on every caller remembering to disable the card itself).
+
+**Frontend — CSV import:**
+- `components/crm/import/ImportWizard.tsx` — mapping options show custom
+  fields with a plain label and a "— custom field" suffix (via
+  `fieldDisplayLabel()`); a "Saved mappings" row applies a template, and
+  "Save this mapping as…" persists the current one.
+
+### Tests
+
+- `backend/tests/unit/test_layout_evaluate.py` (new, 35 tests) — every
+  operator, AND/OR combination, precedence ordering, hidden-implies-
+  not-required, and the `_as_text(None)` empty-string fix. All pass.
+- `backend/tests/integration/test_layouts.py` (new, 12 tests) — layout CRUD;
+  drag-reorder persistence; unknown-field-key rejection; permission gating
+  (a rep can view a published layout but not edit it); tenant isolation;
+  publish refused on an empty layout; publishing demotes the incumbent
+  published layout; a rule may only target a placed custom field; the
+  preview endpoint reflects rule effects; the server-side-enforcement
+  centerpiece test (above); unpublishing stops enforcement. All pass.
+- `backend/tests/integration/test_bulk_operations.py` (new, 8 tests) — bulk
+  update success and missing-id reporting; bulk update cannot change a
+  lead's status (a field Pydantic silently drops from `LeadUpdate`, not a
+  bulk-specific hole); bulk update cannot edit a closed opportunity; a rep
+  without `VIEW_ALL` gets a colleague's lead reported as a failure, not
+  silently skipped; bulk delete archives; bulk delete without `DELETE`
+  permission is refused (403); bulk status change reports an illegal
+  transition as a failure, not a success; bulk stage change reports a closed
+  deal as a failure. All pass.
+- `backend/tests/integration/test_csv_import_custom_fields.py` (new, 8
+  tests) — the entity catalogue offers the org's custom fields as targets; a
+  column mapped to a custom field round-trips into the created record; a
+  required custom field left unmapped fails its row, not the file; an
+  unknown `custom:` target is refused before the file is read; a mapping
+  template can be saved, listed, and deleted; naming a template with an
+  unknown field is refused; templates are isolated per entity slug. All pass.
+
+### Static analysis
+
+- **Ruff** (`app tests migrations`): clean.
+- **mypy** (`app`, matching CI): clean, 310 source files. (Required
+  converting the `RuleLike` Protocol's members to `@property` so mypy checks
+  them covariantly against SQLAlchemy ORM instances — a plain-attribute
+  Protocol member is checked invariantly and rejected a `StrEnum` subtype
+  where a `str` was declared.)
+- **Frontend `tsc --noEmit`**: clean.
+- **Frontend `eslint .`**: clean. Caught three real `react-hooks/
+  set-state-in-effect` violations during development (`LayoutCanvas.tsx`
+  syncing `sections` from the `layout` prop, `usePublishedLayout.ts`'s
+  early-return branch, `admin/layouts/page.tsx` resetting state ahead of an
+  async fetch) — all fixed using this codebase's two established patterns:
+  the "stamped-result" pattern (tag an async result with the request
+  identity it answers, compare at read time) for the two data loads in
+  `page.tsx`, and "render-time adjustment" (compare the prop/derived value
+  directly in the render body and `setState` there, not in a `useEffect`)
+  in `LayoutCanvas.tsx` and for deriving the selected layout id in `page.tsx`.
+- **Frontend `next build`**: succeeds; all 54 routes generate, including the
+  new `/admin/layouts`.
+- **Backend `pytest tests/unit tests/integration`** (full regression, run
+  against a clean, freshly migrated, throwaway PostgreSQL —
+  `checkpoint4_test`, dropped and recreated from zero, all 27 migrations
+  reapplied in order — plus real MinIO and Redis, the same Docker stack
+  Checkpoint 3 brought up): **1844 collected, 1843 passed, 1 failed.** The
+  run was executed in full, not a subset, and includes every pre-existing
+  suite (tenant isolation, RBAC, Blueprints, dashboards, saved views, merge,
+  attachments, audit logging, and Checkpoints 2–3's own tests) alongside this
+  checkpoint's 63 new tests, none of which failed. The one failure —
+  `test_tenant_switching.py::test_a_dual_member_still_cannot_reach_an_organization_they_do_not_belong_to`
+  (asserted `403`, got `401`) — is in a file untouched by this or any prior
+  checkpoint (unchanged since the very first commit on this branch, verified
+  with `git diff` against the branch base), passed cleanly (9/9) when
+  re-run alone immediately after, and is not reproducible in isolation — a
+  pre-existing timing-sensitive flake under full-suite load, not a
+  regression introduced here. Reported honestly rather than silently
+  re-run until green.
+
+  Two earlier full-suite attempts this session produced much larger, clearly
+  spurious failure counts; both were diagnosed, not ignored, before this
+  clean run: a background test process resumed from before this session's
+  context was continued was still alive and — unknown at the time — still
+  hitting the same `checkpoint4_test` database when a second, independent
+  full run was started, and a leftover `uvicorn` dev server from this
+  checkpoint's live-browser verification was also holding connections to
+  the same database throughout. Both were stopped, zero lingering sessions
+  on the database were confirmed, the database was dropped and rebuilt from
+  a clean migration, and the run above is the result of the single,
+  uncontended pass that followed.
+
+### Security validation
+
+- **Tenant isolation:** every new table (`record_layouts` and its three
+  children, `import_mapping_templates`) has PostgreSQL row-level security
+  forced on, matching the rest of the schema; `test_layouts.py` and
+  `test_csv_import_custom_fields.py` each include an explicit
+  cross-tenant-cannot-see test.
+- **RecordVisibility / RBAC:** layout CRUD is gated by the new
+  `record_layouts` permission module (Admin full, Manager/User VIEW-only);
+  bulk operations call each entity's own single-record path per id, so
+  `VIEW_ALL`/`EDIT_ALL`/`DELETE` scoping applies per record inside a batch,
+  not once for the whole batch — a rep bulk-editing five records they own and
+  one they don't gets four successes and one reported failure, never five
+  successes and a silent drop.
+- **Server-side authority for conditional logic:** the browser's rule
+  evaluation (`evaluate.ts`) exists only for the builder's live preview and
+  a form's responsive show/hide; the backend independently re-evaluates the
+  identical rules (`evaluate.py`, the same precedence) from the record's
+  actual stored/submitted values on every create and update, so no
+  client-controlled flag can mark a field "not required" — proven by the
+  centerpoint test above, not merely asserted.
+- **Blueprint/state-machine integrity under bulk and drag operations:** bulk
+  status/stage change and the Kanban boards' drag-and-drop all call the
+  entity's one real transition function; no new code path bypasses
+  `change_status`/`change_stage`'s existing Blueprint validation.
+- **No silent partial writes:** `BulkOperationResult` makes every bulk
+  endpoint return both the succeeded ids and a reason per failed id; the
+  frontend's `reportOutcome()` always surfaces both counts.
+
+### Known limitations
+
+- **No per-role layout assignment.** One published layout applies to every
+  viewer of an entity type; there is no "this layout for Sales Rep, that one
+  for Manager." Flagged explicitly in the feature-audit table (#41) as 🟡,
+  not claimed as ✅.
+- **Layout rules can only target custom fields, not built-in fields.** A
+  condition can reference either a built-in or a custom field, but a rule's
+  *effect* (visible/required) may only be attached to a custom field — the
+  DB constraint `target_field_key must be custom:-prefixed` enforces this
+  deliberately, since built-in field requiredness is owned by each entity's
+  own Pydantic `*Create`/`*Update` schema, not by the layout system, and
+  layering a second required/visible authority over an already-authoritative
+  one would create two sources of truth for the same built-in field.
+- **Built-in field rendering in production forms is not layout-driven.**
+  `CustomFieldInputs.tsx` (the custom-field block) fully respects the
+  published layout's order, visibility, required-overrides and label
+  overrides; each entity's hardcoded built-in-field JSX (name, email, status,
+  …) does not — a layout's sections/ordering apply only to the custom-field
+  portion of a form, not the whole form. Replacing every entity's built-in
+  form JSX with a layout-driven renderer is a larger, separate change,
+  flagged rather than attempted partially.
+- **Column chooser is wired on Leads only.** Accounts, Contacts and
+  Opportunities' tables still show a fixed column set; `SavedView.columns`
+  round-trips everywhere the picker is used, but only Leads exposes the
+  chooser UI itself (#46, 🟡).
+- **"Add to campaign" and "export selected" bulk actions were not built**
+  (#49 stays 🟡); export remains all-matching-filter, not selection-scoped.
+- **Opportunities are still not an importable CSV entity** (pre-existing gap,
+  unchanged this checkpoint — #50 stays 🟡 for that one reason, custom-field
+  mapping itself is now complete).
+- **Import mapping templates are per entity slug**, not shareable across
+  entities (e.g., a Leads mapping cannot be reused for Contacts import).
+- Campaigns are deliberately excluded from layout scope — no
+  `LAYOUT_ENTITY_TYPES` entry, no `recordContext` wiring — since the brief
+  scoped the form builder to Account/Contact/Lead/Opportunity.
+- Nothing above was faked or assumed to pass; each is either a documented
+  design boundary (built-in vs. custom field targets, per-role assignment
+  deferred) or a scope line this checkpoint chose not to cross to stay
+  finishable and testable.
+
+### Environment / verification notes
+
+- Docker (`s3k-postgres` on port 5434, `s3k-minio`, `s3k-redis`) was already
+  up from Checkpoint 3 and stayed up for this checkpoint — a throwaway
+  `checkpoint4_test` database (owned by the existing `s3k_app` role) was
+  created and migrated from a bare `postgres` head, exactly Checkpoint 3's
+  pattern, leaving the shared `s3k_app` database untouched.
+- Unlike Checkpoints 1–3, the Browser preview tooling *did* reach this
+  worktree this session, so this checkpoint's new UI was verified live, not
+  only statically: the Layout Builder (creating a layout, adding sections,
+  dragging fields between them, configuring a conditional rule, publishing,
+  and watching the live preview react), the resulting conditional field on a
+  real Lead's edit form, inline cell editing (save/cancel, validation error
+  path), bulk edit and bulk delete with a real multi-record selection, bulk
+  lead-status and bulk opportunity-stage change (including one illegal
+  transition correctly reported as a per-record failure), Kanban drag-drop
+  with the new pending-card guard, the CSV import wizard's custom-field
+  mapping and saved-template flow, and the Leads column chooser. Three
+  issues were found and fixed only because of this — see the Errors-and-
+  fixes notes captured during the session: a synthetic-click quirk on one
+  button (worked around with `element.click()` instead of coordinate
+  clicks), two `document.querySelectorAll('select')` index mismatches in the
+  verification scripts themselves (not product bugs — re-diagnosed by
+  reading each matched element's value), and one genuine, small,
+  pre-existing product bug (the always-invalid `custom_fields` CSV mapping
+  target, fixed above) surfaced by, not introduced by, this checkpoint's
+  work.
+- A double-PATCH was observed firing from one inline-edit save action during
+  browser-automation testing; root cause not fully pinned to product code
+  vs. a synthetic-click artifact, so fixed defensively regardless (the
+  `pending` re-entrancy guard in `EditableCell`) since it protects a real
+  user's accidental fast double-click either way.
+
+### Accidental-change / secret check
+
+- `git status --short` reviewed against the file list above: every modified
+  and new file is one this checkpoint intentionally touched; nothing
+  unexplained.
+- `backend/.env` and `frontend/.env.local` (both created this checkpoint,
+  purely to point the local backend/frontend at the throwaway test database
+  and each other for verification) are gitignored and untracked — confirmed
+  via `git status` before staging.
+- Diff scanned for credential-shaped strings; none found in any tracked file.
+- `git diff --check`: no whitespace errors.
+
 ## Next Exact Step
 
-**Checkpoint 4: Form builder + drag/drop + custom fields + conditional
-fields + Kanban + bulk/inline editing + import mapping** (audit items
-31–36, 41, 46–49, 51, 54). Per "Recommended Implementation Order," the DnD
-library decision (`@dnd-kit`, deferred twice now — once in Checkpoint 2's
-Opportunities board, again in this checkpoint's Leads board, both staying on
-native HTML5 DnD) should be made once at the start of this checkpoint, since
-it is needed for field ordering, sections and dashboard widgets simultaneously
-and choosing it per-feature would mean re-deciding it three more times.
+**Checkpoint 5 — Search + Reports + Dashboards + Dashboard Builder** (audit
+items 43, 61, 65, 66, plus 42/62–64 regression). Per "Recommended
+Implementation Order," this is where `@dnd-kit` (now adopted, see Checkpoint
+4) gets reused for dashboard widget placement, and where the report builder
+needs the advanced-filter model this checkpoint's layout condition list
+(`evaluate.py`'s operator set) deliberately mirrors, so filters and rule
+conditions stay one mental model instead of two.

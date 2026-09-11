@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Blocks, Building2, Loader2, ScrollText, GitBranch,
+  LayoutTemplate,
   Shield,
   SlidersHorizontal, UsersRound, Workflow } from 'lucide-react';
 
@@ -227,6 +228,16 @@ export default function AdminDashboardPage() {
             <div>
               <p className="txt text-[13px] font-semibold">Custom fields</p>
               <p className="txt-muted text-[11.5px]">Tenant-defined fields and picklists</p>
+            </div>
+          </Link>
+          <Link
+            href="/admin/layouts"
+            className="bd flex items-center gap-3 rounded-xl border p-3.5 transition hover:border-[var(--accent)]"
+          >
+            <LayoutTemplate className="txt-muted h-4 w-4 shrink-0" />
+            <div>
+              <p className="txt text-[13px] font-semibold">Form layouts</p>
+              <p className="txt-muted text-[11.5px]">Sections, fields and conditional rules</p>
             </div>
           </Link>
           <Link

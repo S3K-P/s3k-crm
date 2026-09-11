@@ -22,6 +22,16 @@ import { ReactNode, useState } from 'react';
    equivalent of its own, so callers should keep an accessible
    fallback control (a select, buttons) alongside the board rather
    than relying on dragging alone — see the Opportunities page.
+
+   **Duplicate submissions (Checkpoint 4).** `onCardDrop` may return
+   its Promise instead of `void`; while it is pending, this board
+   marks that one card un-draggable and dims it, so a second drop —
+   a fast double-drag, or a drop that lands while the first request
+   is still in flight — cannot fire a second request for the same
+   record before the first resolves. A caller that still returns
+   `void` (fire-and-forget) keeps its previous, unguarded behaviour;
+   the guard only engages for a caller that opts in by returning the
+   Promise.
    ============================================================ */
 
 export interface KanbanColumnDef {
@@ -39,8 +49,12 @@ interface KanbanBoardProps<T> {
   renderCard: (item: T) => ReactNode;
   /** Stable id for drag tracking. Required when `onCardDrop` is given. */
   getItemId?: (item: T) => string;
-  /** Called when a card is dropped on a different column. Omit to disable dragging. */
-  onCardDrop?: (item: T, columnId: string) => void;
+  /**
+   * Called when a card is dropped on a different column. Omit to disable
+   * dragging. Return the write's own Promise (rather than `void`) to get the
+   * duplicate-submission guard described above.
+   */
+  onCardDrop?: (item: T, columnId: string) => void | Promise<unknown>;
   /** Whether this particular item may be dragged (e.g. not a closed deal). Defaults to true. */
   canDrag?: (item: T) => boolean;
   className?: string;
@@ -59,6 +73,7 @@ export default function KanbanBoard<T>({
   const draggable = Boolean(onCardDrop && getItemId);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
+  const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(new Set());
 
   const byId = (id: string): T | undefined =>
     getItemId ? data.find((item) => getItemId(item) === id) : undefined;
@@ -82,8 +97,20 @@ export default function KanbanBoard<T>({
               event.preventDefault();
               setDragOverColumn(null);
               const droppedId = event.dataTransfer.getData('text/plain');
+              if (pendingIds.has(droppedId)) return; // already moving — see module docstring
               const item = byId(droppedId);
-              if (item) onCardDrop?.(item, col.id);
+              if (!item) return;
+              const result = onCardDrop?.(item, col.id);
+              if (result && typeof result.then === 'function') {
+                setPendingIds((prev) => new Set(prev).add(droppedId));
+                void result.finally(() => {
+                  setPendingIds((prev) => {
+                    const next = new Set(prev);
+                    next.delete(droppedId);
+                    return next;
+                  });
+                });
+              }
             }}
             className={cn(
               'flex h-full min-w-[320px] flex-col rounded-xl bg-[var(--bg)] p-3 transition-colors',
@@ -106,11 +133,14 @@ export default function KanbanBoard<T>({
             <div className="flex flex-1 flex-col gap-3 overflow-y-auto">
               {columnData.map((item, idx) => {
                 const itemId = getItemId?.(item);
-                const isDraggable = draggable && (canDrag ? canDrag(item) : true) && itemId !== undefined;
+                const isPending = itemId !== undefined && pendingIds.has(itemId);
+                const isDraggable =
+                  draggable && !isPending && (canDrag ? canDrag(item) : true) && itemId !== undefined;
                 return (
                   <div
                     key={itemId ?? idx}
                     draggable={isDraggable}
+                    aria-busy={isPending}
                     onDragStart={(event) => {
                       if (!isDraggable || itemId === undefined) return;
                       event.dataTransfer.setData('text/plain', itemId);
@@ -120,7 +150,8 @@ export default function KanbanBoard<T>({
                     onDragEnd={() => setDraggingId(null)}
                     className={cn(
                       isDraggable && 'cursor-grab active:cursor-grabbing',
-                      draggingId === itemId && 'opacity-40',
+                      (draggingId === itemId || isPending) && 'opacity-40',
+                      isPending && 'pointer-events-none motion-safe:animate-pulse',
                     )}
                   >
                     {renderCard(item)}

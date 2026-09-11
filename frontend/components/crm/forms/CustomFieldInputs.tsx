@@ -11,6 +11,9 @@ import {
   type CustomFieldValue,
   type CustomFieldValues,
 } from '@/features/crm/custom-fields';
+import { effectiveFieldStates } from '@/features/crm/layouts/evaluate';
+import { asLayoutEntityType, customFieldKey, isCustomFieldKey, type LayoutField } from '@/features/crm/layouts';
+import { usePublishedLayout } from '@/features/crm/layouts/usePublishedLayout';
 import { describeApiError } from '@/features/shared/hooks/useCollection';
 import { cn } from '@/lib/utils';
 
@@ -49,6 +52,20 @@ interface CustomFieldInputsProps {
   errors?: Record<string, string>;
   disabled?: boolean;
   className?: string;
+  /**
+   * The rest of the record's current field values (built-in columns, plus
+   * these same custom values) — Checkpoint 4. Feeds a published layout's
+   * conditional rules, so "IF Lead Status = Qualified THEN show Qualification
+   * Details" can react as the user edits either field, live.
+   *
+   * Optional and additive: omitted, this component renders exactly as it did
+   * before layouts existed. Supplied with no published layout for
+   * `entityType`, it is read but changes nothing — there are no rules to
+   * evaluate. This is never the authority on what is actually required; the
+   * same evaluation runs again, server-side, on the real write. See
+   * `features/crm/layouts/evaluate.ts`.
+   */
+  recordContext?: Record<string, unknown>;
 }
 
 export default function CustomFieldInputs({
@@ -58,8 +75,10 @@ export default function CustomFieldInputs({
   errors,
   disabled,
   className,
+  recordContext,
 }: CustomFieldInputsProps) {
   const { fields, status, error } = useEntitySchema(entityType);
+  const { layout } = usePublishedLayout(asLayoutEntityType(entityType));
 
   const set = useCallback(
     (apiName: string, value: CustomFieldValue) => onChange({ ...values, [apiName]: value }),
@@ -76,18 +95,75 @@ export default function CustomFieldInputs({
     );
   }
 
+  const placedByKey = new Map<string, LayoutField>();
+  if (layout) {
+    for (const section of layout.sections) {
+      for (const field of section.fields) {
+        if (isCustomFieldKey(field.field_key)) placedByKey.set(field.field_key, field);
+      }
+    }
+  }
+
+  // Base state before any rule is applied: a placed field's own
+  // `is_required_override`/`is_visible`, falling back to the definition's own
+  // `is_required` — the identical precedence the backend resolves, restated
+  // here only so the live preview does not disagree with it.
+  const baseVisible: Record<string, boolean> = {};
+  const baseRequired: Record<string, boolean> = {};
+  for (const field of fields) {
+    const key = customFieldKey(field.api_name);
+    const placed = placedByKey.get(key);
+    if (!placed) continue;
+    baseVisible[key] = placed.is_visible;
+    baseRequired[key] = placed.is_required_override ?? field.is_required;
+  }
+
+  const context = { ...recordContext, ...values };
+  const states =
+    layout && layout.rules.length > 0
+      ? effectiveFieldStates(layout.rules, context, baseVisible, baseRequired)
+      : {};
+
+  const ordered = layout
+    ? [...fields].sort((a, b) => {
+        const posA = placedByKey.get(customFieldKey(a.api_name))?.position;
+        const posB = placedByKey.get(customFieldKey(b.api_name))?.position;
+        if (posA !== undefined && posB !== undefined) return posA - posB;
+        if (posA !== undefined) return -1;
+        if (posB !== undefined) return 1;
+        return 0;
+      })
+    : fields;
+
   return (
     <div className={cn('space-y-4', className)} data-testid="custom-fields">
-      {fields.map((field) => (
-        <CustomFieldControl
-          key={field.id}
-          field={field}
-          value={values[field.api_name] ?? (field.field_type === 'MULTI_PICKLIST' ? [] : '')}
-          onChange={(value) => set(field.api_name, value)}
-          error={errors?.[field.api_name]}
-          disabled={disabled}
-        />
-      ))}
+      {ordered.map((field) => {
+        const key = customFieldKey(field.api_name);
+        const placed = placedByKey.get(key);
+        const state = states[key];
+        if (state && !state.visible) return null;
+
+        const effective: CustomFieldDefinition = placed
+          ? {
+              ...field,
+              label: placed.label_override ?? field.label,
+              help_text: placed.help_text_override ?? field.help_text,
+              is_required: state ? (state.required ?? false) : baseRequired[key] ?? field.is_required,
+            }
+          : field;
+
+        return (
+          <CustomFieldControl
+            key={field.id}
+            field={effective}
+            placeholder={placed?.placeholder_override ?? undefined}
+            value={values[field.api_name] ?? (field.field_type === 'MULTI_PICKLIST' ? [] : '')}
+            onChange={(value) => set(field.api_name, value)}
+            error={errors?.[field.api_name]}
+            disabled={disabled || (placed?.is_read_only ?? false)}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -99,17 +175,21 @@ function CustomFieldControl({
   onChange,
   error,
   disabled,
+  placeholder,
 }: {
   field: CustomFieldDefinition;
   value: CustomFieldValue;
   onChange: (value: CustomFieldValue) => void;
   error?: string;
   disabled?: boolean;
+  /** A layout field's placeholder override (Checkpoint 4). */
+  placeholder?: string;
 }) {
   const common = {
     name: `cf_${field.api_name}`,
     disabled,
     required: field.is_required,
+    placeholder,
     'data-testid': `cf-${field.api_name}`,
   };
 

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import enum
+import uuid
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class DuplicatePolicy(enum.StrEnum):
@@ -97,10 +99,32 @@ class ImportResult(BaseModel):
     ignored_columns: list[str]
 
 
+class ImportMappingTemplateCreate(BaseModel):
+    """Save the wizard's current column mapping for reuse (Checkpoint 4)."""
+
+    name: str = Field(min_length=1, max_length=160)
+    mapping: dict[str, str] = Field(min_length=1)
+    duplicate_policy: DuplicatePolicy = DuplicatePolicy.SKIP
+
+
+class ImportMappingTemplateResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    entity_slug: str
+    name: str
+    mapping: dict[str, str]
+    duplicate_policy: str
+    created_at: dt.datetime
+    updated_at: dt.datetime
+
+
 __all__ = [
     "DuplicatePolicy",
     "ImportEntityInfo",
     "ImportFieldInfo",
+    "ImportMappingTemplateCreate",
+    "ImportMappingTemplateResponse",
     "ImportResult",
     "ImportRowIssue",
     "ImportSummary",

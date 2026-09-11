@@ -114,6 +114,17 @@ PERMISSION_MODULES: Final[tuple[str, ...]] = (
     #: endpoint's own, so a blueprint can only ever narrow who may make a move
     #: — never grant somebody one they could not otherwise make.
     "blueprints",
+    #: The admin form/layout builder (Checkpoint 4): sections, field placement
+    #: and conditional rules for one entity type's create/edit form.
+    #:
+    #: Same shape as ``blueprints`` and for the same reason: publishing a
+    #: layout changes what every rep's form looks like and, through a rule's
+    #: ``effect_required``, what is demanded of them — a wider power than
+    #: editing any single record. ``VIEW`` goes to every role because a rep's
+    #: own form has to fetch the published layout to render against, and a
+    #: rule that hid a field has to be visible to whoever is filling in the
+    #: rest of the form.
+    "record_layouts",
 )
 
 #: Actions available on every module (doc 04 ``PermissionAction``).
@@ -201,6 +212,7 @@ def _manager_permissions() -> tuple[str, ...]:
     codes.append(permission_code("teams", PermissionAction.VIEW))
     codes.append(permission_code("custom_fields", PermissionAction.VIEW))
     codes.append(permission_code("blueprints", PermissionAction.VIEW))
+    codes.append(permission_code("record_layouts", PermissionAction.VIEW))
     return tuple(codes)
 
 
@@ -213,6 +225,7 @@ def _user_permissions() -> tuple[str, ...]:
     #: their own administrator added.
     codes.append(permission_code("custom_fields", PermissionAction.VIEW))
     codes.append(permission_code("blueprints", PermissionAction.VIEW))
+    codes.append(permission_code("record_layouts", PermissionAction.VIEW))
     #: A rep deletes their own saved views. ``views.DELETE`` reads alarming
     #: beside the CRM modules, where it retires customer records — here it
     #: removes a saved question and touches no record at all, and the service

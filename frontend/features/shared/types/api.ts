@@ -66,6 +66,24 @@ export function toQuery(params: ListParams | undefined): string {
   return query ? `?${query}` : '';
 }
 
+/**
+ * What a bulk update/delete/status-change actually did, record by record
+ * (Checkpoint 4). Mirrors `app.products.crm.shared.schemas.BulkOperationResult`
+ * — shared here for the same reason `TimelineEntry` is: every bulk-capable
+ * entity (accounts, contacts, leads, opportunities) returns this identical
+ * shape, so one bulk-results toolbar/summary component can render any of
+ * them. Never all-or-nothing: an id is in exactly one of the two lists.
+ */
+export interface BulkOperationFailure {
+  id: string;
+  reason: string;
+}
+
+export interface BulkOperationResult {
+  succeeded: string[];
+  failed: BulkOperationFailure[];
+}
+
 /** An audit-column set every CRM record carries. */
 export interface RecordMeta {
   id: string;

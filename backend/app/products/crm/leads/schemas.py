@@ -67,6 +67,34 @@ class LeadStatusChange(BaseModel):
     lost_reason: str | None = Field(default=None, max_length=255)
 
 
+class LeadBulkUpdate(BaseModel):
+    """Patch the same fields on many leads at once (Checkpoint 4).
+
+    ``values`` is ``LeadUpdate`` — the exact schema the single-record PATCH
+    accepts, which already excludes ``status`` (see its own docstring). Reusing
+    it is what makes bulk edit unable to bypass the status transition endpoint
+    by construction, not by a check this schema would have to remember to add.
+    """
+
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    values: LeadUpdate
+
+
+class LeadBulkStatusChange(BaseModel):
+    """Move many leads through the lifecycle at once. Same rules, per lead.
+
+    Each id is validated and transitioned independently through
+    :meth:`~.service.LeadService.change_status` — the identical state-machine
+    and blueprint check a single drag on the Kanban board already enforces —
+    so a bulk move can never do anything a person moving each card by hand
+    one at a time could not also have done.
+    """
+
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    status: LeadStatus
+    lost_reason: str | None = Field(default=None, max_length=255)
+
+
 class LeadOwnerChange(BaseModel):
     owner_id: uuid.UUID | None = None
 

@@ -17,6 +17,8 @@ from app.products.crm.common import CrmEntityType
 from app.products.crm.custom_fields.query import CustomFieldQueryDep
 from app.products.crm.opportunities.models import Opportunity
 from app.products.crm.opportunities.schemas import (
+    OpportunityBulkStageChange,
+    OpportunityBulkUpdate,
     OpportunityCreate,
     OpportunityReopen,
     OpportunityResponse,
@@ -28,7 +30,11 @@ from app.products.crm.opportunities.schemas import (
 from app.products.crm.opportunities.service import OpportunityService
 from app.products.crm.shared.csv_export import collect_rows, csv_response
 from app.products.crm.shared.pagination import Page, PageParams, page_params
-from app.products.crm.shared.schemas import TimelineEntryResponse
+from app.products.crm.shared.schemas import (
+    BulkIdsRequest,
+    BulkOperationResult,
+    TimelineEntryResponse,
+)
 from app.products.crm.shared.visibility import RecordVisibility
 
 router = APIRouter()
@@ -166,6 +172,56 @@ async def list_stages(
     """The organization's pipeline stages, in order."""
     stages = await service.list_stages(principal.organization_id)
     return [PipelineStageResponse.model_validate(stage) for stage in stages]
+
+
+@router.post("/bulk-update", response_model=BulkOperationResult)
+async def bulk_update_opportunities(
+    payload: OpportunityBulkUpdate,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.EDIT))],
+    service: ServiceDep,
+) -> BulkOperationResult:
+    """Patch the same fields on many deals. ``stage_id`` is not among them."""
+    return await service.bulk_update(
+        payload.ids,
+        principal.organization_id,
+        actor_id=principal.user_id,
+        values=payload.values.model_dump(exclude_unset=True),
+        visibility=visible_to(principal),
+    )
+
+
+@router.post("/bulk-delete", response_model=BulkOperationResult)
+async def bulk_delete_opportunities(
+    payload: BulkIdsRequest,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.DELETE))],
+    service: ServiceDep,
+) -> BulkOperationResult:
+    return await service.bulk_delete(
+        payload.ids,
+        principal.organization_id,
+        actor_id=principal.user_id,
+        visibility=visible_to(principal),
+    )
+
+
+@router.post("/bulk-stage", response_model=BulkOperationResult)
+async def bulk_change_opportunity_stage(
+    payload: OpportunityBulkStageChange,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.EDIT))],
+    service: ServiceDep,
+) -> BulkOperationResult:
+    """Move many deals to the same stage — the same rules as one drag."""
+    return await service.bulk_change_stage(
+        payload.ids,
+        principal.organization_id,
+        stage_id=payload.stage_id,
+        actor_id=principal.user_id,
+        note=payload.note,
+        loss_reason=payload.loss_reason,
+        win_reason=payload.win_reason,
+        principal=principal,
+        visibility=visible_to(principal),
+    )
 
 
 @router.post("", response_model=OpportunityResponse, status_code=status.HTTP_201_CREATED)

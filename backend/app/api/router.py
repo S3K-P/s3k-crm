@@ -78,6 +78,7 @@ from app.products.crm.emails import router as emails_router
 from app.products.crm.emails.delivery import deliver_crm_email_event
 from app.products.crm.emails.events import CRM_EMAIL_SEND_REQUESTED
 from app.products.crm.imports import router as imports_router
+from app.products.crm.layouts import router as layouts_router
 from app.products.crm.leads import router as leads_router
 from app.products.crm.leads import source_router as lead_sources_router
 from app.products.crm.market_insights import router as market_insights_router
@@ -196,6 +197,7 @@ def register_custom_fields() -> None:
         submitted: Mapping[str, Any] | None,
         existing: Mapping[str, Any] | None,
         creating: bool,
+        record_context: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         return await CustomFieldValueService(session).resolve(
             organization_id=organization_id,
@@ -203,6 +205,7 @@ def register_custom_fields() -> None:
             submitted=submitted,
             existing=existing,
             creating=creating,
+            record_context=record_context,
         )
 
     async def _defaults(
@@ -336,6 +339,12 @@ crm_router.include_router(
     prefix="/crm/picklists",
     tags=["crm:custom-fields"],
 )
+# The admin form/layout builder (Checkpoint 4): sections, field placement and
+# conditional rules over an entity type's built-in and custom fields. Reads
+# `custom_fields` for the fields it can place but is its own permission
+# module, for the reason `blueprints` is its own module beside them:
+# publishing a layout is a wider power than editing any single field.
+crm_router.include_router(layouts_router.router, prefix="/crm/layouts", tags=["crm:layouts"])
 crm_router.include_router(
     market_insights_router.router,
     prefix="/crm/market-insights",

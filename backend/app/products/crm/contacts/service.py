@@ -173,6 +173,18 @@ class ContactService(TenantScopedService[Contact]):
             await self.set_primary(updated, actor_id=actor_id)
         return updated
 
+    async def _bulk_update_one(
+        self, entity: Contact, *, actor_id: uuid.UUID | None, values: dict[str, Any]
+    ) -> Contact:
+        """Route bulk updates (Checkpoint 4) through the same account/email checks.
+
+        ``allow_duplicate`` stays ``False``: a bulk edit that would collide two
+        contacts' emails reports that one record as failed rather than
+        silently creating the duplicate the single-record form would have
+        asked the user to confirm.
+        """
+        return await self.update_contact(entity, actor_id=actor_id, values=values)
+
     async def set_primary(self, contact: Contact, *, actor_id: uuid.UUID | None) -> Contact:
         """Make ``contact`` the primary contact of its account.
 

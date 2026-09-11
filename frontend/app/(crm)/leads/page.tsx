@@ -13,6 +13,8 @@ import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess, notifyWarning } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
 import MergeDialog from '@/components/crm/dialogs/MergeDialog';
+import BulkActionsToolbar, { type BulkEditableField } from '@/components/crm/toolbar/BulkActionsToolbar';
+import ColumnChooser, { type ColumnOption } from '@/components/crm/toolbar/ColumnChooser';
 import SavedViewPicker from '@/components/crm/toolbar/SavedViewPicker';
 import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
@@ -33,6 +35,9 @@ import {
   LEAD_STATUSES,
   PRIORITIES,
   archiveLead,
+  bulkChangeLeadStatus,
+  bulkDeleteLeads,
+  bulkUpdateLeads,
   changeLeadStatus,
   createLead,
   exportLeads,
@@ -94,6 +99,15 @@ const EMPTY_FORM: LeadInput = {
 
 type ViewMode = 'table' | 'kanban';
 
+/** Optional columns a user may hide (Checkpoint 4) — name and actions always show. */
+const OPTIONAL_COLUMNS: ColumnOption[] = [
+  { key: 'company', label: 'Company' },
+  { key: 'email', label: 'Email' },
+  { key: 'priority', label: 'Priority' },
+  { key: 'status', label: 'Status' },
+];
+const OPTIONAL_COLUMN_KEYS = OPTIONAL_COLUMNS.map((c) => c.key);
+
 export default function LeadsPage() {
   const router = useRouter();
   const confirm = useConfirm();
@@ -109,6 +123,8 @@ export default function LeadsPage() {
   const mayMerge = mayEdit && mayDelete;
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [mergeOpen, setMergeOpen] = useState(false);
+  const [bulkStatusOpen, setBulkStatusOpen] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState<string[]>(OPTIONAL_COLUMN_KEYS);
   const mayViewSources = can('lead_sources', 'VIEW');
   const mayViewCampaigns = can('campaigns', 'VIEW');
   const mayViewMembers = can('users', 'VIEW');
@@ -345,34 +361,31 @@ export default function LeadsPage() {
     }
   };
 
+  const bulkFields = useMemo<BulkEditableField[]>(
+    () => [
+      {
+        key: 'priority',
+        label: 'Priority',
+        type: 'select',
+        options: PRIORITIES.map((p) => ({ value: p, label: humanize(p) })),
+      },
+      { key: 'industry', label: 'Industry' },
+      { key: 'company_size', label: 'Company size' },
+      {
+        key: 'owner_id',
+        label: 'Owner',
+        type: 'select',
+        options: members.map((member) => ({
+          value: member.user_id,
+          label: member.full_name?.trim() || member.email,
+        })),
+      },
+    ],
+    [members],
+  );
+
   const columns = useMemo<ColumnDef<Lead>[]>(
     () => [
-      ...(mayMerge
-        ? [
-            {
-              key: 'select',
-              label: '',
-              minWidth: '36px',
-              render: (row: Lead) => (
-                <input
-                  type="checkbox"
-                  aria-label={`Select ${`${row.first_name} ${row.last_name}`}`}
-                  checked={selectedIds.has(row.id)}
-                  onClick={(event) => event.stopPropagation()}
-                  onChange={(event) => {
-                    // A new Set each time: mutating the held one would not
-                    // change its identity and React would not re-render.
-                    const next = new Set(selectedIds);
-                    if (event.target.checked) next.add(row.id);
-                    else next.delete(row.id);
-                    setSelectedIds(next);
-                  }}
-                  className="h-3.5 w-3.5"
-                />
-              ),
-            } satisfies ColumnDef<Lead>,
-          ]
-        : []),
       {
         key: 'first_name',
         label: 'Name',
@@ -389,12 +402,18 @@ export default function LeadsPage() {
         key: 'email',
         label: 'Email',
         hideBelow: 'lg',
+        editable: () => mayEdit,
+        editType: 'email',
         render: (row) => row.email ?? <span className="txt-faint">—</span>,
       },
       {
         key: 'priority',
         label: 'Priority',
         hideBelow: 'xl',
+        editable: () => mayEdit,
+        editType: 'select',
+        editOptions: PRIORITIES.map((p) => ({ value: p, label: humanize(p) })),
+        editValue: (row) => row.priority ?? '',
         render: (row) =>
           row.priority ? (
             <StatusBadge label={humanize(row.priority)} variant={statusVariant(row.priority)} />
@@ -446,7 +465,7 @@ export default function LeadsPage() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mayEdit, mayDelete, mayMerge, selectedIds],
+    [mayEdit, mayDelete],
   );
 
   return (
@@ -510,7 +529,16 @@ export default function LeadsPage() {
             setStatusFilter(typeof params.status === 'string' ? params.status : '');
             setPage(1);
           }}
+          columns={visibleColumns}
+          onColumnsChange={setVisibleColumns}
         />
+        {view === 'table' && (
+          <ColumnChooser
+            options={OPTIONAL_COLUMNS}
+            visible={visibleColumns}
+            onChange={setVisibleColumns}
+          />
+        )}
         <SearchInput
           value={search}
           onChange={(event) => {
@@ -569,38 +597,64 @@ export default function LeadsPage() {
         onImported={reload}
       />
 
-      {mayMerge && mergeCandidates(items, selectedIds).length > 1 && (
-        <div className="ctl mb-3 flex flex-wrap items-center gap-3 rounded-lg px-4 py-2.5">
-          <span className="txt text-[13px] font-semibold">
-            {mergeCandidates(items, selectedIds).length} selected
-          </span>
-          <button
-            type="button"
-            onClick={() => setMergeOpen(true)}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold text-white transition hover:opacity-90"
-            style={{ background: 'var(--accent)' }}
-          >
-            <GitMerge className="h-3.5 w-3.5" /> Merge duplicates
-          </button>
-          <button
-            type="button"
-            onClick={() => setSelectedIds(new Set())}
-            className="txt-faint text-[12px] underline transition hover:opacity-70"
-          >
-            Clear selection
-          </button>
+      {(mayEdit || mayDelete) && selectedIds.size > 0 && (
+        <div className="mb-3">
+          <BulkActionsToolbar
+            count={selectedIds.size}
+            onClear={() => setSelectedIds(new Set())}
+            mayEdit={mayEdit}
+            mayDelete={mayDelete}
+            entityLabelPlural="leads"
+            editableFields={bulkFields}
+            onBulkUpdate={(values) => bulkUpdateLeads(Array.from(selectedIds), values)}
+            onBulkDelete={() => bulkDeleteLeads(Array.from(selectedIds))}
+            onDone={() => {
+              setSelectedIds(new Set());
+              reload();
+            }}
+            extraActions={
+              <>
+                {mayEdit && (
+                  <button
+                    type="button"
+                    onClick={() => setBulkStatusOpen(true)}
+                    className="txt-accent text-[12.5px] font-medium"
+                  >
+                    Bulk status change
+                  </button>
+                )}
+                {mayMerge && mergeCandidates(items, selectedIds).length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setMergeOpen(true)}
+                    className="flex items-center gap-1.5 text-[12.5px] font-medium"
+                    style={{ color: 'var(--accent)' }}
+                  >
+                    <GitMerge className="h-3.5 w-3.5" /> Merge duplicates
+                  </button>
+                )}
+              </>
+            }
+          />
         </div>
       )}
       {status === 'error' && error !== null ? (
         <ListError message={error} onRetry={reload} />
       ) : view === 'table' ? (
         <DataTable
-          columns={columns}
+          columns={columns.filter((c) => !OPTIONAL_COLUMN_KEYS.includes(c.key) || visibleColumns.includes(c.key))}
           data={items}
           rowKey={(row) => row.id}
           onRowClick={(row) => router.push(`/leads/${row.id}`)}
           loading={status === 'loading'}
           skeletonRows={6}
+          selectable={mayEdit || mayDelete}
+          selectedKeys={selectedIds}
+          onSelectionChange={setSelectedIds}
+          onCellEdit={async (row, key, value) => {
+            await updateLead(row.id, { [key]: value } as Partial<LeadInput>);
+            reload();
+          }}
           emptyState={
             <ListEmpty
               title="No leads yet"
@@ -628,7 +682,10 @@ export default function LeadsPage() {
           // machine that rejects an illegal move there rejects it here —
           // dragging is a different gesture for the same request, not a
           // shortcut around it.
-          onCardDrop={(lead, status) => void handleStatusChange(lead, status as LeadStatus)}
+          // Returning the promise (not `void`-wrapping it) is what lets
+          // KanbanBoard's duplicate-submission guard track when this drop
+          // finishes and re-enable dragging that one card.
+          onCardDrop={(lead, status) => handleStatusChange(lead, status as LeadStatus)}
           renderCard={(lead) => (
             <div className="surface bd rounded-xl border p-3">
               <button
@@ -823,6 +880,7 @@ export default function LeadsPage() {
             entityType="LEAD"
             values={customValues}
             onChange={setCustomValues}
+            recordContext={{ ...editing, ...form }}
           />
         </div>
       </SlideDrawer>
@@ -842,7 +900,108 @@ export default function LeadsPage() {
           }}
         />
       )}
+      {bulkStatusOpen && (
+        <BulkStatusDrawer
+          count={selectedIds.size}
+          onClose={() => setBulkStatusOpen(false)}
+          onSubmit={async (targetStatus, lostReason) => {
+            const result = await bulkChangeLeadStatus(Array.from(selectedIds), targetStatus, lostReason);
+            if (result.failed.length === 0) {
+              notifySuccess(`${result.succeeded.length} lead(s) moved to ${humanize(targetStatus)}.`);
+            } else if (result.succeeded.length === 0) {
+              notifyError(
+                new Error(result.failed[0]?.reason ?? 'Failed'),
+                'No leads could be moved — see the reasons on each.',
+              );
+            } else {
+              notifySuccess(
+                `${result.succeeded.length} lead(s) moved to ${humanize(targetStatus)}.`,
+                `${result.failed.length} could not move: ${result.failed
+                  .slice(0, 3)
+                  .map((f) => f.reason)
+                  .join('; ')}`,
+              );
+            }
+            setBulkStatusOpen(false);
+            setSelectedIds(new Set());
+            reload();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function BulkStatusDrawer({
+  count,
+  onClose,
+  onSubmit,
+}: {
+  count: number;
+  onClose: () => void;
+  onSubmit: (status: LeadStatus, lostReason?: string) => Promise<void>;
+}) {
+  const [targetStatus, setTargetStatus] = useState<LeadStatus>('CONTACTED');
+  const [lostReason, setLostReason] = useState('');
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const needsReason = targetStatus === 'LOST' || targetStatus === 'UNQUALIFIED';
+
+  async function handleSubmit() {
+    setPending(true);
+    setError(null);
+    try {
+      await onSubmit(targetStatus, needsReason ? lostReason : undefined);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'The bulk move could not be started.');
+      setPending(false);
+    }
+  }
+
+  return (
+    <SlideDrawer
+      open
+      onClose={onClose}
+      title={`Move ${count} leads`}
+      footer={
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="btn-ghost px-4 py-2 text-[13px]">
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSubmit()}
+            disabled={pending}
+            className="btn-primary px-4 py-2 text-[13px] disabled:opacity-60"
+          >
+            {pending ? 'Moving…' : `Move ${count} leads`}
+          </button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        <FormError message={error} />
+        <p className="txt-faint text-[12.5px]">
+          Each lead moves through the same status rules as a single drag on the board — a lead an
+          illegal move or a blueprint refuses is reported, not silently skipped.
+        </p>
+        <FormField label="New status">
+          <FormSelect
+            options={LEAD_STATUSES.filter((s) => s !== 'CONVERTED').map((s) => ({
+              value: s,
+              label: humanize(s),
+            }))}
+            value={targetStatus}
+            onChange={(e) => setTargetStatus(e.target.value as LeadStatus)}
+          />
+        </FormField>
+        {needsReason && (
+          <FormField label="Reason" required>
+            <FormInput value={lostReason} onChange={(e) => setLostReason(e.target.value)} />
+          </FormField>
+        )}
+      </div>
+    </SlideDrawer>
   );
 }
 

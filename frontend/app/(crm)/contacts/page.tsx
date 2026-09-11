@@ -10,6 +10,7 @@ import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess, notifyWarning } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect } from '@/components/crm/forms/FormField';
 import MergeDialog from '@/components/crm/dialogs/MergeDialog';
+import BulkActionsToolbar from '@/components/crm/toolbar/BulkActionsToolbar';
 import SavedViewPicker from '@/components/crm/toolbar/SavedViewPicker';
 import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
@@ -26,6 +27,8 @@ import { listAccounts, type Account } from '@/features/crm/accounts';
 import {
   CONTACT_STATUSES,
   archiveContact,
+  bulkDeleteContacts,
+  bulkUpdateContacts,
   createContact,
   exportContacts,
   listContacts,
@@ -237,32 +240,6 @@ function ContactsPageContent() {
 
   const columns = useMemo<ColumnDef<Contact>[]>(
     () => [
-      ...(mayMerge
-        ? [
-            {
-              key: 'select',
-              label: '',
-              minWidth: '36px',
-              render: (row: Contact) => (
-                <input
-                  type="checkbox"
-                  aria-label={`Select ${`${row.first_name} ${row.last_name}`}`}
-                  checked={selectedIds.has(row.id)}
-                  onClick={(event) => event.stopPropagation()}
-                  onChange={(event) => {
-                    // A new Set each time: mutating the held one would not
-                    // change its identity and React would not re-render.
-                    const next = new Set(selectedIds);
-                    if (event.target.checked) next.add(row.id);
-                    else next.delete(row.id);
-                    setSelectedIds(next);
-                  }}
-                  className="h-3.5 w-3.5"
-                />
-              ),
-            } satisfies ColumnDef<Contact>,
-          ]
-        : []),
       { key: 'full_name', label: 'Name', minWidth: '180px' },
       {
         key: 'account_id',
@@ -279,17 +256,23 @@ function ContactsPageContent() {
         key: 'email',
         label: 'Email',
         hideBelow: 'lg',
+        editable: () => mayEdit,
+        editType: 'email',
         render: (row) => row.email ?? <span className="txt-faint">—</span>,
       },
       {
         key: 'job_title',
         label: 'Title',
         hideBelow: 'xl',
+        editable: () => mayEdit,
         render: (row) => row.job_title ?? <span className="txt-faint">—</span>,
       },
       {
         key: 'status',
         label: 'Status',
+        editable: () => mayEdit,
+        editType: 'select',
+        editOptions: CONTACT_STATUSES.map((s) => ({ value: s, label: humanize(s) })),
         render: (row) => (
           <StatusBadge label={humanize(row.status)} variant={statusVariant(row.status)} />
         ),
@@ -426,26 +409,44 @@ function ContactsPageContent() {
         onImported={reload}
       />
 
-      {mayMerge && mergeCandidates(items, selectedIds).length > 1 && (
-        <div className="ctl mb-3 flex flex-wrap items-center gap-3 rounded-lg px-4 py-2.5">
-          <span className="txt text-[13px] font-semibold">
-            {mergeCandidates(items, selectedIds).length} selected
-          </span>
-          <button
-            type="button"
-            onClick={() => setMergeOpen(true)}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold text-white transition hover:opacity-90"
-            style={{ background: 'var(--accent)' }}
-          >
-            <GitMerge className="h-3.5 w-3.5" /> Merge duplicates
-          </button>
-          <button
-            type="button"
-            onClick={() => setSelectedIds(new Set())}
-            className="txt-faint text-[12px] underline transition hover:opacity-70"
-          >
-            Clear selection
-          </button>
+      {(mayEdit || mayDelete) && selectedIds.size > 0 && (
+        <div className="mb-3">
+          <BulkActionsToolbar
+            count={selectedIds.size}
+            onClear={() => setSelectedIds(new Set())}
+            mayEdit={mayEdit}
+            mayDelete={mayDelete}
+            entityLabelPlural="contacts"
+            editableFields={[
+              { key: 'job_title', label: 'Job title' },
+              { key: 'department', label: 'Department' },
+              {
+                key: 'status',
+                label: 'Status',
+                type: 'select',
+                options: CONTACT_STATUSES.map((s) => ({ value: s, label: humanize(s) })),
+              },
+            ]}
+            onBulkUpdate={(values) => bulkUpdateContacts(Array.from(selectedIds), values)}
+            onBulkDelete={() => bulkDeleteContacts(Array.from(selectedIds))}
+            onDone={() => {
+              setSelectedIds(new Set());
+              reload();
+            }}
+            extraActions={
+              mayMerge &&
+              mergeCandidates(items, selectedIds).length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setMergeOpen(true)}
+                  className="flex items-center gap-1.5 text-[12.5px] font-medium"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  <GitMerge className="h-3.5 w-3.5" /> Merge duplicates
+                </button>
+              )
+            }
+          />
         </div>
       )}
       {status === 'error' && error !== null ? (
@@ -458,6 +459,13 @@ function ContactsPageContent() {
           onRowClick={(row) => router.push(`/contacts/${row.id}`)}
           loading={status === 'loading'}
           skeletonRows={6}
+          selectable={mayEdit || mayDelete}
+          selectedKeys={selectedIds}
+          onSelectionChange={setSelectedIds}
+          onCellEdit={async (row, key, value) => {
+            await updateContact(row.id, { [key]: value } as Partial<ContactInput>);
+            reload();
+          }}
           emptyState={
             <ListEmpty
               title="No contacts yet"
@@ -566,6 +574,7 @@ function ContactsPageContent() {
             entityType="CONTACT"
             values={customValues}
             onChange={setCustomValues}
+            recordContext={{ ...editing, ...form }}
           />
         </div>
       </SlideDrawer>

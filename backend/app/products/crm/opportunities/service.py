@@ -23,7 +23,7 @@ from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import provisioning_scope
-from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
+from app.core.exceptions import AppError, ConflictError, NotFoundError, ValidationFailedError
 from app.platform.audit.service import Action as AuditAction
 from app.platform.auth.dependencies import Principal
 from app.products.crm.blueprints.enforcement import BlueprintGuard
@@ -37,6 +37,7 @@ from app.products.crm.opportunities.models import (
 )
 from app.products.crm.shared.pagination import PageParams
 from app.products.crm.shared.repository import TenantScopedRepository
+from app.products.crm.shared.schemas import BulkOperationFailure, BulkOperationResult
 from app.products.crm.shared.service import TenantScopedService
 from app.products.crm.shared.timeline import (
     TimelineEntry,
@@ -345,6 +346,49 @@ class OpportunityService(TenantScopedService[Opportunity]):
         )
         return opportunity
 
+    async def bulk_change_stage(
+        self,
+        ids: Sequence[uuid.UUID],
+        organization_id: uuid.UUID,
+        *,
+        stage_id: uuid.UUID,
+        actor_id: uuid.UUID | None,
+        note: str | None,
+        loss_reason: str | None,
+        win_reason: str | None,
+        principal: Principal | None,
+        visibility: RecordVisibility | None = None,
+    ) -> BulkOperationResult:
+        """Move many deals to the same stage at once (Checkpoint 4).
+
+        Each id runs through the identical :meth:`change_stage` a single drag
+        on the Kanban board calls — closed-deal refusal, the missing-reason
+        check, blueprint validation, stage history — independently. A deal
+        already closed, or one the organization's blueprint refuses this move
+        for, is reported as a per-id failure; the rest of the batch is
+        unaffected.
+        """
+        succeeded: list[uuid.UUID] = []
+        failed: list[BulkOperationFailure] = []
+        for opportunity_id in ids:
+            try:
+                opportunity = await self.get_or_404(
+                    opportunity_id, organization_id, visibility=visibility
+                )
+                await self.change_stage(
+                    opportunity,
+                    stage_id=stage_id,
+                    actor_id=actor_id,
+                    note=note,
+                    loss_reason=loss_reason,
+                    win_reason=win_reason,
+                    principal=principal,
+                )
+                succeeded.append(opportunity_id)
+            except AppError as exc:
+                failed.append(BulkOperationFailure(id=opportunity_id, reason=exc.message))
+        return BulkOperationResult(succeeded=succeeded, failed=failed)
+
     async def reopen(
         self, opportunity: Opportunity, *, stage_id: uuid.UUID, actor_id: uuid.UUID | None
     ) -> Opportunity:
@@ -419,6 +463,12 @@ class OpportunityService(TenantScopedService[Opportunity]):
         # bypass history recording and the win/loss rules.
         values.pop("stage_id", None)
         return await self.update(opportunity, actor_id=actor_id, values=values)
+
+    async def _bulk_update_one(
+        self, entity: Opportunity, *, actor_id: uuid.UUID | None, values: dict[str, object]
+    ) -> Opportunity:
+        """Route bulk updates (Checkpoint 4) through the same closed-deal rule."""
+        return await self.update_open(entity, actor_id=actor_id, values=values)
 
     async def timeline(
         self, opportunity: Opportunity, principal: Principal, *, limit: int = 50

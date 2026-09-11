@@ -47,6 +47,7 @@ class CustomFieldResolver(Protocol):
         submitted: Mapping[str, Any] | None,
         existing: Mapping[str, Any] | None,
         creating: bool,
+        record_context: Mapping[str, Any] | None = None,
     ) -> Awaitable[dict[str, Any]]: ...
 
 
@@ -93,8 +94,18 @@ async def resolve_custom_fields(
     submitted: Mapping[str, Any] | None,
     existing: Mapping[str, Any] | None = None,
     creating: bool = False,
+    record_context: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Validate ``submitted`` against the tenant's definitions and merge it."""
+    """Validate ``submitted`` against the tenant's definitions and merge it.
+
+    ``record_context`` is the record's *built-in* column values (submitted on
+    a create, or existing-merged-with-submitted on an update) — everything a
+    Checkpoint 4 layout's conditional rules might read a condition against
+    that is not itself a custom value. ``None`` (the default every caller
+    without a layout feature in mind may safely pass) means "no rules can
+    evaluate", which is exactly correct for an entity with no published
+    layout: see :meth:`app.products.crm.custom_fields.service.CustomFieldValueService.resolve`.
+    """
     if _resolver is None:
         raise CustomFieldsNotWiredError(
             "No custom-field resolver is registered; "
@@ -107,6 +118,7 @@ async def resolve_custom_fields(
         submitted=submitted,
         existing=existing,
         creating=creating,
+        record_context=record_context,
     )
 
 

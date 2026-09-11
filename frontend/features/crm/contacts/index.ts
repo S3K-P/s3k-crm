@@ -9,6 +9,7 @@ import { downloadAndSave } from '@/lib/save-file';
 import {
   toQuery,
   withoutPaging,
+  type BulkOperationResult,
   type ListParams,
   type Page,
   type RecordMeta,
@@ -119,6 +120,13 @@ export const makeContactPrimary = (id: string) =>
   api.post<Contact>(`/crm/contacts/${id}/primary`);
 
 export const archiveContact = (id: string) => api.delete<void>(`/crm/contacts/${id}`);
+
+/** Each id is validated and saved independently — see `features/crm/leads`. */
+export const bulkUpdateContacts = (ids: string[], values: Partial<ContactInput>) =>
+  api.post<BulkOperationResult>('/crm/contacts/bulk-update', { ids, values });
+
+export const bulkDeleteContacts = (ids: string[]) =>
+  api.post<BulkOperationResult>('/crm/contacts/bulk-delete', { ids });
 
 /** Every event this caller may see against this contact, newest first. */
 export const getContactTimeline = (id: string, limit = 50) =>

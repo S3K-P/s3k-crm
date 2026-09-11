@@ -22,7 +22,7 @@ import structlog
 from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
+from app.core.exceptions import AppError, ConflictError, NotFoundError, ValidationFailedError
 from app.platform.audit.service import Action as AuditAction
 from app.platform.auth.dependencies import Principal
 from app.products.crm.accounts.models import Account
@@ -34,6 +34,7 @@ from app.products.crm.leads.models import Lead, LeadStatus
 from app.products.crm.opportunities.models import Opportunity, PipelineStage
 from app.products.crm.shared.pagination import PageParams
 from app.products.crm.shared.repository import TenantScopedRepository
+from app.products.crm.shared.schemas import BulkOperationFailure, BulkOperationResult
 from app.products.crm.shared.service import TenantScopedService
 from app.products.crm.shared.visibility import RecordVisibility
 
@@ -655,6 +656,45 @@ class LeadService(TenantScopedService[Lead]):
             },
         )
         return lead
+
+    async def bulk_change_status(
+        self,
+        ids: Sequence[uuid.UUID],
+        organization_id: uuid.UUID,
+        *,
+        new_status: LeadStatus,
+        actor_id: uuid.UUID | None,
+        lost_reason: str | None,
+        principal: Principal | None,
+        visibility: RecordVisibility | None = None,
+    ) -> BulkOperationResult:
+        """Move many leads at once (Checkpoint 4), each through :meth:`change_status`.
+
+        Not a bulk UPDATE statement: each lead is resolved through
+        :meth:`~app.products.crm.shared.service.TenantScopedService.get_or_404`
+        (so a lead outside the caller's visibility fails exactly as a
+        single-record move against it would) and moved through the identical
+        state-machine and blueprint check a lone drag on the Kanban board
+        already runs. A card that could not legally make this move one at a
+        time is reported as a per-id failure, never silently skipped or
+        allowed to drag the others down with it.
+        """
+        succeeded: list[uuid.UUID] = []
+        failed: list[BulkOperationFailure] = []
+        for lead_id in ids:
+            try:
+                lead = await self.get_or_404(lead_id, organization_id, visibility=visibility)
+                await self.change_status(
+                    lead,
+                    new_status=new_status,
+                    actor_id=actor_id,
+                    lost_reason=lost_reason,
+                    principal=principal,
+                )
+                succeeded.append(lead_id)
+            except AppError as exc:
+                failed.append(BulkOperationFailure(id=lead_id, reason=exc.message))
+        return BulkOperationResult(succeeded=succeeded, failed=failed)
 
     async def assign_owner(
         self, lead: Lead, *, owner_id: uuid.UUID | None, actor_id: uuid.UUID | None
