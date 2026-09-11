@@ -7,7 +7,15 @@
 
 import { api } from '@/lib/api-client';
 import { downloadAndSave } from '@/lib/save-file';
-import { toQuery, withoutPaging, type ListParams, type Page, type RecordMeta } from '@/features/shared/types/api';
+import {
+  toQuery,
+  withoutPaging,
+  type ListParams,
+  type Page,
+  type RecordMeta,
+  type TimelineEntry,
+  type TimelineEntryKind,
+} from '@/features/shared/types/api';
 import type { CustomFieldValues } from '@/features/crm/custom-fields';
 
 export type AccountStatus = 'ACTIVE' | 'ONBOARDING' | 'AT_RISK' | 'CHURNED';
@@ -130,21 +138,9 @@ export interface AccountOverview {
 export const getAccountOverview = (id: string) =>
   api.get<AccountOverview>(`/crm/accounts/${id}/overview`);
 
-/** A small fixed vocabulary — see `backend/app/products/crm/accounts/overview.py`. */
-export type AccountTimelineEntryKind =
-  | 'activity'
-  | 'deal_created'
-  | 'stage_changed'
-  | 'contact_created';
-
-export interface AccountTimelineEntry {
-  kind: AccountTimelineEntryKind;
-  occurred_at: string;
-  title: string;
-  detail: string | null;
-  entity_type: string;
-  entity_id: string;
-}
+/** See `backend/app/products/crm/shared/timeline.py` for the full vocabulary. */
+export type AccountTimelineEntryKind = TimelineEntryKind;
+export type AccountTimelineEntry = TimelineEntry;
 
 export const getAccountTimeline = (id: string, limit = 50) =>
   api.get<AccountTimelineEntry[]>(`/crm/accounts/${id}/timeline?limit=${limit}`);

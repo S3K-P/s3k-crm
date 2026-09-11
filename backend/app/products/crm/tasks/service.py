@@ -52,6 +52,8 @@ class TaskService(TenantScopedService[Task]):
         related_entity_type: CrmEntityType | None = None,
         related_entity_id: uuid.UUID | None = None,
         open_only: bool = False,
+        due_before: dt.datetime | None = None,
+        due_after: dt.datetime | None = None,
     ) -> list[ColumnElement[bool]]:
         filters: list[ColumnElement[bool]] = []
         if search:
@@ -74,6 +76,17 @@ class TaskService(TenantScopedService[Task]):
             filters.append(Task.related_entity_id == related_entity_id)
         if open_only:
             filters.append(Task.status.not_in(tuple(CLOSED_STATUSES)))
+        # ``due_before``/``due_after`` power the Tasks page's "Overdue" and
+        # "Upcoming" quick views. A task with no due date matches neither —
+        # it is not scheduled, so it cannot be "overdue" or "upcoming" any
+        # more than an unscheduled meeting could be, and including it would
+        # make those counts overstate what is actually on a deadline.
+        if due_before is not None:
+            filters.append(Task.due_date.is_not(None))
+            filters.append(Task.due_date < due_before)
+        if due_after is not None:
+            filters.append(Task.due_date.is_not(None))
+            filters.append(Task.due_date >= due_after)
         return filters
 
     async def list_tasks(

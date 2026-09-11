@@ -171,6 +171,7 @@ class AccountService(TenantScopedService[Account]):
         repo = AccountOverviewRepository(self._session)
         contacts_visibility = RecordVisibility.for_module(principal, "contacts")
         opportunities_visibility = RecordVisibility.for_module(principal, "opportunities")
+        tasks_visibility = RecordVisibility.for_module(principal, "tasks")
 
         activities = await repo.activity_entries(account.id, account.organization_id)
         deals_created = await repo.deal_created_entries(
@@ -182,8 +183,18 @@ class AccountService(TenantScopedService[Account]):
         contacts_created = await repo.contact_created_entries(
             account.id, account.organization_id, contacts_visibility
         )
+        tasks = await repo.task_entries(account.id, account.organization_id, tasks_visibility)
+        emails = await repo.email_entries(account.id, account.organization_id, principal.user_id)
+        notes = await repo.note_entries(account.id, account.organization_id, principal.user_id)
         return merge_timeline_entries(
-            activities, deals_created, stage_changes, contacts_created, limit=limit
+            activities,
+            deals_created,
+            stage_changes,
+            contacts_created,
+            tasks,
+            emails,
+            notes,
+            limit=limit,
         )
 
     # --- Commands ----------------------------------------------------------

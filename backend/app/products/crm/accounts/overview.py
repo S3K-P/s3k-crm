@@ -12,19 +12,19 @@ for that module applies, so an account's summary can never show a bigger
 number, or a different name, than the caller could get by opening the
 underlying list themselves (Checkpoint 2 §13).
 
-Notes are deliberately excluded from the unified timeline. A note's
-visibility (private to its author, team, or organization-wide) is enforced in
-the notes module's own policy, not by a column this file could filter on —
-re-deriving that rule here would be a second, easier-to-get-wrong copy of a
-security check that already exists. The Notes tab, which calls the notes
-module directly, remains the correct place to read them.
+Notes, sent email and tasks join the unified timeline too (Checkpoint 3), each
+through its owning module's own authorization rather than a copy of it — see
+``app.products.crm.shared.timeline`` for exactly how. That module also holds
+the entry shape and the merge, both identical for every record type that gets
+a unified timeline, so this file keeps only what is genuinely specific to an
+account: its KPI summary, and the two sources (deals and contacts) it scopes
+by ``account_id``.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import uuid
-from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
@@ -34,40 +34,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.platform.organizations.service import organizations_for_session
 from app.products.crm.activities.models import Activity, ActivityStatus, ActivityType, Meeting
-from app.products.crm.activities.service import ActivityService
 from app.products.crm.common import CrmEntityType
 from app.products.crm.contacts.models import Contact
-from app.products.crm.opportunities.models import (
-    Opportunity,
-    OpportunityStageHistory,
-    PipelineStage,
-)
+from app.products.crm.opportunities.models import Opportunity
+from app.products.crm.shared.timeline import SOURCE_LIMIT as _SOURCE_LIMIT
+from app.products.crm.shared.timeline import TimelineEntry, merge_timeline_entries
+from app.products.crm.shared.timeline import activity_entries as _activity_entries
+from app.products.crm.shared.timeline import deal_created_entries as _deal_created_entries
+from app.products.crm.shared.timeline import email_entries as _email_entries
+from app.products.crm.shared.timeline import note_entries as _note_entries
+from app.products.crm.shared.timeline import stage_changed_entries as _stage_changed_entries
+from app.products.crm.shared.timeline import task_entries as _task_entries
 from app.products.crm.shared.visibility import RecordVisibility
 from app.products.crm.tasks.models import Task, TaskStatus
 
-#: How many rows each timeline source contributes before the merge trims to
-#: the caller's requested limit. Generous enough that "recent" reflects real
-#: recency across every source rather than one source crowding the others out.
-_SOURCE_LIMIT = 50
-
 _CLOSED_TASK_STATUSES = (TaskStatus.COMPLETED, TaskStatus.CANCELLED)
-
-
-@dataclass(frozen=True, slots=True)
-class TimelineEntry:
-    """One event in an account's unified timeline.
-
-    ``detail`` holds only what the source row already stored (a stage name, a
-    job title) — never free text lifted from a note or an email body, which
-    is exactly the content this file does not have permission to read.
-    """
-
-    kind: str
-    occurred_at: dt.datetime
-    title: str
-    detail: str | None
-    entity_type: str
-    entity_id: uuid.UUID
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,18 +70,6 @@ class AccountOverview:
     owner_name: str | None
     primary_contact_name: str | None
     primary_contact_title: str | None
-
-
-def merge_timeline_entries(*groups: Sequence[TimelineEntry], limit: int) -> list[TimelineEntry]:
-    """Newest-first merge of every source, truncated to ``limit``.
-
-    A pure function on purpose: what has to be right here is the sort and the
-    cutoff, which needs no database to prove — see
-    ``tests/unit/test_account_timeline.py``.
-    """
-    combined = [entry for group in groups for entry in group]
-    combined.sort(key=lambda entry: entry.occurred_at, reverse=True)
-    return combined[:limit]
 
 
 class AccountOverviewRepository:
@@ -273,28 +242,13 @@ class AccountOverviewRepository:
     async def activity_entries(
         self, account_id: uuid.UUID, organization_id: uuid.UUID, *, limit: int = _SOURCE_LIMIT
     ) -> list[TimelineEntry]:
-        """Delegates to the activities module's own service (a sibling CRM
-        service, not a foreign query — ARCHITECTURE-BOUNDARIES.md rule 6/7),
-        so "what counts as this account's activity timeline" is defined in
-        exactly one place.
-        """
-        items = await ActivityService(self._session).timeline(
-            organization_id,
+        return await _activity_entries(
+            self._session,
+            organization_id=organization_id,
             entity_type=CrmEntityType.ACCOUNT,
             entity_id=account_id,
             limit=limit,
         )
-        return [
-            TimelineEntry(
-                kind="activity",
-                occurred_at=activity.completed_at or activity.due_date or activity.created_at,
-                title=activity.subject,
-                detail=activity.type.value.title(),
-                entity_type="ACTIVITY",
-                entity_id=activity.id,
-            )
-            for activity in items
-        ]
 
     async def deal_created_entries(
         self,
@@ -304,30 +258,13 @@ class AccountOverviewRepository:
         *,
         limit: int = _SOURCE_LIMIT,
     ) -> list[TimelineEntry]:
-        statement = self._scoped(
-            select(Opportunity)
-            .where(
-                Opportunity.organization_id == organization_id,
-                Opportunity.account_id == account_id,
-                Opportunity.deleted_at.is_(None),
-            )
-            .order_by(Opportunity.created_at.desc())
-            .limit(limit),
-            visibility,
-            Opportunity,
+        return await _deal_created_entries(
+            self._session,
+            organization_id=organization_id,
+            opportunity_filter=Opportunity.account_id == account_id,
+            visibility=visibility,
+            limit=limit,
         )
-        result = await self._session.execute(statement)
-        return [
-            TimelineEntry(
-                kind="deal_created",
-                occurred_at=deal.created_at,
-                title=f"Deal created: {deal.name}",
-                detail=None,
-                entity_type="OPPORTUNITY",
-                entity_id=deal.id,
-            )
-            for deal in result.scalars().all()
-        ]
 
     async def stage_changed_entries(
         self,
@@ -337,53 +274,64 @@ class AccountOverviewRepository:
         *,
         limit: int = _SOURCE_LIMIT,
     ) -> list[TimelineEntry]:
-        """Stage moves for this account's deals, newest first.
-
-        Visibility is applied against ``Opportunity``, the row that actually
-        carries ``owner_id`` — history rows have none of their own, so a caller
-        restricted to their own deals must not see another rep's stage moves
-        leak through this join.
-        """
-        from_stage = PipelineStage.__table__.alias("from_stage")
-        to_stage = PipelineStage.__table__.alias("to_stage")
-        statement = self._scoped(
-            select(
-                OpportunityStageHistory.id,
-                OpportunityStageHistory.changed_at,
-                Opportunity.id,
-                Opportunity.name,
-                from_stage.c.name,
-                to_stage.c.name,
-            )
-            .select_from(OpportunityStageHistory)
-            .join(Opportunity, Opportunity.id == OpportunityStageHistory.opportunity_id)
-            .outerjoin(from_stage, from_stage.c.id == OpportunityStageHistory.from_stage_id)
-            .join(to_stage, to_stage.c.id == OpportunityStageHistory.to_stage_id)
-            .where(
-                Opportunity.organization_id == organization_id,
-                Opportunity.account_id == account_id,
-                Opportunity.deleted_at.is_(None),
-            )
-            .order_by(OpportunityStageHistory.changed_at.desc())
-            .limit(limit),
-            visibility,
-            Opportunity,
+        return await _stage_changed_entries(
+            self._session,
+            organization_id=organization_id,
+            opportunity_filter=Opportunity.account_id == account_id,
+            visibility=visibility,
+            limit=limit,
         )
-        result = await self._session.execute(statement)
-        entries = []
-        for _history_id, changed_at, deal_id, deal_name, from_name, to_name in result.all():
-            detail = f"{from_name} → {to_name}" if from_name else f"Started in {to_name}"
-            entries.append(
-                TimelineEntry(
-                    kind="stage_changed",
-                    occurred_at=changed_at,
-                    title=f"{deal_name}: stage changed",
-                    detail=detail,
-                    entity_type="OPPORTUNITY",
-                    entity_id=deal_id,
-                )
-            )
-        return entries
+
+    async def task_entries(
+        self,
+        account_id: uuid.UUID,
+        organization_id: uuid.UUID,
+        visibility: RecordVisibility,
+        *,
+        limit: int = _SOURCE_LIMIT,
+    ) -> list[TimelineEntry]:
+        return await _task_entries(
+            self._session,
+            organization_id=organization_id,
+            entity_type=CrmEntityType.ACCOUNT,
+            entity_id=account_id,
+            visibility=visibility,
+            limit=limit,
+        )
+
+    async def email_entries(
+        self,
+        account_id: uuid.UUID,
+        organization_id: uuid.UUID,
+        viewer_id: uuid.UUID | None,
+        *,
+        limit: int = _SOURCE_LIMIT,
+    ) -> list[TimelineEntry]:
+        return await _email_entries(
+            self._session,
+            organization_id=organization_id,
+            entity_type=CrmEntityType.ACCOUNT,
+            entity_id=account_id,
+            viewer_id=viewer_id,
+            limit=limit,
+        )
+
+    async def note_entries(
+        self,
+        account_id: uuid.UUID,
+        organization_id: uuid.UUID,
+        viewer_id: uuid.UUID | None,
+        *,
+        limit: int = _SOURCE_LIMIT,
+    ) -> list[TimelineEntry]:
+        return await _note_entries(
+            self._session,
+            organization_id=organization_id,
+            entity_type=CrmEntityType.ACCOUNT,
+            entity_id=account_id,
+            viewer_id=viewer_id,
+            limit=limit,
+        )
 
     async def contact_created_entries(
         self,

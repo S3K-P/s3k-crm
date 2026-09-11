@@ -10,6 +10,7 @@ import { ListError } from '@/components/crm/shared/ListStates';
 import AttachmentsPanel from '@/components/crm/shared/AttachmentsPanel';
 import CustomFieldsPanel from '@/components/crm/shared/CustomFieldsPanel';
 import { ActivityTimelinePanel, NotesPanel } from '@/components/crm/shared/RecordPanels';
+import RecordTimeline from '@/components/crm/shared/RecordTimeline';
 import EmailsPanel from '@/components/crm/emails/EmailsPanel';
 import { useRecord } from '@/components/crm/shared/useRecord';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
@@ -22,6 +23,7 @@ import { getContact } from '@/features/crm/contacts';
 import {
   changeStage,
   getOpportunity,
+  getOpportunityTimeline,
   isClosed,
   listStages,
   reopenOpportunity,
@@ -426,6 +428,17 @@ export default function OpportunityDetailPage() {
         <EmailsPanel entityType="OPPORTUNITY" entityId={opportunity.id} />
         <NotesPanel entityType="OPPORTUNITY" entityId={opportunity.id} />
         <AttachmentsPanel entityType="OPPORTUNITY" entityId={opportunity.id} />
+      </div>
+
+      <div className="surface bd rounded-2xl border p-5">
+        <SectionHeader title="Timeline" />
+        <div className="pt-2">
+          <RecordTimeline
+            dependencyKey={opportunity.id}
+            fetchEntries={(limit) => getOpportunityTimeline(opportunity.id, limit)}
+            emptyMessage="Nothing has happened on this deal yet. Stage moves, activity, tasks, email and notes will appear here as they are recorded."
+          />
+        </div>
       </div>
     </div>
   );

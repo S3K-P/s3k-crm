@@ -8,6 +8,7 @@ influences the outcome.
 from __future__ import annotations
 
 import uuid
+from dataclasses import asdict
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response, status
@@ -26,6 +27,7 @@ from app.products.crm.contacts.service import ContactService
 from app.products.crm.custom_fields.query import CustomFieldQueryDep
 from app.products.crm.shared.csv_export import collect_rows, csv_response
 from app.products.crm.shared.pagination import Page, PageParams, page_params
+from app.products.crm.shared.schemas import TimelineEntryResponse
 from app.products.crm.shared.visibility import RecordVisibility
 
 router = APIRouter()
@@ -206,6 +208,21 @@ async def make_primary(
     )
     updated = await service.set_primary(contact, actor_id=principal.user_id)
     return ContactResponse.model_validate(updated)
+
+
+@router.get("/{contact_id}/timeline", response_model=list[TimelineEntryResponse])
+async def get_contact_timeline(
+    contact_id: uuid.UUID,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
+    service: ServiceDep,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> list[TimelineEntryResponse]:
+    """Everything this caller may see against this contact, newest first."""
+    contact = await service.get_or_404(
+        contact_id, principal.organization_id, visibility=visible_to(principal)
+    )
+    entries = await service.timeline(contact, principal, limit=limit)
+    return [TimelineEntryResponse(**asdict(entry)) for entry in entries]
 
 
 @router.delete("/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -6,7 +6,14 @@
 
 import { api } from '@/lib/api-client';
 import { downloadAndSave } from '@/lib/save-file';
-import { toQuery, withoutPaging, type ListParams, type Page, type RecordMeta } from '@/features/shared/types/api';
+import {
+  toQuery,
+  withoutPaging,
+  type ListParams,
+  type Page,
+  type RecordMeta,
+  type TimelineEntry,
+} from '@/features/shared/types/api';
 import type { CustomFieldValues } from '@/features/crm/custom-fields';
 
 export type ContactStatus = 'ACTIVE' | 'INACTIVE';
@@ -112,3 +119,7 @@ export const makeContactPrimary = (id: string) =>
   api.post<Contact>(`/crm/contacts/${id}/primary`);
 
 export const archiveContact = (id: string) => api.delete<void>(`/crm/contacts/${id}`);
+
+/** Every event this caller may see against this contact, newest first. */
+export const getContactTimeline = (id: string, limit = 50) =>
+  api.get<TimelineEntry[]>(`/crm/contacts/${id}/timeline?limit=${limit}`);

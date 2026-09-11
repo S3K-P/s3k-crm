@@ -16,7 +16,7 @@ import { FormError, ListEmpty, ListError, ResultCount } from '@/components/crm/s
 import RelatedRecordFields, {
   useRelatedRecordOptions,
 } from '@/components/crm/forms/RelatedRecordFields';
-import { usePermissions } from '@/context/AuthContext';
+import { useAuth, usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
 import { useQueryFilter } from '@/features/shared/hooks/useQueryFilter';
 import {
@@ -54,6 +54,16 @@ import {
 const STATUS_FILTER_OPTIONS = [
   { value: '', label: 'All statuses' },
   ...TASK_STATUSES.map((value) => ({ value, label: humanize(value) })),
+];
+
+type QuickView = 'all' | 'mine' | 'upcoming' | 'overdue' | 'completed';
+
+const QUICK_VIEWS: { value: QuickView; label: string }[] = [
+  { value: 'all', label: 'All tasks' },
+  { value: 'mine', label: 'My tasks' },
+  { value: 'upcoming', label: 'Upcoming' },
+  { value: 'overdue', label: 'Overdue' },
+  { value: 'completed', label: 'Completed' },
 ];
 
 const PRIORITY_FILTER_OPTIONS = [
@@ -94,6 +104,7 @@ function formatDue(iso: string | null): string {
 
 export default function TasksPage() {
   const confirm = useConfirm();
+  const { currentUser } = useAuth();
   const { can } = usePermissions();
   const mayCreate = can('tasks', 'CREATE');
   const mayEdit = can('tasks', 'EDIT');
@@ -109,7 +120,29 @@ export default function TasksPage() {
   const [priorityFilter, setPriorityFilter] = useState<string>(
     useQueryFilter('priority', TASK_PRIORITIES),
   );
+  const [view, setView] = useState<QuickView>('all');
   const [page, setPage] = useState(1);
+
+  // Each quick view is a small, fixed set of filters layered on top of the
+  // search/status/priority controls above — "Overdue" and "Upcoming" read
+  // `due_before`/`due_after` (Checkpoint 3), which only make sense combined
+  // with `open_only`: a closed task is never "overdue", it is just done.
+  const viewFilters = useMemo(() => {
+    const now = new Date().toISOString();
+    switch (view) {
+      case 'mine':
+        return currentUser ? { assigned_to_id: currentUser.user.id } : {};
+      case 'upcoming':
+        return { open_only: true, due_after: now };
+      case 'overdue':
+        return { open_only: true, due_before: now };
+      case 'completed':
+        return { status: 'COMPLETED' as TaskStatus };
+      case 'all':
+      default:
+        return {};
+    }
+  }, [view, currentUser]);
 
   const fetcher = useCallback(
     () =>
@@ -121,13 +154,14 @@ export default function TasksPage() {
         priority: (priorityFilter || null) as Priority | null,
         sort_by: 'due_date',
         sort_dir: 'asc',
+        ...viewFilters,
       }),
-    [page, search, statusFilter, priorityFilter],
+    [page, search, statusFilter, priorityFilter, viewFilters],
   );
 
   const { status, items, pagination, error, reload, refreshing } = useCollection<Task>(
     fetcher,
-    [page, search, statusFilter, priorityFilter],
+    [page, search, statusFilter, priorityFilter, viewFilters],
     { errorMessage: 'Something went wrong loading tasks.' },
   );
 
@@ -343,6 +377,28 @@ export default function TasksPage() {
             <Plus className="h-4 w-4" /> New task
           </button>
         )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        {QUICK_VIEWS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={view === option.value}
+            onClick={() => {
+              setView(option.value);
+              setPage(1);
+            }}
+            className={`rounded-lg px-3 py-1.5 text-[12.5px] font-semibold transition ${
+              view === option.value
+                ? 'text-white'
+                : 'ctl bd border hover:opacity-80'
+            }`}
+            style={view === option.value ? { background: 'var(--accent)' } : undefined}
+          >
+            {option.label}
+          </button>
+        ))}
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">

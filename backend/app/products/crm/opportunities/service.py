@@ -38,6 +38,16 @@ from app.products.crm.opportunities.models import (
 from app.products.crm.shared.pagination import PageParams
 from app.products.crm.shared.repository import TenantScopedRepository
 from app.products.crm.shared.service import TenantScopedService
+from app.products.crm.shared.timeline import (
+    TimelineEntry,
+    activity_entries,
+    deal_created_entries,
+    email_entries,
+    merge_timeline_entries,
+    note_entries,
+    stage_changed_entries,
+    task_entries,
+)
 from app.products.crm.shared.visibility import RecordVisibility
 
 logger = structlog.get_logger(__name__)
@@ -409,6 +419,69 @@ class OpportunityService(TenantScopedService[Opportunity]):
         # bypass history recording and the win/loss rules.
         values.pop("stage_id", None)
         return await self.update(opportunity, actor_id=actor_id, values=values)
+
+    async def timeline(
+        self, opportunity: Opportunity, principal: Principal, *, limit: int = 50
+    ) -> list[TimelineEntry]:
+        """Every event this caller may see against this deal, newest first.
+
+        Its own creation and its own stage moves are included alongside
+        activities, tasks, sent email and notes — the same merged shape
+        Account and Contact expose — by reusing ``deal_created_entries`` and
+        ``stage_changed_entries`` with a filter that matches only this
+        opportunity, rather than a hand-written duplicate of either query.
+        """
+        organization_id = opportunity.organization_id
+        # This is the opportunity's own record: the caller already holds
+        # ``opportunities.VIEW`` on it (the route depends on it), so the
+        # unrestricted visibility is correct here and is not widened for any
+        # other opportunity — the filter matches exactly one id.
+        unrestricted = RecordVisibility.unrestricted()
+        tasks_visibility = RecordVisibility.for_module(principal, "tasks")
+        self_filter = Opportunity.id == opportunity.id
+
+        activities = await activity_entries(
+            self._session,
+            organization_id=organization_id,
+            entity_type=CrmEntityType.OPPORTUNITY,
+            entity_id=opportunity.id,
+        )
+        created = await deal_created_entries(
+            self._session,
+            organization_id=organization_id,
+            opportunity_filter=self_filter,
+            visibility=unrestricted,
+        )
+        stage_changes = await stage_changed_entries(
+            self._session,
+            organization_id=organization_id,
+            opportunity_filter=self_filter,
+            visibility=unrestricted,
+        )
+        tasks = await task_entries(
+            self._session,
+            organization_id=organization_id,
+            entity_type=CrmEntityType.OPPORTUNITY,
+            entity_id=opportunity.id,
+            visibility=tasks_visibility,
+        )
+        emails = await email_entries(
+            self._session,
+            organization_id=organization_id,
+            entity_type=CrmEntityType.OPPORTUNITY,
+            entity_id=opportunity.id,
+            viewer_id=principal.user_id,
+        )
+        notes = await note_entries(
+            self._session,
+            organization_id=organization_id,
+            entity_type=CrmEntityType.OPPORTUNITY,
+            entity_id=opportunity.id,
+            viewer_id=principal.user_id,
+        )
+        return merge_timeline_entries(
+            activities, created, stage_changes, tasks, emails, notes, limit=limit
+        )
 
     async def stage_history(self, opportunity: Opportunity) -> Sequence[OpportunityStageHistory]:
         result = await self._session.execute(

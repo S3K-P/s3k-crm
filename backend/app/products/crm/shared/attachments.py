@@ -34,6 +34,7 @@ from app.platform.auth.dependencies import Principal
 from app.platform.authorization.service import Action as PermissionAction
 from app.platform.documents.service import EntityAccess
 from app.products.crm.accounts.models import Account
+from app.products.crm.activities.models import Activity
 from app.products.crm.campaigns.models import Campaign
 from app.products.crm.common import CrmEntityType
 from app.products.crm.contacts.models import Contact
@@ -42,6 +43,14 @@ from app.products.crm.emails.service import EMAIL_MESSAGE_ENTITY_TYPE
 from app.products.crm.leads.models import Lead
 from app.products.crm.opportunities.models import Opportunity
 from app.products.crm.shared.visibility import RecordVisibility
+
+#: The ``entity_type`` an activity is addressed by when a file is attached to
+#: it directly, rather than to the account/contact/deal it is logged against.
+#:
+#: A bare string, like ``EMAIL_MESSAGE_ENTITY_TYPE`` — ``CrmEntityType`` is the
+#: vocabulary of what an activity, task or note may be *filed against*, and an
+#: activity is not one of those targets, it is itself the thing being filed.
+ACTIVITY_ENTITY_TYPE: Final = "ACTIVITY"
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +99,12 @@ ATTACHABLE: Final[dict[str, _AttachableEntity]] = {
     EMAIL_MESSAGE_ENTITY_TYPE: _AttachableEntity(
         EmailMessage, "emails", ("subject",)
     ),
+    #: An activity itself (Checkpoint 3): unlike a task or a note, a call or a
+    #: meeting is often the thing an artifact actually belongs to — a call
+    #: recording, a meeting's shared deck — rather than commentary about the
+    #: account it happened against. It is attached to the interaction, not to
+    #: the record the interaction was about.
+    ACTIVITY_ENTITY_TYPE: _AttachableEntity(Activity, "activities", ("subject",)),
 }
 
 
@@ -180,4 +195,4 @@ def crm_entity_access(session: AsyncSession) -> CrmEntityAccess:
     return CrmEntityAccess(session)
 
 
-__all__ = ["ATTACHABLE", "CrmEntityAccess", "crm_entity_access"]
+__all__ = ["ACTIVITY_ENTITY_TYPE", "ATTACHABLE", "CrmEntityAccess", "crm_entity_access"]

@@ -621,6 +621,14 @@ export default function LeadsPage() {
           columns={KANBAN_COLUMNS}
           data={items}
           groupBy={(lead) => lead.status}
+          getItemId={(lead) => lead.id}
+          canDrag={(lead) => mayEdit && lead.status !== 'CONVERTED'}
+          // Dropping a card posts through the identical `/leads/{id}/status`
+          // endpoint the per-card select already uses, so the same state
+          // machine that rejects an illegal move there rejects it here —
+          // dragging is a different gesture for the same request, not a
+          // shortcut around it.
+          onCardDrop={(lead, status) => void handleStatusChange(lead, status as LeadStatus)}
           renderCard={(lead) => (
             <div className="surface bd rounded-xl border p-3">
               <button

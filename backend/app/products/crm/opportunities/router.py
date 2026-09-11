@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import asdict
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response, status
@@ -27,6 +28,7 @@ from app.products.crm.opportunities.schemas import (
 from app.products.crm.opportunities.service import OpportunityService
 from app.products.crm.shared.csv_export import collect_rows, csv_response
 from app.products.crm.shared.pagination import Page, PageParams, page_params
+from app.products.crm.shared.schemas import TimelineEntryResponse
 from app.products.crm.shared.visibility import RecordVisibility
 
 router = APIRouter()
@@ -274,6 +276,21 @@ async def stage_history(
     )
     entries = await service.stage_history(opportunity)
     return [StageHistoryEntry.model_validate(entry) for entry in entries]
+
+
+@router.get("/{opportunity_id}/timeline", response_model=list[TimelineEntryResponse])
+async def get_opportunity_timeline(
+    opportunity_id: uuid.UUID,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
+    service: ServiceDep,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> list[TimelineEntryResponse]:
+    """Everything this caller may see against this deal, newest first."""
+    opportunity = await service.get_or_404(
+        opportunity_id, principal.organization_id, visibility=visible_to(principal)
+    )
+    entries = await service.timeline(opportunity, principal, limit=limit)
+    return [TimelineEntryResponse(**asdict(entry)) for entry in entries]
 
 
 @router.delete("/{opportunity_id}", status_code=status.HTTP_204_NO_CONTENT)

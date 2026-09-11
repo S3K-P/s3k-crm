@@ -203,9 +203,14 @@ def test_timeline_merges_deal_creation_stage_changes_and_contact_creation(
     assert timestamps == sorted(timestamps, reverse=True)
 
 
-def test_timeline_excludes_notes(as_alpha_admin: ApiSession) -> None:
-    """Note visibility is the notes module's own policy; the timeline does not
-    re-derive it, so notes are simply not a source it draws from."""
+def test_timeline_includes_notes_without_echoing_their_content(
+    as_alpha_admin: ApiSession,
+) -> None:
+    """Notes join the unified timeline as of Checkpoint 3, filtered by the
+    notes module's own visibility predicate rather than a copy of it (see
+    ``test_record_timelines.py`` for the visibility-scoping tests). What
+    reaches this shared view is deliberately a bare "Note added" — never the
+    content itself, which stays behind the Notes tab's own read."""
     account_id = _account(as_alpha_admin)
     note = as_alpha_admin.post(
         "/crm/notes",
@@ -219,7 +224,7 @@ def test_timeline_excludes_notes(as_alpha_admin: ApiSession) -> None:
 
     timeline = as_alpha_admin.get(f"/crm/accounts/{account_id}/timeline").json()
 
-    assert timeline == []
+    assert any(entry["kind"] == "note_added" for entry in timeline)
     assert not any("pricing" in str(entry).lower() for entry in timeline)
 
 
@@ -267,9 +272,7 @@ def test_timeline_hides_a_deal_the_rep_does_not_own(
     rep: ApiSession, as_alpha_admin: ApiSession
 ) -> None:
     account_id = _account(rep, "Another Shared Account")
-    as_alpha_admin.post(
-        "/crm/opportunities", json={"name": "Admin only deal", "account_id": account_id}
-    )
+    _deal(as_alpha_admin, account_id, "Admin only deal")
 
     rep_timeline = rep.get(f"/crm/accounts/{account_id}/timeline").json()
     admin_timeline = as_alpha_admin.get(f"/crm/accounts/{account_id}/timeline").json()

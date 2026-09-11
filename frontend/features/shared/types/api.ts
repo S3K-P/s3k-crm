@@ -75,3 +75,31 @@ export interface RecordMeta {
   created_by_id: string | null;
   updated_by_id: string | null;
 }
+
+/**
+ * One event in a record's unified timeline (Checkpoint 3).
+ *
+ * Mirrors `app.products.crm.shared.timeline.TimelineEntry` / the wire shape
+ * `TimelineEntryResponse` — shared here because Account, Contact and
+ * Opportunity all expose the identical shape from their own `/timeline`
+ * endpoint, and a record type that gets a fifth source later only has to
+ * widen the kind union once.
+ */
+export type TimelineEntryKind =
+  | 'activity'
+  | 'deal_created'
+  | 'stage_changed'
+  | 'contact_created'
+  | 'task_created'
+  | 'task_completed'
+  | 'email_sent'
+  | 'note_added';
+
+export interface TimelineEntry {
+  kind: TimelineEntryKind;
+  occurred_at: string;
+  title: string;
+  detail: string | null;
+  entity_type: string;
+  entity_id: string;
+}
