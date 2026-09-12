@@ -655,6 +655,12 @@ class LeadService(TenantScopedService[Lead]):
                 "lost_reason": lead.lost_reason,
             },
         )
+        self._enqueue_record_event(
+            lead,
+            organization_id=lead.organization_id,
+            trigger="status_changed",
+            changed_fields={"status": {"before": previous_status.value, "after": new_status.value}},
+        )
         return lead
 
     async def bulk_change_status(

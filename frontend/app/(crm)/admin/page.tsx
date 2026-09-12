@@ -251,6 +251,16 @@ export default function AdminDashboardPage() {
             </div>
           </Link>
           <Link
+            href="/admin/workflows"
+            className="bd flex items-center gap-3 rounded-xl border p-3.5 transition hover:border-[var(--accent)]"
+          >
+            <Workflow className="txt-muted h-4 w-4 shrink-0" />
+            <div>
+              <p className="txt text-[13px] font-semibold">Workflows</p>
+              <p className="txt-muted text-[11.5px]">Trigger, conditions and actions on records</p>
+            </div>
+          </Link>
+          <Link
             href="/admin/audit-logs"
             className="bd flex items-center gap-3 rounded-xl border p-3.5 transition hover:border-[var(--accent)]"
           >

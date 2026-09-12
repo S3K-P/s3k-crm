@@ -31,12 +31,14 @@ import uuid
 from collections.abc import Mapping, Sequence
 from typing import Any, TypeVar, cast
 
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy import ColumnElement, Text
 from sqlalchemy.orm import class_mapper
 
 from app.core.exceptions import AppError, NotFoundError
 from app.platform.audit.service import Action as AuditAction
 from app.platform.audit.service import AuditService, audit_for_session
+from app.platform.events.service import enqueue
 from app.products.crm.common import CrmEntityType
 from app.products.crm.shared.custom_field_hook import (
     custom_field_defaults,
@@ -46,6 +48,12 @@ from app.products.crm.shared.pagination import PageParams
 from app.products.crm.shared.repository import TenantOwnedModel, TenantScopedRepository
 from app.products.crm.shared.schemas import BulkOperationFailure, BulkOperationResult
 from app.products.crm.shared.visibility import RecordVisibility
+from app.products.crm.workflows.context import (
+    MAX_WORKFLOW_CHAIN_DEPTH,
+    current_workflow_context,
+)
+from app.products.crm.workflows.events import CRM_RECORD_EVENT_OCCURRED
+from app.products.crm.workflows.models import WorkflowEntityType
 
 ModelT = TypeVar("ModelT", bound=TenantOwnedModel)
 
@@ -102,9 +110,31 @@ class TenantScopedService[ModelT: TenantOwnedModel]:
     #: nothing checked.
     crm_entity_type: CrmEntityType | None = None
 
+    #: Which :class:`WorkflowEntityType` this service's records are, for the
+    #: generic create/update workflow-trigger hook (`_enqueue_record_event`).
+    #: ``None`` — the default — means "derive it from ``crm_entity_type``",
+    #: which is correct for every entity that also carries tenant-defined
+    #: fields. Set this directly on a subclass with no ``crm_entity_type``
+    #: (``TaskService``) to opt into workflow triggers without opting into
+    #: custom fields — the two are unrelated capabilities that happen to
+    #: coincide for the five ``CrmEntityType`` members.
+    _workflow_entity_type: WorkflowEntityType | None = None
+
     def __init__(self, repository: TenantScopedRepository[ModelT], model: type[ModelT]) -> None:
         self._repository = repository
         self._model = model
+
+    @property
+    def model(self) -> type[ModelT]:
+        """The ORM class this service owns — for structural introspection only.
+
+        A workflow rule validating that a ``FIELD_CHANGED`` trigger names a
+        real column (`workflows.service.WorkflowRuleService`) needs the class
+        itself, not an instance; nothing about the rows it holds. Exposed
+        rather than reached for via the private ``_model``, since that
+        introspection is a legitimate, anticipated use from another module.
+        """
+        return self._model
 
     # --- Audit identity ----------------------------------------------------
     #
@@ -315,6 +345,9 @@ class TenantScopedService[ModelT: TenantOwnedModel]:
             actor_id=actor_id,
             after=self._audit_snapshot(created),
         )
+        self._enqueue_record_event(
+            created, organization_id=organization_id, trigger="created", changed_fields={}
+        )
         return created
 
     async def update(
@@ -360,8 +393,21 @@ class TenantScopedService[ModelT: TenantOwnedModel]:
                 record_context=record_context,
             )
 
-        touched = [field for field in values if field not in _AUDIT_IGNORED_COLUMNS]
+        touched = [
+            field
+            for field in values
+            if field not in _AUDIT_IGNORED_COLUMNS and field != "custom_fields"
+        ]
         before = self._audit_snapshot(entity, fields=touched)
+        # Raw, unmasked values of the fields actually touched — unlike
+        # ``before``/``after`` below, which mask a ``Text`` column for the
+        # audit trail, this is what a workflow's ``FIELD_CHANGED``/
+        # ``OWNER_CHANGED`` trigger matches a "changed to/from" value
+        # against (`.workflows.conditions.rule_matches_trigger`). Custom
+        # fields are excluded: a rule targeting one evaluates it through the
+        # fresh re-read every trigger already does (`.workflow_context`),
+        # not through this delta.
+        raw_before = {field: getattr(entity, field, None) for field in touched}
 
         for field, value in values.items():
             if field in {"organization_id", "id", "created_by_id", "created_at"}:
@@ -369,6 +415,13 @@ class TenantScopedService[ModelT: TenantOwnedModel]:
             setattr(entity, field, value)
         entity.updated_by_id = actor_id  # type: ignore[attr-defined]
         await self._repository.flush()
+
+        raw_after = {field: getattr(entity, field, None) for field in touched}
+        changed_fields = {
+            field: {"before": raw_before[field], "after": raw_after[field]}
+            for field in touched
+            if raw_before[field] != raw_after[field]
+        }
 
         await self.audit.record_change(
             organization_id=cast("uuid.UUID", entity.organization_id),
@@ -381,6 +434,13 @@ class TenantScopedService[ModelT: TenantOwnedModel]:
             before=before,
             after=self._audit_snapshot(entity, fields=touched),
         )
+        if changed_fields:
+            self._enqueue_record_event(
+                entity,
+                organization_id=cast("uuid.UUID", entity.organization_id),
+                trigger="updated",
+                changed_fields=changed_fields,
+            )
         return entity
 
     async def soft_delete(
@@ -531,6 +591,83 @@ class TenantScopedService[ModelT: TenantOwnedModel]:
             for attribute in mapper.column_attrs
             if attribute.key not in {"custom_fields", "search_vector"}
         }
+
+    def workflow_context(self, entity: ModelT) -> dict[str, Any]:
+        """``entity``'s current field values, for a workflow rule's conditions.
+
+        Public, unlike :meth:`_built_in_snapshot` which it wraps: this is the
+        one intended external entry point that docstring already anticipates
+        ("this feeds a Checkpoint 4 layout rule's evaluation") — a Checkpoint
+        6 workflow rule's evaluation is the same kind of caller, from another
+        module. Custom fields are flattened into the same namespace as the
+        built-in columns (a condition names a field by its key, whichever
+        kind it is), with a built-in column winning a name collision — which
+        cannot happen in practice, since the custom-fields module reserves
+        every built-in column name (`.blueprints.enforcement._missing_fields`
+        makes the identical assumption).
+        """
+        context = self._built_in_snapshot(entity)
+        if self.crm_entity_type is not None:
+            for key, value in (getattr(entity, "custom_fields", None) or {}).items():
+                context.setdefault(key, value)
+        return context
+
+    # --- Workflow automation (Checkpoint 6) ---------------------------------
+
+    def _enqueue_record_event(
+        self,
+        entity: ModelT,
+        *,
+        organization_id: uuid.UUID,
+        trigger: str,
+        changed_fields: Mapping[str, Mapping[str, Any]],
+    ) -> None:
+        """Publish the event a workflow rule's trigger matches against.
+
+        A no-op when neither ``_workflow_entity_type`` nor ``crm_entity_type``
+        names this service — the entity simply is not one workflows watch
+        (``NoteService``, ``EmailService``, ...), and every write proceeds
+        exactly as it did before this checkpoint.
+
+        Loop protection (Step 13) lives here, at the one place every
+        workflow-observable write passes through: the depth and correlation
+        id to stamp on this event come from
+        :func:`~app.products.crm.workflows.context.current_workflow_context`
+        when this write is itself a workflow action's consequence, or are
+        freshly minted when it is not. Once depth would exceed
+        :data:`~app.products.crm.workflows.context.MAX_WORKFLOW_CHAIN_DEPTH`,
+        the event is not enqueued at all — the write still succeeds, only
+        further automation stops being triggered by it.
+        """
+        entity_type = self._workflow_entity_type or (
+            WorkflowEntityType(self.crm_entity_type.value)
+            if self.crm_entity_type is not None
+            else None
+        )
+        if entity_type is None:
+            return
+
+        ctx = current_workflow_context()
+        correlation_id = ctx.correlation_id if ctx is not None else uuid.uuid4()
+        depth = ctx.depth if ctx is not None else 0
+        if depth > MAX_WORKFLOW_CHAIN_DEPTH:
+            return
+
+        enqueue(
+            self._repository.session,
+            event_type=CRM_RECORD_EVENT_OCCURRED,
+            payload=jsonable_encoder(
+                {
+                    "entity_type": entity_type.value,
+                    "record_id": entity.id,
+                    "trigger": trigger,
+                    "changed_fields": dict(changed_fields),
+                    "correlation_id": correlation_id,
+                    "depth": depth,
+                }
+            ),
+            organization_id=organization_id,
+        )
 
     # --- Audit internals ---------------------------------------------------
 

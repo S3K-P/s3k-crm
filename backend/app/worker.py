@@ -4,12 +4,13 @@ A second process, started from the same image as the API:
 
     uv run arq app.worker.WorkerSettings
 
-It does two things on a schedule — drain the outbox, and dispatch due
-reminders — and both are safe to run in as many copies as you like. That is
-the point of the phase. Until now the reminder poll lived inside the API
-process, which is why ``railway.json`` pins ``numReplicas`` to 1: a second API
-replica would have produced a second poller and, without the outbox's claim,
-two of every reminder.
+It does three things on a schedule — drain the outbox, dispatch due
+reminders, and fire due workflow rules (Checkpoint 6) — and all three are
+safe to run in as many copies as you like. That is the point of the phase.
+Until now the reminder poll lived inside the API process, which is why
+``railway.json`` pins ``numReplicas`` to 1: a second API replica would have
+produced a second poller and, without the outbox's claim, two of every
+reminder.
 
 **Why ARQ is used for scheduling and not for queueing.** The queue is
 PostgreSQL, because only PostgreSQL can enrol an event in the same transaction
@@ -29,11 +30,13 @@ one, produce the same result as one.
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Awaitable, Callable
 from typing import Any, ClassVar
 
 import structlog
 from arq import cron
 from arq.connections import RedisSettings
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings, get_settings
 from app.core.database import create_engine, create_session_factory, dispose_engine
@@ -43,6 +46,30 @@ from app.platform.notifications.service import (
 )
 
 logger = structlog.get_logger(__name__)
+
+#: A CRM-provided periodic scan, registered by the composition root
+#: (``app/api/router.py``'s ``register_event_handlers``) exactly the way a
+#: CRM outbox handler is — this file must not import ``app.products``
+#: directly (``pyproject.toml``'s ``TID251`` has no exemption for it, unlike
+#: ``app/api/router.py``/``app/schema.py``/``app/bootstrap.py``), so the
+#: dependency runs the other way: the composition root already imports this
+#: module to build the FastAPI dependency graph, and calls
+#: :func:`register_scheduled_workflow_scanner` from the same function that
+#: registers every outbox handler. The worker's own ``startup()`` hook
+#: already imports that composition-root function for exactly this reason.
+ScheduledWorkflowScanner = Callable[[async_sessionmaker[AsyncSession], dt.datetime], Awaitable[int]]
+
+_scheduled_workflow_scanner: ScheduledWorkflowScanner | None = None
+
+
+def register_scheduled_workflow_scanner(scanner: ScheduledWorkflowScanner) -> None:
+    """Register the CRM implementation of the periodic workflow scan.
+
+    Re-registration replaces, matching ``platform.events.service.register_handler``'s
+    own reasoning — a test reload must not accumulate duplicate scanners.
+    """
+    global _scheduled_workflow_scanner
+    _scheduled_workflow_scanner = scanner
 
 #: How often the outbox is drained. Every ten seconds rather than every
 #: minute: an invitation email that takes a minute to leave feels broken to
@@ -84,6 +111,24 @@ async def dispatch_reminders(ctx: dict[str, Any]) -> str:
     return f"created={created}"
 
 
+async def run_scheduled_workflows(ctx: dict[str, Any]) -> str:
+    """Fire ``SCHEDULED``/``TASK_DUE`` workflow rules (Checkpoint 6, Step 11).
+
+    A no-op, logged once, if nothing has registered a scanner yet — it should
+    always be registered by the time this fires (see
+    :data:`_scheduled_workflow_scanner`'s docstring), so this is a startup-
+    ordering guard, not an expected steady state.
+    """
+    if _scheduled_workflow_scanner is None:
+        logger.warning("scheduled_workflow_scanner_not_registered")
+        return "fired=0 (no scanner registered)"
+
+    fired = await _scheduled_workflow_scanner(ctx["session_factory"], dt.datetime.now(dt.UTC))
+    if fired:
+        logger.info("scheduled_workflows_fired", fired=fired)
+    return f"fired={fired}"
+
+
 async def startup(ctx: dict[str, Any]) -> None:
     """Build the engine and the dispatcher once per worker process."""
     settings: Settings = get_settings()
@@ -122,7 +167,7 @@ def _redis_settings() -> RedisSettings:
 class WorkerSettings:
     """ARQ entry point. ``arq app.worker.WorkerSettings``."""
 
-    functions: ClassVar[list[Any]] = [drain_outbox, dispatch_reminders]
+    functions: ClassVar[list[Any]] = [drain_outbox, dispatch_reminders, run_scheduled_workflows]
     cron_jobs: ClassVar[list[Any]] = [
         # `set(...)`: arq's signature asks for a mutable set and does not copy
         # it, so a frozenset is rejected by the type checker even though it
@@ -131,6 +176,10 @@ class WorkerSettings:
         # Once a minute is the resolution reminders are configured at; polling
         # faster would find the same rows and dedupe them away.
         cron(dispatch_reminders, second={5}, run_at_startup=True),
+        # Every 15 minutes: a scheduled workflow's own dedupe key (one fire
+        # per rule/record/day) makes a faster tick pointless and a slower one
+        # would make "3 days before close date" arrive up to an hour late.
+        cron(run_scheduled_workflows, minute={0, 15, 30, 45}, run_at_startup=True),
     ]
     on_startup = startup
     on_shutdown = shutdown
@@ -142,4 +191,11 @@ class WorkerSettings:
     keep_result = 60
 
 
-__all__ = ["WorkerSettings", "dispatch_reminders", "drain_outbox"]
+__all__ = [
+    "ScheduledWorkflowScanner",
+    "WorkerSettings",
+    "dispatch_reminders",
+    "drain_outbox",
+    "register_scheduled_workflow_scanner",
+    "run_scheduled_workflows",
+]

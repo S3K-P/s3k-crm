@@ -114,6 +114,16 @@ PERMISSION_MODULES: Final[tuple[str, ...]] = (
     #: endpoint's own, so a blueprint can only ever narrow who may make a move
     #: — never grant somebody one they could not otherwise make.
     "blueprints",
+    #: Trigger -> conditions -> actions automation over CRM records and tasks
+    #: (Checkpoint 6). Same reasoning as ``blueprints``, restated for the same
+    #: kind of module: a workflow decides what happens to *every* matching
+    #: record in the organization — updating fields, creating tasks, sending
+    #: mail — which is administration in the strongest sense the product has.
+    #: ``VIEW`` goes to every role for the same reason ``blueprints.VIEW``
+    #: does: whoever's record a workflow touched has to be able to see which
+    #: rule did it and what it did, in the execution history. It grants sight
+    #: of no record beyond what the run history itself already names.
+    "workflows",
     #: The admin form/layout builder (Checkpoint 4): sections, field placement
     #: and conditional rules for one entity type's create/edit form.
     #:
@@ -213,6 +223,7 @@ def _manager_permissions() -> tuple[str, ...]:
     codes.append(permission_code("custom_fields", PermissionAction.VIEW))
     codes.append(permission_code("blueprints", PermissionAction.VIEW))
     codes.append(permission_code("record_layouts", PermissionAction.VIEW))
+    codes.append(permission_code("workflows", PermissionAction.VIEW))
     return tuple(codes)
 
 
@@ -226,6 +237,7 @@ def _user_permissions() -> tuple[str, ...]:
     codes.append(permission_code("custom_fields", PermissionAction.VIEW))
     codes.append(permission_code("blueprints", PermissionAction.VIEW))
     codes.append(permission_code("record_layouts", PermissionAction.VIEW))
+    codes.append(permission_code("workflows", PermissionAction.VIEW))
     #: A rep deletes their own saved views. ``views.DELETE`` reads alarming
     #: beside the CRM modules, where it retires customer records — here it
     #: removes a saved question and touches no record at all, and the service

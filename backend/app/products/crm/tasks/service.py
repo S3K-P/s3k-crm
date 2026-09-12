@@ -26,6 +26,7 @@ from app.products.crm.shared.repository import TenantScopedRepository
 from app.products.crm.shared.service import TenantScopedService
 from app.products.crm.shared.visibility import RecordVisibility
 from app.products.crm.tasks.models import Task, TaskStatus
+from app.products.crm.workflows.models import WorkflowEntityType
 
 #: Statuses that mean the task is off someone's plate.
 CLOSED_STATUSES: frozenset[TaskStatus] = frozenset(
@@ -35,6 +36,13 @@ CLOSED_STATUSES: frozenset[TaskStatus] = frozenset(
 
 class TaskService(TenantScopedService[Task]):
     entity_name = "Task"
+    #: Tasks carry no tenant-defined fields, but a due date arriving is still
+    #: a workflow trigger (``WorkflowTriggerType.TASK_DUE`` — see
+    #: ``workflows.service.scan_scheduled_workflows``) and a task being
+    #: created/reassigned is a plain ``RECORD_CREATED``/``OWNER_CHANGED``
+    #: one, so this opts into the same generic hook the five
+    #: ``crm_entity_type`` entities get automatically.
+    _workflow_entity_type = WorkflowEntityType.TASK
 
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(TenantScopedRepository(session, Task), Task)

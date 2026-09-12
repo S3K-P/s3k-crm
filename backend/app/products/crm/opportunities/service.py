@@ -268,6 +268,18 @@ class OpportunityService(TenantScopedService[Opportunity]):
         if stage.is_lost and not (loss_reason or "").strip():
             raise LossReasonRequiredError
 
+        # For the workflow event's ``STAGE_CHANGED`` trigger, which matches by
+        # stage *name* (human-configured) rather than id — see
+        # ``workflows.conditions.rule_matches_trigger``. Stages have no delete
+        # endpoint today, so this should always resolve; caught defensively
+        # rather than letting a data-integrity edge case block a stage move.
+        try:
+            previous_stage_name: str | None = (
+                await self.get_stage(opportunity.stage_id, opportunity.organization_id)
+            ).name
+        except NotFoundError:
+            previous_stage_name = None
+
         previous_stage_id = opportunity.stage_id
 
         # The tenant's own process, applied *after* the built-in rules above
@@ -342,6 +354,15 @@ class OpportunityService(TenantScopedService[Opportunity]):
                 "lost": stage.is_lost,
                 "loss_reason": loss_reason,
                 "win_reason": win_reason,
+            },
+        )
+        self._enqueue_record_event(
+            opportunity,
+            organization_id=opportunity.organization_id,
+            trigger="stage_changed",
+            changed_fields={
+                "stage_id": {"before": str(previous_stage_id), "after": str(stage.id)},
+                "stage_name": {"before": previous_stage_name, "after": stage.name},
             },
         )
         return opportunity

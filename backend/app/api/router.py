@@ -93,6 +93,10 @@ from app.products.crm.shared.provisioning import crm_provisioning_hook
 from app.products.crm.shared.reminders import crm_reminder_source
 from app.products.crm.tasks import router as tasks_router
 from app.products.crm.views import router as views_router
+from app.products.crm.workflows import router as workflows_router
+from app.products.crm.workflows.events import CRM_RECORD_EVENT_OCCURRED
+from app.products.crm.workflows.service import handle_record_event, scan_scheduled_workflows
+from app.worker import register_scheduled_workflow_scanner
 
 root_router = APIRouter()
 root_router.include_router(health.router)
@@ -286,6 +290,23 @@ def register_event_handlers() -> None:
         tenant_scoped=True,
     )
 
+    # Workflow automation (Checkpoint 6): a CRM record (or task) being
+    # created, updated or moved through a guarded transition. Always belongs
+    # to an organization — see ``shared.service._enqueue_record_event``.
+    register_handler(
+        CRM_RECORD_EVENT_OCCURRED,
+        handle_record_event,
+        tenant_scoped=True,
+    )
+    # The periodic ``SCHEDULED``/``TASK_DUE`` scan. Registered here rather
+    # than named directly in ``app/worker.py``'s cron list: that file must
+    # not import ``app.products`` (see ``ScheduledWorkflowScanner``'s
+    # docstring), so it calls this composition root's function instead — the
+    # exact reason every handler above is also registered from here.
+    register_scheduled_workflow_scanner(
+        lambda session_factory, now: scan_scheduled_workflows(session_factory, now=now)
+    )
+
 
 register_event_handlers()
 
@@ -382,6 +403,9 @@ crm_router.include_router(search_router.router, prefix="/crm/search", tags=["crm
 # is not known when the route is declared. The route authorizes against the
 # named entity's own module inside the handler — see its router.
 crm_router.include_router(imports_router.router, prefix="/crm/imports", tags=["crm:imports"])
+# Workflow automation (Checkpoint 6): trigger -> conditions -> actions, built
+# on the outbox event registered in ``register_event_handlers`` below.
+crm_router.include_router(workflows_router.router, prefix="/crm/workflows", tags=["crm:workflows"])
 
 # Mounted last, so every CRM route above is already behind the gate.
 api_router.include_router(crm_router)
