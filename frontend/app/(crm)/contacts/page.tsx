@@ -12,6 +12,8 @@ import FormField, { FormInput, FormSelect } from '@/components/crm/forms/FormFie
 import MergeDialog from '@/components/crm/dialogs/MergeDialog';
 import BulkActionsToolbar from '@/components/crm/toolbar/BulkActionsToolbar';
 import SavedViewPicker from '@/components/crm/toolbar/SavedViewPicker';
+import AdvancedFilterBar from '@/components/crm/toolbar/AdvancedFilterBar';
+import type { ReportFilterGroup } from '@/features/crm/reports/custom';
 import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
@@ -82,6 +84,9 @@ function ContactsPageContent() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
+  // Checkpoint 5: a multi-condition AND/OR filter, additive on top of the
+  // named params above — see `AdvancedFilterBar`.
+  const [advancedFilter, setAdvancedFilter] = useState<ReportFilterGroup | null>(null);
 
   const fetcher = useCallback(
     () =>
@@ -92,13 +97,14 @@ function ContactsPageContent() {
         status: (statusFilter || null) as ContactStatus | null,
         sort_by: 'last_name',
         sort_dir: 'asc',
+        advanced_filter: advancedFilter ? JSON.stringify(advancedFilter) : null,
       }),
-    [page, search, statusFilter],
+    [page, search, statusFilter, advancedFilter],
   );
 
   const { status, items, pagination, error, reload, refreshing } = useCollection<Contact>(
     fetcher,
-    [page, search, statusFilter],
+    [page, search, statusFilter, advancedFilter],
     { errorMessage: 'Something went wrong loading contacts.' },
   );
 
@@ -357,6 +363,7 @@ function ContactsPageContent() {
             setPage(1);
           }}
         />
+        <AdvancedFilterBar entity="CONTACT" value={advancedFilter} onApply={setAdvancedFilter} />
         <SearchInput
           value={search}
           onChange={(event) => {

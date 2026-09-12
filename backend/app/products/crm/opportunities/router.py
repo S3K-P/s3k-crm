@@ -28,6 +28,9 @@ from app.products.crm.opportunities.schemas import (
     StageHistoryEntry,
 )
 from app.products.crm.opportunities.service import OpportunityService
+from app.products.crm.reports.custom import build_advanced_filter_predicate
+from app.products.crm.reports.fields import ReportEntity
+from app.products.crm.shared.advanced_filter_query import AdvancedFilterDep
 from app.products.crm.shared.csv_export import collect_rows, csv_response
 from app.products.crm.shared.pagination import Page, PageParams, page_params
 from app.products.crm.shared.schemas import (
@@ -64,8 +67,10 @@ def visible_to(principal: Principal) -> RecordVisibility:
 async def list_opportunities(
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
     service: ServiceDep,
+    session: DbSession,
     params: PageParamsDep,
     custom: CustomFieldQueryDep,
+    advanced: AdvancedFilterDep,
     search: Annotated[str | None, Query(max_length=255)] = None,
     stage_id: Annotated[uuid.UUID | None, Query()] = None,
     account_id: Annotated[uuid.UUID | None, Query()] = None,
@@ -80,6 +85,9 @@ async def list_opportunities(
     orders by one. Names are resolved against this organization's own
     definitions before any SQL is built (``custom_fields/query.py``), so an
     unrecognised one is a 422 rather than a filter on nothing.
+
+    ``?advanced_filter=`` (Checkpoint 5): see ``leads.router.list_leads``'s
+    docstring — the mechanism is identical, entity-parameterised.
     """
     filters = service.build_filters(
         search=search,
@@ -95,6 +103,12 @@ async def list_opportunities(
         entity_type=CrmEntityType.OPPORTUNITY,
     )
     filters = [*filters, *custom_filters]
+    if advanced is not None:
+        predicate = await build_advanced_filter_predicate(
+            session, principal.organization_id, ReportEntity.OPPORTUNITY, advanced
+        )
+        if predicate is not None:
+            filters.append(predicate)
     items, total = await service.list_opportunities(
         principal.organization_id,
         params=params,

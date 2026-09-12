@@ -18,7 +18,7 @@
 // one caller would have changed a signature every feature imports.
 import { apiRequest } from '@/lib/api-client';
 
-export type SearchEntityType = 'ACCOUNT' | 'CONTACT' | 'LEAD' | 'OPPORTUNITY';
+export type SearchEntityType = 'ACCOUNT' | 'CONTACT' | 'LEAD' | 'OPPORTUNITY' | 'ACTIVITY';
 
 export interface SearchHit {
   type: SearchEntityType;
@@ -52,17 +52,26 @@ export const ENTITY_LABELS: Record<SearchEntityType, string> = {
   CONTACT: 'Contacts',
   LEAD: 'Leads',
   OPPORTUNITY: 'Opportunities',
+  ACTIVITY: 'Activities',
 };
 
-const ENTITY_ROUTES: Record<SearchEntityType, string> = {
+const ENTITY_ROUTES: Partial<Record<SearchEntityType, string>> = {
   ACCOUNT: '/accounts',
   CONTACT: '/contacts',
   LEAD: '/leads',
   OPPORTUNITY: '/opportunities',
+  // Deliberately absent: there is no activity detail page for a hit to open
+  // (Checkpoint 3 already documents this — activity-level attachments have
+  // no frontend surface for the same reason). `hitHref` returns `null` for
+  // one, and the palette renders it as found-but-not-navigable rather than
+  // pretending a destination exists.
 };
 
-/** Where selecting a hit navigates to. */
-export const hitHref = (hit: SearchHit) => `${ENTITY_ROUTES[hit.type]}/${hit.id}`;
+/** Where selecting a hit navigates to, or `null` when it has no detail page. */
+export const hitHref = (hit: SearchHit): string | null => {
+  const base = ENTITY_ROUTES[hit.type];
+  return base ? `${base}/${hit.id}` : null;
+};
 
 export interface SearchParams {
   q: string;

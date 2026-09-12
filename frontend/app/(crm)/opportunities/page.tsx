@@ -12,6 +12,8 @@ import { notifyError, notifySuccess } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
 import BulkActionsToolbar, { type BulkEditableField } from '@/components/crm/toolbar/BulkActionsToolbar';
 import SavedViewPicker from '@/components/crm/toolbar/SavedViewPicker';
+import AdvancedFilterBar from '@/components/crm/toolbar/AdvancedFilterBar';
+import type { ReportFilterGroup } from '@/features/crm/reports/custom';
 import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
@@ -102,6 +104,9 @@ function OpportunitiesPageContent() {
   const [stageFilter, setStageFilter] = useState('');
   const [page, setPage] = useState(1);
   const pageSize = view === 'kanban' ? 200 : 25;
+  // Checkpoint 5: a multi-condition AND/OR filter, additive on top of the
+  // named params above — see `AdvancedFilterBar`.
+  const [advancedFilter, setAdvancedFilter] = useState<ReportFilterGroup | null>(null);
 
   const fetcher = useCallback(
     () =>
@@ -112,13 +117,14 @@ function OpportunitiesPageContent() {
         stage_id: stageFilter || null,
         sort_by: 'expected_close_date',
         sort_dir: 'asc',
+        advanced_filter: advancedFilter ? JSON.stringify(advancedFilter) : null,
       }),
-    [page, pageSize, search, stageFilter, view],
+    [page, pageSize, search, stageFilter, view, advancedFilter],
   );
 
   const { status, items, pagination, error, reload, refreshing } = useCollection<Opportunity>(
     fetcher,
-    [page, pageSize, search, stageFilter, view],
+    [page, pageSize, search, stageFilter, view, advancedFilter],
     { errorMessage: 'Something went wrong loading opportunities.' },
   );
 
@@ -569,6 +575,11 @@ function OpportunitiesPageContent() {
             setStageFilter(typeof params.stage_id === 'string' ? params.stage_id : '');
             setPage(1);
           }}
+        />
+        <AdvancedFilterBar
+          entity="OPPORTUNITY"
+          value={advancedFilter}
+          onApply={setAdvancedFilter}
         />
         <SearchInput
           value={search}

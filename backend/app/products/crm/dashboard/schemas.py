@@ -24,7 +24,7 @@ from app.products.crm.reports.schemas import ReportResult
 
 
 class DashboardKpis(BaseModel):
-    """The six headline counters."""
+    """The headline counters."""
 
     #: Leads created within the trailing window (see ``NEW_LEAD_WINDOW_DAYS``).
     new_leads: int
@@ -42,6 +42,17 @@ class DashboardKpis(BaseModel):
     tasks_due_high_priority: int
     #: Of ``open_opportunities``, how many close within the next 30 days.
     opportunities_closing_soon: int
+    #: Checkpoint 5. Open pipeline, each deal counted at its own
+    #: ``win_probability`` — see ``DashboardRepository.sum_weighted_pipeline_value``
+    #: for why an unset probability contributes zero rather than a guess.
+    weighted_pipeline_value: Decimal
+    #: Checkpoint 5. Value of deals won in the trailing ``NEW_LEAD_WINDOW_DAYS``
+    #: window — the same window ``new_leads`` uses, so the two "since when" on
+    #: one screen agree.
+    won_revenue: Decimal
+    #: Checkpoint 5. Share of this caller's live leads that have converted,
+    #: 0-100, all-time.
+    lead_conversion_rate: float
 
 
 class PipelineStageSummary(BaseModel):
@@ -87,6 +98,38 @@ class DashboardActivity(BaseModel):
     occurred_at: dt.datetime
 
 
+class RevenueMonth(BaseModel):
+    """One point of the won-revenue trend (Checkpoint 5)."""
+
+    month: dt.date
+    value: Decimal
+
+
+class OwnerPipelineSummary(BaseModel):
+    """One owner's open pipeline (Checkpoint 5)."""
+
+    #: A display name, resolved the same way a report's ``PERSON`` column is —
+    #: never a raw id. ``"Unassigned"`` for opportunities with no owner.
+    owner: str
+    count: int
+    value: Decimal
+
+
+class LeadSourcePerformance(BaseModel):
+    """One lead source's funnel (Checkpoint 5).
+
+    Mirrors ``reports.catalog``'s ``lead-conversion-by-source`` row shape —
+    deliberately, since ``DashboardService.summary`` computes this by calling
+    that report's own repository method rather than a second query. See
+    ``dashboard.service`` for why.
+    """
+
+    source: str
+    leads: int
+    converted: int
+    conversion_rate: float
+
+
 class DashboardSummary(BaseModel):
     """Everything the dashboard renders, for one organization."""
 
@@ -99,6 +142,13 @@ class DashboardSummary(BaseModel):
     tasks: list[DashboardTask]
     meetings: list[DashboardMeeting]
     activities: list[DashboardActivity]
+    #: Checkpoint 5. Won revenue for the trailing 6 calendar months, oldest
+    #: first, zero-filled — see ``DashboardRepository.won_revenue_by_month``.
+    revenue_trend: list[RevenueMonth]
+    #: Checkpoint 5. Open pipeline per owner, busiest first, capped at 10.
+    pipeline_by_owner: list[OwnerPipelineSummary]
+    #: Checkpoint 5. How each lead source is performing, by volume.
+    lead_source_performance: list[LeadSourcePerformance]
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +247,14 @@ class DashboardComponentData(BaseModel):
     width: int
     result: ReportResult | None = None
     unavailable: str | None = None
+    #: Checkpoint 5. Whether a dashboard-wide date filter (see
+    #: ``GET /boards/{id}/data?date_from=&date_to=``) was actually applied to
+    #: this tile. A tile whose report has no date dimension — ``lead-funnel``,
+    #: any report with ``accepts_date_range=False``, a custom report with no
+    #: ``date_field`` — ignores the dashboard filter rather than erroring,
+    #: and this is how the UI tells "unaffected" apart from "no filter was
+    #: set" instead of leaving every viewer to guess from the numbers alone.
+    date_filter_applied: bool = False
 
 
 class DashboardData(BaseModel):
@@ -225,5 +283,8 @@ __all__ = [
     "DashboardSummary",
     "DashboardTask",
     "DashboardUpdate",
+    "LeadSourcePerformance",
+    "OwnerPipelineSummary",
     "PipelineStageSummary",
+    "RevenueMonth",
 ]

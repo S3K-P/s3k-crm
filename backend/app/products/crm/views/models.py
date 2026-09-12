@@ -122,6 +122,15 @@ class SavedView(Base, CrmEntityMixin):
     filters: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
     )
+    #: An optional multi-condition AND/OR filter (Checkpoint 5), stored as a
+    #: ``reports.conditions.ReportFilterGroup``. Additive and separate from
+    #: ``filters`` above rather than a replacement for it: every existing view
+    #: keeps working under the same flat-document validator it always had, and
+    #: a view that *does* carry an advanced filter has both applied together
+    #: (ANDed) by the list endpoint — the flat document for the simple,
+    #: single-value filters the list screen's own controls still write, the
+    #: advanced one for whatever the condition-builder produced.
+    advanced_filter: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     #: Column keys to show, in order. Empty means "the screen's own default
     #: columns", which is different from "no columns" and is why this is a
     #: list rather than a nullable one.

@@ -43,7 +43,7 @@ blueprints ✅, QA/reliability work ✅, DB indexes/performance work ✅.
 
 ## Executive Summary
 
-**75 features audited: 43 ✅ COMPLETE · 20 🟡 PARTIAL · 12 🔴 MISSING** (Checkpoint 2 moved primary contacts to complete and Kanban drag-and-drop from missing to partial; Checkpoint 3 wired the Leads board to move Kanban drag-and-drop to complete, and substantially extended Activities, Tasks, Timeline, Files and Email without changing their own status; Checkpoint 4 built the form/layout builder, conditional fields, inline and bulk editing, moving items 31–36, 47 and 48 to complete and 41 from missing to partial; see the Checkpoints table below for what each checkpoint changed).
+**75 features audited: 46 ✅ COMPLETE · 18 🟡 PARTIAL · 11 🔴 MISSING** (Checkpoint 2 moved primary contacts to complete and Kanban drag-and-drop from missing to partial; Checkpoint 3 wired the Leads board to move Kanban drag-and-drop to complete, and substantially extended Activities, Tasks, Timeline, Files and Email without changing their own status; Checkpoint 4 built the form/layout builder, conditional fields, inline and bulk editing, moving items 31–36, 47 and 48 to complete and 41 from missing to partial; Checkpoint 5 built the ad-hoc report builder, a multi-condition AND/OR filter engine, and dashboard drag-and-drop, moving items 43, 61 and 65 to complete; see the Checkpoints table below for what each checkpoint changed).
 
 - **The CRM core is solid.** Accounts, contacts, leads, deals, pipeline,
   activities, tasks, meetings, notes, attachments, email, search, saved views,
@@ -137,10 +137,10 @@ root. `BE` = `backend/app/products/crm/`, `PF` = `backend/app/platform/`,
 
 | # | Feature | Status | Existing Implementation | Missing/Required Work | Dependencies |
 |---|---|---|---|---|---|
-| 42 | Global search | ✅ | `GET /crm/search` (4 entities, tsvector, permission filtered in-query, migration `20260826_0100`); `FE/components/crm/topbar/CommandPalette.tsx`; `test_search_performance.py`. | — | — |
-| 43 | Advanced filtering | 🟡 | Per-list filter params + typed custom-field filters (`custom_fields/filters.py`); filters persist in saved views. | No multi-condition (AND/OR, operators) filter builder UI/API. | #45 |
+| 42 | Global search | ✅ | `GET /crm/search` (**Checkpoint 5:** now 5 entities — accounts, contacts, leads, opportunities, activities; migrations `20260826_0100` + `20260917_0300`), tsvector, permission filtered in-query; `FE/components/crm/topbar/CommandPalette.tsx`; `test_search_performance.py`, `test_search.py`, `test_search_index_agreement.py`. | Activity hits are found and shown but have no detail page to click through to (no `/activities/{id}` route exists) — `hitHref` returns `null` for one and the palette renders it as informational rather than broken. | — |
+| 43 | Advanced filtering | ✅ | **Checkpoint 5:** `reports/conditions.py` — a closed 12-operator vocabulary (eq/ne/contains/starts_with/ends_with/gt/gte/lt/lte/between/in/is_empty/is_not_empty) over an AND/OR condition group, reusing `ReportPeriod` for relative dates (`{"relative": "THIS_QUARTER"}`). Applied two ways from one engine: additively on every list endpoint via `?advanced_filter=<json>` (`shared/advanced_filter_query.py`, wired into leads/contacts/accounts/opportunities `list_*`), and as a saved view's new `advanced_filter` column (additive, alongside the existing flat `filters`). `FE/components/crm/reports/FilterEditor.tsx` (shared with the report builder) + `FE/components/crm/toolbar/AdvancedFilterBar.tsx`, wired on all four list pages. | A view's advanced filter is stored and validated but the list-page UI does not yet round-trip it through "save view"/"choose view" — choosing a saved view applies its flat `filters` only; the advanced condition, if the view has one, has to be rebuilt by hand. Custom fields are filterable but not selectable as the *field* of a condition beyond `eq`/`ne`/`contains`/`in`/`is_empty`/`is_not_empty` (the same set `custom_fields/filters.py` already offered). | #45, #61 |
 | 44 | Sorting | ✅ | `sort_by`/`sort_dir` on lists, custom-field sort for sortable types; `DataTable` sorting. | — | — |
-| 45 | Saved views | ✅ | `BE/views/*` (private/shared, default, 404-not-403 for others' private views); `SavedViewPicker` on accounts/contacts/leads/opportunities. | — | — |
+| 45 | Saved views | ✅ | `BE/views/*` (private/shared, default, 404-not-403 for others' private views); `SavedViewPicker` on accounts/contacts/leads/opportunities. **Checkpoint 5:** gained an additive `advanced_filter` column (migration `20260917_0200`), validated against the same field registry a custom report uses — see #43. | See #43 for the one gap (view apply/save does not yet carry the advanced filter). | #43 |
 | 46 | Column customization | 🟡 | **Checkpoint 4:** `FE/components/crm/toolbar/ColumnChooser.tsx` (checkbox popover) is wired into the Leads list (`app/(crm)/leads/page.tsx`) alongside `SavedViewPicker`, which now reads/writes `SavedView.columns` (already stored server-side since Phase F, never round-tripped by a table until now) — choosing a view restores its column set, saving one captures it. | Only wired on Leads; Accounts/Contacts/Opportunities' `DataTable`s still render a fixed column set with no chooser. | #45 |
 | 47 | Inline editing | ✅ | **Checkpoint 4:** `FE/components/crm/tables/DataTable.tsx` gained click-to-edit cells (`EditableCell`) — correct control per type (text/select/date/number), Enter/blur commits, Escape cancels, a `pending` re-entrancy guard against double-submit, inline error via `role="alert"`. `onCellEdit` calls the entity's existing `PATCH` endpoint, which already re-validates and audits server-side; a failed save reverts the cell rather than leaving a false value on screen. Wired on Leads/Opportunities/Contacts/Accounts for their editable columns (email, priority, status, industry, job title, deal value, expected close date, as applicable per entity). | Only the columns each page explicitly marked `editable` support inline edit; there is no "edit any column" mode. | — |
 | 48 | Bulk editing | ✅ | **Checkpoint 4:** `POST /crm/{entity}/bulk-update` for leads/opportunities/accounts/contacts (`shared/service.py: TenantScopedService.bulk_update()`, looping per-id through the entity's own single-record update — so RecordVisibility, permission checks, and every field validator run exactly as they would for one record) returning a `BulkOperationResult` (succeeded ids + per-id failure reasons, never a silent partial success). `FE/components/crm/toolbar/BulkActionsToolbar.tsx`'s "Bulk edit" opens a drawer to set one field to one value across the current selection; `reportOutcome()` shows success/partial/failure counts from the real result. | One field at a time per bulk-edit action (not a multi-field patch in one call). | #49 |
@@ -166,12 +166,12 @@ root. `BE` = `backend/app/products/crm/`, `PF` = `backend/app/platform/`,
 
 | # | Feature | Status | Existing Implementation | Missing/Required Work | Dependencies |
 |---|---|---|---|---|---|
-| 61 | Reports | 🟡 | `BE/reports/*`: 9 built-in catalogue reports (pipeline-by-stage, deals-closing, won-lost, sales-cycle-by-owner, lead-funnel, lead-conversion-by-source, activity-by-owner, overdue-tasks, accounts-by-industry), saved reports, folders, sharing, periods; record visibility applied. | No custom report builder (choose entity, columns, filters, grouping, custom fields). | #43 |
-| 62 | Dashboards | ✅ | `GET /crm/dashboard/summary` home screen + user dashboards `/crm/dashboard/boards` (migration `20260905_0100`). | — | — |
-| 63 | Dashboard widgets | ✅ | `crm.dashboard_components` → saved report, display CHART/TABLE/METRIC, 12-column grid. | More widget types come with #61. | #61 |
-| 64 | Dashboard builder | ✅ | `FE/app/(crm)/dashboards/[id]/page.tsx` view/arrange modes; `PUT /boards/{id}/layout`. | — | — |
-| 65 | Dashboard drag-and-drop | 🔴 | Arranging uses up/down buttons (deliberate accessibility choice, commented in the page). | Add drag as an enhancement; keep buttons. | #64 |
-| 66 | CRM analytics | 🟡 | Dashboard summary KPIs, pipeline journey, report library. | Forecasting, trends over time, targets/quotas. | #61 |
+| 61 | Reports | ✅ | `BE/reports/*`: 9 built-in catalogue reports (pipeline-by-stage, deals-closing, won-lost, sales-cycle-by-owner, lead-funnel, lead-conversion-by-source, activity-by-owner, overdue-tasks, accounts-by-industry), saved reports, folders, sharing, periods; record visibility applied. **Checkpoint 5:** a real ad-hoc report builder — `reports/{fields,custom}.py`, a per-entity allow-listed field registry (5 entities: leads, contacts, accounts, opportunities, activities) driving field selection, an AND/OR filter group (#43), `group_by`/`group_by_interval` (day/week/month/quarter/year via `date_trunc`) with count/sum/avg/min/max aggregation, sort, and an optional chart hint — validated and run through the identical four-step security model (`reports/service.py`'s own docstring) the catalogue already used. Custom definitions are stored on the *same* `saved_reports` table (`custom_definition` JSONB, migration `20260917_0100`, a CHECK constraint enforcing exactly one of `base_report_key`/`custom_definition`), so folders, sharing, periods, and dashboard tiles all work for a custom report with no change to any of them. `FE/components/crm/reports/ReportBuilder.tsx`, wired into `app/(crm)/reports/page.tsx` ("New custom report" + "Edit shape" on a custom saved report). | Select/group/aggregate targets are built-in fields only — a tenant's custom field can be used in a *filter* condition (reusing `custom_fields/filters.py`) but not as a selected column, a group key, or an aggregation target; doing so would need the same guarded-cast machinery custom-field filtering already has, under a second allow-list this checkpoint does not yet keep. | #43 |
+| 62 | Dashboards | ✅ | `GET /crm/dashboard/summary` home screen + user dashboards `/crm/dashboard/boards` (migration `20260905_0100`). **Checkpoint 5:** the summary gained `weighted_pipeline_value` (open pipeline at each deal's own `win_probability`, unset treated as zero, not a guess), `won_revenue` (trailing 30 days), `lead_conversion_rate`, `revenue_trend` (6 months, zero-filled), `pipeline_by_owner`, and `lead_source_performance` (reused verbatim from `ReportRepository.lead_conversion_by_source` rather than a second query). | — | — |
+| 63 | Dashboard widgets | ✅ | `crm.dashboard_components` → saved report, display CHART/TABLE/METRIC, 12-column grid. A custom report (#61) is usable as a tile with no change to this table. | — | — |
+| 64 | Dashboard builder | ✅ | `FE/app/(crm)/dashboards/[id]/page.tsx` view/arrange modes; `PUT /boards/{id}/layout`. **Checkpoint 5:** a dashboard-wide date filter (`?date_from=&date_to=` on `GET .../data`) narrows every tile whose report has a date dimension for that one render — never persisted — and each rendered tile reports `date_filter_applied` so the UI can show which tiles the filter actually touched versus which have no date dimension at all and render unaffected. | — | #65 |
+| 65 | Dashboard drag-and-drop | ✅ | **Checkpoint 5:** `@dnd-kit` (the library decision this branch deferred through Checkpoints 2–4, made once in Checkpoint 4's layout builder and reused here) drives tile reordering via `DndContext`/`SortableContext`/`useSortable`, calling the *same* `reorderComponents` the existing up/down buttons already called — one source of truth for order, two ways to reach it. The buttons are kept, not replaced: `@dnd-kit`'s sortable strategy ships a keyboard sensor alongside the pointer one, so drag is not an accessibility regression, but the buttons remain the path that needs no explanation on a touchscreen. | — | — |
+| 66 | CRM analytics | 🟡 | Dashboard summary KPIs, pipeline journey, report library. **Checkpoint 5:** gained a real trend over time (`revenue_trend`, #62) and the ad-hoc report builder (#61) can construct further trends (e.g. any metric grouped by month) without new backend code. | Forecasting and targets/quotas are still not implemented — nothing computes a projection or compares an actual to a goal. | #61 |
 
 ### G. Enterprise
 
@@ -329,13 +329,15 @@ fields (28), Field types (29), Picklists (30), Form builder (31),
 Drag-and-drop form editing (32), Drag-and-drop field ordering (33), Sections
 (34), Section ordering (35), Conditional field visibility (36),
 Required/optional (37), Default values (38), Field validation (39), Global
-search (42), Sorting (44), Saved views (45), Inline editing (47), Bulk editing
-(48), Import (50), Import field mapping (51), Export (52), Kanban (53),
-Kanban drag-and-drop (54), Blueprints (55), Dashboards (62), Dashboard widgets
-(63), Dashboard builder (64), Permissions (68), Tenant isolation (69), Audit
-logging (70), Error handling (73), Regression testing (74). **43 in total**
-(Checkpoint 4 moved 31–36, 47 and 48 here — see the Checkpoint 4 section
-below for what changed and what each item's remaining gaps are).
+search (42), Advanced filtering (43), Sorting (44), Saved views (45), Inline
+editing (47), Bulk editing (48), Import (50), Import field mapping (51),
+Export (52), Kanban (53), Kanban drag-and-drop (54), Blueprints (55), Reports
+(61), Dashboards (62), Dashboard widgets (63), Dashboard builder (64),
+Dashboard drag-and-drop (65), Permissions (68), Tenant isolation (69), Audit
+logging (70), Error handling (73), Regression testing (74). **46 in total**
+(Checkpoint 4 moved 31–36, 47 and 48 here; Checkpoint 5 moved 43, 61 and 65
+here — see each checkpoint's own section below for what changed and what
+each item's remaining gaps are).
 
 Also present, though not in the audit list: calendar, record merge, lead
 conversion, lead sources, campaigns, teams/departments, invitations, password
@@ -345,20 +347,21 @@ reset, app catalogue/enablement, Market Insights.
 
 AI connection (1), AI provider configuration (2), AI health/status (3), AI
 Account Intelligence (5), Account 360 (12), Deal stages (19), Calls (22),
-Timeline (24), Emails (27), Record layouts (41), Advanced filtering (43),
-Column customization (46), Bulk actions (49), Notifications (59), Reports
-(61), CRM analytics (66), Roles (67), Security (71), Performance (72), E2E
-testing (75). **20 in total** (Checkpoint 4 moved Form builder (31) and DnD
-field ordering (33) out to Completed, and moved Record layouts (41) in from
-Missing — it is real and enforced, but has no per-role assignment and cannot
-target built-in fields; see Checkpoint 4 below).
+Timeline (24), Emails (27), Record layouts (41), Column customization (46),
+Bulk actions (49), Notifications (59), CRM analytics (66), Roles (67),
+Security (71), Performance (72), E2E testing (75). **18 in total** (Checkpoint
+4 moved Form builder (31) and DnD field ordering (33) out to Completed, and
+moved Record layouts (41) in from Missing; Checkpoint 5 moved Advanced
+filtering (43) and Reports (61) out to Completed — see each checkpoint's own
+section below).
 
 ## Missing Functionality
 
 AI Account Summary (4), AI Next-Best-Action (6), AI email generation (7), AI
 meeting→CRM (8), Natural-language commands (9), AI prioritization (10),
 Custom modules (40), Workflow engine (56), Workflow rules (57), Workflow
-actions (58), Follow-up automation (60), Dashboard DnD (65). **12 in total.**
+actions (58), Follow-up automation (60). **11 in total** (Checkpoint 5 moved
+Dashboard drag-and-drop (65) out to Completed).
 
 ---
 
@@ -393,7 +396,7 @@ UI, and should be scoped separately once layouts (41) exist.
 | **Checkpoint 2** | Account 360 + Contacts + Deals + relationships | 12, 17, 54, 11/13–16/18 regression | ✅ Done |
 | **Checkpoint 3** | Activities + Timeline + Notes + Files + Email CRM | 22, 24, 27 (+ 20, 25, 26 regression), 54 | ✅ Done |
 | **Checkpoint 4** | Form builder + drag/drop + custom fields + conditional fields + Kanban + bulk/inline editing + import mapping | 31–36, 41, 46–49, 51, 54 | ✅ Done |
-| **Checkpoint 5** | Search + Reports + Dashboards + Dashboard builder | 43, 61, 65, 66 (+ 42, 62–64 regression) | Planned |
+| **Checkpoint 5** | Search + Reports + Dashboards + Dashboard builder | 43, 61, 65, 66 (+ 42, 62–64 regression) | ✅ Done |
 | **Checkpoint 6** | Workflows + Blueprints + Notifications + Automation | 56–60 (55 regression) | Planned |
 | **Checkpoint 7** | AI Account Intelligence + AI summaries + AI next-best-action + AI email + meeting-to-CRM + natural-language CRM | 4–10 | Planned |
 | **Checkpoint 8** | Security + performance + complete regression/E2E testing + documentation | 67, 71, 72, 75 (+ full suite) | Planned |
@@ -1418,12 +1421,470 @@ only in the browser):**
 - Diff scanned for credential-shaped strings; none found in any tracked file.
 - `git diff --check`: no whitespace errors.
 
+## Checkpoint 5 — Completed (2026-09-12)
+
+Audited the search/report/dashboard surface named in the brief before writing
+anything, and found it far more built than the pre-checkpoint audit table
+suggested: global search already covered four entities with real tsvector
+ranking and record-visibility narrowing; the reports module already had nine
+built-in catalogue reports, folders, sharing and periods, with its own module
+docstring explicitly foretelling a builder as "a further definition kind,"
+layered on rather than replacing the reviewed-code catalogue; dashboards
+already had a configurable-board system (tiles, sharing, per-viewer
+rendering) with a whole-list reorder endpoint already in place. The
+checkpoint's real gaps were narrower than "build search/reports/dashboards
+from scratch": a real ad-hoc report builder, a reusable multi-condition
+AND/OR filter engine, dashboard-wide date filtering, dashboard drag-and-drop,
+a fifth searchable entity, and a handful of named executive-dashboard metrics
+nothing yet computed (weighted pipeline chief among them). This checkpoint is
+concentrated on exactly those.
+
+### What was already there (extended, not rebuilt)
+
+- `BE/search/*` — full-text + trigram global search across four entities,
+  with `RecordVisibility` resolved *inside* the ranking query (risk R14) —
+  extended to a fifth entity (activities) using its exact existing pattern
+  (`Computed(...)` generated column, GIN + trigram index, one more
+  `MODULE_FOR_TYPE`/`MODEL_FOR_TYPE`/`_display_name`/`_subtitle` case), not a
+  parallel search mechanism.
+- `BE/reports/{catalog,models,library,service,router}.py` — the nine
+  built-in reports, `SavedReport`/`ReportFolder`, sharing, periods. The
+  custom-report engine (below) is additive to this exact table and this
+  exact `run_saved` dispatch, not a second reporting stack: a custom report
+  is still a `SavedReport` row, still goes through folders/sharing/periods,
+  still runs through `resolve_period`.
+- `BE/dashboard/{models,library,router}.py` — configurable boards, tiles
+  pointing at a saved report, per-viewer rendering (`render()` runs every
+  tile as the caller, a tile the viewer cannot read comes back marked
+  `unavailable` rather than failing the page), and a whole-list
+  `PUT .../layout` reorder endpoint already built for exactly what
+  Checkpoint 5's drag-and-drop needed to call.
+- `FE/components/crm/charts/MiniCharts.tsx` — the project's own
+  dependency-free bar/line/donut/funnel components, reused for every new
+  chart in this checkpoint (report builder preview, dashboard revenue trend,
+  pipeline-by-owner, lead-source-performance) — no charting library added.
+- `@dnd-kit` — adopted in Checkpoint 4 for the layout builder, reused here
+  for dashboard tile reordering rather than a second drag library or native
+  HTML5 drag-and-drop.
+- `custom_fields/filters.py`'s `FilterOperator` — the 10-operator,
+  per-type-legal vocabulary for a JSONB custom field. The new
+  `reports.conditions.ReportFilterOperator` (12 operators, over *built-in*
+  typed columns) maps onto it exactly where the two overlap, so a `custom:`
+  condition inside an advanced filter or a custom report is translated
+  straight through to `custom_field_filter` rather than a second
+  implementation of custom-field filtering.
+
+### What was built
+
+**Backend — the shared filter/report engine (`backend/app/products/crm/reports/`):**
+
+- `fields.py` (new) — the allow-list everything else is built on: a
+  `ReportEntity` enum (LEAD/CONTACT/ACCOUNT/OPPORTUNITY/ACTIVITY) and a
+  `ReportField` registry per entity naming a real SQLAlchemy column (with an
+  optional `JoinSpec` for a joined field — `stage`/`account`/`lead_source`),
+  its `ColumnType`, and which of filter/group/sort/aggregate it supports. A
+  field a report touches is always resolved through this registry — never a
+  column name taken off a request and interpolated into SQL.
+- `conditions.py` (new) — `ReportFilterOperator` (eq/ne/contains/
+  starts_with/ends_with/gt/gte/lt/lte/between/in/is_empty/is_not_empty),
+  `ReportCondition`/`ReportFilterGroup` (one AND/OR level over a flat
+  condition list — the same shape `layouts.evaluate`'s rule conditions
+  already proved sufficient for), and `build_condition`/`combine`, the one
+  place a condition becomes a SQLAlchemy predicate — over a built-in typed
+  column directly, or over a custom field by delegating to
+  `custom_field_filter`. A relative-date value (`{"relative": "THIS_QUARTER"}`)
+  resolves through the *exact* `resolve_period` a saved report's own stored
+  period already goes through.
+- `custom.py` (new) — `CustomReportEngine`: validates a definition
+  (`validate_definition`) without running SQL, then runs it under the
+  identical four-step model `reports/service.py` documents for the
+  catalogue (resolve → authorize on the entity's own module → resolve
+  `RecordVisibility` → aggregate inside PostgreSQL, never in Python).
+  Two output shapes from one definition: **row-listing** (selected built-in
+  fields, capped at `MAX_REPORT_ROWS`) or **grouped** (`GROUP BY` a field or
+  a `date_trunc` bucket, with `count`/`sum`/`avg`/`min`/`max` aggregations
+  and an optional chart hint) — never both, matching
+  `CustomReportDefinition._shape_is_coherent`'s own either/or validation.
+  Also `build_advanced_filter_predicate`, the standalone entry point the
+  four list endpoints (below) and a saved view's advanced filter both call —
+  the same condition/group machinery, reused rather than re-implemented a
+  third time.
+- `schemas.py` — `CustomReportDefinition`, `ReportCondition`/
+  `ReportFilterGroup` (re-exported from `conditions.py`), `ReportAggregation`,
+  `AvailableFieldInfo`, `CustomReportPreviewRequest`; `SavedReportCreate`/
+  `Update`/`Response` extended with an optional `custom_definition` and a
+  model validator requiring exactly one of it or `base_report_key`.
+- `models.py` — `SavedReport.base_report_key` is now nullable,
+  `custom_definition` (JSONB) added, with a CHECK constraint
+  (`(base_report_key IS NOT NULL) != (custom_definition IS NOT NULL)`) that
+  holds even for a row written outside the API.
+- `library.py` — `create_saved`/`update_saved` validate a custom definition
+  the same way a catalogue key is validated; `run_saved` branches to
+  `CustomReportEngine.run` for a custom report and gained a `date_override`
+  parameter (for the dashboard date filter, below) that replaces rather than
+  combines with the stored period; a `CannotChangeReportKindError` (409)
+  refuses a PATCH that would turn a catalogue report into a custom one or
+  back — a saved report's kind is closer to its type than to one of its
+  fields, and every dashboard tile pointing at it assumes that does not
+  change.
+- `router.py` — `GET /crm/reports/custom/fields?entity=` (the field registry,
+  for the builder — not permission-gated on its own, the same "which reports
+  exist is the answer" reasoning `GET /crm/reports` already documents) and
+  `POST /crm/reports/custom/preview` (run an unsaved definition — the
+  builder's preview step), both declared before `/{key}/run` for the same
+  routing reason `/saved` and `/folders` already are.
+
+**Backend — advanced filtering on list endpoints (additive):**
+
+- `shared/advanced_filter_query.py` (new) — `parse_advanced_filter`, a
+  FastAPI dependency parsing `?advanced_filter=<json ReportFilterGroup>`
+  into a validated Pydantic object, shared by every list endpoint that
+  offers it.
+- `leads/router.py`, `contacts/router.py`, `accounts/router.py`,
+  `opportunities/router.py` — each `list_*` gained the `advanced` dependency
+  and, when present, ANDs `build_advanced_filter_predicate(...)`'s result
+  into the *existing* filter list — purely additive, the named query
+  params (`?status=`, `?owner_id=`, `cf_*`) and every existing test keep
+  working with the parameter simply omitted.
+
+**Backend — saved-view advanced filter (additive):**
+
+- `views/models.py` — `SavedView.advanced_filter` (nullable JSONB), stored
+  *alongside* the existing flat `filters` column rather than replacing it —
+  every view saved before this migration, and its validator, is untouched.
+- `views/schemas.py` — `advanced_filter: ReportFilterGroup | None` on
+  `SavedViewBase`, validated against the view's `entity_type` at create time;
+  `views/service.py`'s `update_view` validates a *changed* advanced filter
+  against the existing row's `entity_type` (the one point it becomes known
+  on an update).
+
+**Backend — global search, fifth entity:**
+
+- `activities/models.py` — `search_vector` (the same `searchable()` helper
+  every other entity uses), weighted `subject` (A) / `outcome` (C) /
+  `description` (D).
+- `migrations/20260917_0300_activity_search_vector.py` — the generated
+  column, partial GIN index, and trigram index on `subject`, replicating
+  `20260826_0100`'s own pattern exactly for the fifth table.
+- `search/{schemas,policies,repository}.py` — `SearchEntityType.ACTIVITY`,
+  its permission module (`activities` — absent from `OWNER_SCOPED_MODULES`,
+  so unrestricted once the `activities.VIEW` gate passes, the same rule
+  `activity_by_owner` already documents), its model, its display name
+  (`subject`) and subtitle (`type` — always set, unlike `outcome`, which is
+  empty for most of an activity's life).
+
+**Backend — dashboard executive metrics and date filter:**
+
+- `dashboard/repository.py` — `sum_weighted_pipeline_value` (open pipeline
+  at each deal's own `win_probability`, `coalesce(..., 0)` for an unset one
+  — never a guessed 0% or 100%), `sum_won_revenue` (trailing window),
+  `lead_conversion_rate`, `won_revenue_by_month` (`date_trunc('month', …)`,
+  zero-filled across the requested span), `pipeline_by_owner`.
+- `dashboard/service.py` — wires the above into `summary()`, and reuses
+  `ReportRepository.lead_conversion_by_source` directly (imported and called,
+  not re-queried) for `lead_source_performance` — the dashboard number and
+  the report's own number can never disagree.
+- `dashboard/schemas.py` — `DashboardKpis` gained `weighted_pipeline_value`,
+  `won_revenue`, `lead_conversion_rate`; `DashboardSummary` gained
+  `revenue_trend`, `pipeline_by_owner`, `lead_source_performance`;
+  `DashboardComponentData` gained `date_filter_applied`.
+- `dashboard/library.py`'s `render()` and `router.py`'s
+  `GET .../data?date_from=&date_to=` — a dashboard-wide date override,
+  applied per tile only when that tile's report actually has a date
+  dimension (a catalogue report with `accepts_date_range`, or any custom
+  report, which always has one); a tile with none renders its normal numbers
+  unaffected, and `date_filter_applied` tells the UI which happened. Never
+  persisted — the same "resolved fresh, not cached" rule a saved report's
+  own period already follows.
+
+**Frontend — the report builder:**
+
+- `features/crm/reports/custom.ts` (new) — types and API client mirroring
+  the backend schemas exactly (`ReportEntity`, operators, `ReportFilterGroup`,
+  `CustomReportDefinition`, `listCustomFields`, `previewCustomReport`).
+- `components/crm/reports/FilterEditor.tsx` (new) — the AND/OR condition
+  editor, extracted as a **shared** component precisely so the report
+  builder and the list-screen advanced filter (below) are the same UI over
+  the same document, not two that could drift.
+- `components/crm/reports/ReportBuilder.tsx` (new) — module → row-listing or
+  grouped-and-summarised → fields/group-by/aggregations → filters (via
+  `FilterEditor`) → sort → chart → Preview (rendering through the *existing*
+  `ReportChart`/`ReportTable` — no change needed there, since a custom
+  report's result is the identical `ReportResult` envelope a catalogue
+  report already produces) → Save. Uses the stamped-result pattern for its
+  field-registry fetch (`fieldsResult` tagged with the entity it answers)
+  rather than resetting state synchronously in the load effect, matching
+  this codebase's established `react-hooks/set-state-in-effect` avoidance.
+- `app/(crm)/reports/page.tsx` — a "New custom report" entry point and,
+  on a custom saved report, an "Edit shape" action reopening the builder
+  pre-filled; saving a new one hands off into the *same* name/folder/
+  period/visibility drawer a catalogue report is saved through (a custom
+  report has a period too — `date_field` is exactly what it narrows).
+
+**Frontend — advanced filtering on list screens:**
+
+- `components/crm/toolbar/AdvancedFilterBar.tsx` (new) — a popover wrapping
+  the shared `FilterEditor`, translating the built group into
+  `?advanced_filter=<json>` on Apply (not on every keystroke — an advanced
+  filter is assembled and committed, not typed live). Wired onto
+  Leads/Contacts/Accounts/Opportunities, additive alongside each page's
+  existing search box and named filters.
+
+**Frontend — global search:**
+
+- `features/crm/search/index.ts`, `components/crm/topbar/CommandPalette.tsx`
+  — `ACTIVITY` added to `SearchEntityType`/`ENTITY_LABELS`/`ENTITY_ICONS`;
+  `hitHref` returns `null` for an activity (no detail page exists to open —
+  see Known limitations), and the palette renders such a row as
+  found-but-not-navigable (no arrow, `aria-disabled`) rather than pretending
+  a destination exists.
+
+**Frontend — dashboards:**
+
+- `app/(crm)/dashboard/page.tsx` (the fixed summary) — three new KPI cards
+  (Weighted Pipeline, Won Revenue, Lead Conversion) and three new panels
+  (Revenue Trend as a `LineChart`, Pipeline by Owner and Lead Source
+  Performance as `BarChart`s), all reading the enriched summary payload.
+- `app/(crm)/dashboards/[id]/page.tsx` (configurable boards) — tile drag
+  reordering via `@dnd-kit` (`DndContext`/`SortableContext`/`useSortable`,
+  `rectSortingStrategy` for the 12-column flow), calling the *same*
+  `reorderComponents` the up/down buttons already called — both kept, per
+  the module's own updated docstring. A `DateFilterBar` (two date inputs)
+  passes `date_from`/`date_to` to `renderDashboard`; each tile shows a
+  "Filtered" badge exactly when its own `date_filter_applied` says so.
+- `features/crm/dashboards/index.ts`, `features/crm/dashboard/types.ts` —
+  `renderDashboard` gained the optional date-filter params;
+  `DashboardComponentData` gained `date_filter_applied`; `DashboardKpis`/
+  `DashboardSummary` gained the new fields (`RevenueMonth`,
+  `OwnerPipelineSummary`, `LeadSourcePerformance`).
+
+### Tests
+
+- `backend/tests/unit/test_search_permissions.py`,
+  `test_search_index_agreement.py` — extended for the fifth entity
+  (`ACTIVITY`): the "every view grants every type" tests updated to include
+  `activities.VIEW`, a new test asserting `activities.VIEW` is required
+  exactly like the other four, and the index-agreement fixture generalised
+  to check each entity against *its own* migration (four against
+  `20260826_0100`, activities against `20260917_0300`) rather than a single
+  shared one — the same "a sixth entity added without a vector must fail
+  here" tripwire the file already existed to be, now correctly spanning two
+  migrations. All pass.
+- `backend/tests/integration/test_search.py` — the "searched" assertion
+  updated to five types; new tests for an activity found by subject and
+  labelled by its own `type`. All pass.
+- `backend/tests/integration/test_custom_reports.py` (new, 23 tests) —
+  row-listing field selection; unknown-field 422; empty-shape 422; a
+  grouped report matching the built-in `pipeline-by-stage` report's own
+  numbers; missing-aggregation 422; illegal aggregation-for-type 422;
+  `group_by_interval` on a non-date field 422; a month-grouped revenue trend;
+  AND requires every condition, OR matches either; `between`; `starts_with`/
+  `ends_with`; a relative-date condition reusing `resolve_period`; an
+  illegal operator-for-type 422; a custom-field filter condition narrowing a
+  report, and an unknown custom field refused at run time; available-fields
+  includes custom fields and marks them `is_custom`; activities have none;
+  authorization requires the entity's own module (a rep with only
+  `leads.VIEW` can run a lead report, not an opportunity one); a rep and a
+  manager see different totals for the identical grouped report (the phase
+  gate, for the ad-hoc engine); save/run/edit-kind-refused round trips. All
+  pass.
+- `backend/tests/integration/test_advanced_filters.py` (new, 10 tests) —
+  AND narrows, OR widens; combines with named query params without
+  replacing them; malformed JSON and an unknown field are both 422; a rep
+  cannot use an advanced filter to reach a colleague's record (narrows
+  within `RecordVisibility`, never widens it); numeric `gte` on
+  opportunities; a saved view stores and validates an advanced filter,
+  rejects one naming an unknown field, and validates a *changed* one on
+  update. All pass.
+- `backend/tests/integration/test_dashboard.py` — extended with weighted
+  pipeline (using a deal's own supplied `win_probability`, since — a genuine
+  discovery while writing this test — only a stage *change*/`reopen`
+  defaults `win_probability` from the stage; a freshly created deal carries
+  whatever the create request gave it, which the new weighted-pipeline test
+  now documents explicitly rather than assuming); an unset probability
+  correctly contributing zero to the weighted figure while still counting
+  in full toward the unweighted total; won revenue counting only recently
+  closed-won deals; lead conversion rate as a real share; revenue trend
+  zero-filled across six months with the current month's won deal correctly
+  attributed; pipeline-by-owner resolving a real display name;
+  lead-source-performance provably equal to the report's own answer (not
+  merely similar). The pre-existing exact-dict-equality empty-state test was
+  updated for the three new KPI fields and the three new list fields rather
+  than left to fail. All pass.
+- `backend/tests/integration/test_dashboards.py` (extended) — a dashboard-
+  wide date filter narrows a date-capable tile (`date_filter_applied: true`,
+  a window excluding the won deal correctly zeroes it) and leaves a tile
+  with no date dimension untouched (`date_filter_applied: false`, identical
+  rows with and without the filter). All pass.
+- **Backend `pytest tests/unit tests/integration`** (full regression, clean
+  throwaway `checkpoint5_test` database migrated from zero — all 29
+  migrations, including the three this checkpoint added, applied cleanly in
+  order — plus real MinIO/Redis): **1897 collected, 1897 passed, 0 failed.**
+  The run was executed in full — every pre-existing suite (tenant isolation,
+  RBAC, blueprints, dashboards, custom fields, saved views, merge,
+  attachments, audit logging, layouts, bulk operations, CSV import, and
+  every earlier checkpoint's own tests), not only what this checkpoint
+  touched — and is genuinely clean: no flake, nothing re-run to get there.
+- **Frontend**: no automated frontend test suite exists in this repository
+  (Checkpoints 1–4 record the same); verification here is `tsc`, `eslint`,
+  `next build`, and — new for this checkpoint — extensive **live browser
+  verification** against the real backend rather than static analysis alone
+  (see Environment/verification notes).
+
+### Static analysis
+
+- **Ruff** (`app tests migrations`): clean.
+- **mypy** (`app`, matching CI): clean, 314 source files.
+- **Frontend `tsc --noEmit`**: clean, checked after every meaningful edit
+  rather than once at the end.
+- **Frontend `eslint .`**: caught one real `react-hooks/set-state-in-effect`
+  violation during development (`ReportBuilder.tsx`'s field-registry load
+  effect resetting state synchronously) — fixed with the stamped-result
+  pattern (tag the async result with the entity it answers, compare at read
+  time), matching `usePublishedLayout`'s own precedent from Checkpoint 4.
+  Clean after the fix, and clean on every file touched.
+- **Frontend `next build`**: succeeds.
+
+### Security validation
+
+- **Tenant isolation:** every new/altered table (`saved_reports.custom_definition`,
+  `saved_views.advanced_filter`, `activities.search_vector`) lives under the
+  same RLS-forced schema as everything else; no new table was created that
+  needed its own policy.
+- **RecordVisibility / RBAC — the custom-report engine:** identical
+  four-step model to the catalogue (resolve → authorize on the entity's own
+  module → resolve visibility → aggregate in SQL under it), proven by a test
+  where a rep and a manager see different totals for the same definition —
+  not merely asserted.
+- **RecordVisibility — advanced filtering:** additive predicates are ANDed
+  into the *same* filter list `RecordVisibility` already narrows before the
+  query runs; a rep cannot use an advanced filter to reach a colleague's
+  record (tested explicitly — the filter narrows *within* what visibility
+  already allows, it cannot widen past it).
+- **No user-authored SQL:** every field a condition, a group-by, a sort, or
+  an aggregation names is resolved through the `reports.fields` registry —
+  an allow-list, never a column name taken off a request and interpolated.
+  A `custom:` condition is the one exception by design, and it delegates to
+  `custom_fields.filters.custom_field_filter`, which has carried this exact
+  guarantee (bound parameters, guarded casts) since Phase E.
+- **Aggregate disclosure (the reporting module's own standing risk):** a
+  custom report's totals are computed from rows already narrowed by
+  `RecordVisibility` inside the SQL — never filtered after the fact — the
+  same rule the built-in catalogue's own module docstring states and this
+  checkpoint did not relax anywhere.
+- **Dashboard date filter:** an override to a tile's rendering only, never
+  written to the saved report or the dashboard; a tile still runs `as the
+  viewer` exactly as it did before this checkpoint.
+- **`CannotChangeReportKindError`:** a PATCH cannot turn a catalogue report
+  into a custom one (or back) and thereby dodge either validation path.
+
+### Known limitations
+
+- **A custom report's select/group/aggregate targets are built-in fields
+  only.** A tenant's custom field is filterable (reusing
+  `custom_fields.filters` exactly) but cannot be selected as a column,
+  grouped by, or aggregated — that needs the same guarded-cast machinery
+  under a second allow-list this checkpoint does not yet keep. Documented in
+  the feature-audit table (#61), not silently unsupported.
+- **A saved view's advanced filter does not yet round-trip through "save
+  view"/"choose view."** The column, the validation, and the list-endpoint
+  application all work (proven by integration tests); the list-page UI's
+  "Save view" only captures the flat `filters` document today, and choosing
+  a saved view does not re-populate `AdvancedFilterBar`'s draft from a
+  stored `advanced_filter`. A view with one still filters correctly when
+  applied server-side (e.g. via a link or a future UI); rebuilding the
+  condition by hand is the only gap.
+- **An activity found by search has no detail page to open.** Consistent
+  with Checkpoint 3's own documented gap ("no activity detail page exists");
+  `hitHref` returns `null` for one and the palette shows it as
+  found-but-informational rather than broken or silently omitted.
+- **No report-result CSV export was added this checkpoint.** The existing
+  per-entity CSV export (accounts/contacts/leads/opportunities lists,
+  Checkpoint 1–2) is unaffected and unchanged; exporting a report or
+  dashboard tile's own rows to CSV remains a gap, not newly introduced by
+  this checkpoint.
+- **`CRM analytics` (#66) stays partial.** A real trend over time
+  (`revenue_trend`) now exists, and the report builder can construct further
+  ones without new backend code, but forecasting and targets/quotas are
+  still not implemented.
+- **Dashboard-wide date filtering is date-only.** The checkpoint brief also
+  names owner/team/stage/source as possible dashboard-wide filters; only
+  date was built, because it is the one dimension every report kind
+  (catalogue with `accepts_date_range`, or any custom report) already has a
+  uniform answer for — an owner filter would need every one of the nine
+  catalogue reports to grow a new parameter, which is materially more
+  surface than this checkpoint's date-only scope. Documented rather than
+  attempted partially.
+- Nothing above was faked or assumed to pass; each is a stated design
+  boundary or a scope line this checkpoint chose not to cross, not a gap
+  discovered after the fact.
+
+### Environment / verification notes
+
+- Docker (`s3k-postgres` on port 5434, `s3k-minio`, `s3k-redis`) was already
+  up from Checkpoint 4 and stayed up; a throwaway `checkpoint5_test`
+  database (owned by the existing `s3k_app` role) was dropped and recreated
+  from zero partway through the session after discovering two backend test
+  runs — one resumed from before this session's context was continued, one
+  started fresh without realising the first was still alive — were both
+  hitting the same database concurrently, producing large, spurious,
+  contention-shaped failure counts in both. Diagnosed (not ignored): both
+  processes stopped, zero lingering database sessions confirmed, the
+  database rebuilt and re-migrated from a clean `alembic upgrade head`, and
+  every test result reported in this section is from the single,
+  uncontended run that followed.
+- **Real, extensive live-browser verification was performed against the
+  real backend** — new for this checkpoint, and beyond what Checkpoints 1–4
+  achieved. A throwaway signup/organization was created (through the actual
+  `/auth/signup` and `POST /organizations` endpoints, not seeded via SQL),
+  and every major feature this checkpoint built was exercised end to end in
+  a real browser against real Postgres: the report builder (switching
+  entity, switching row-listing ↔ grouped mode, adding a summarisation,
+  choosing a chart, previewing, saving, and the saved report appearing with
+  a correct "Edit shape" affordance); the dashboard summary's three new KPI
+  cards and three new panels, first in their real empty states and then
+  with seeded data showing correct arithmetic (a $50,000 deal at 10% stage
+  probability weighing $5,000; a won deal correctly counted in won revenue
+  and the revenue trend's current month); the advanced filter bar on the
+  Leads list, confirmed via the actual network request that the applied
+  filter's JSON matched the UI and that the result correctly narrowed to
+  the one matching record; the dashboard date filter, confirmed against
+  three simultaneous tiles that a date-capable custom report and a
+  date-capable catalogue report both showed "Filtered" and zeroed
+  correctly for an excluding window while a non-date-capable catalogue
+  report showed no badge and identical numbers with and without the
+  filter; dashboard drag handles rendering in Arrange mode alongside the
+  pre-existing up/down buttons, and a button-driven reorder still working
+  correctly against the refactored reorder code path; and global search
+  finding a newly created activity, labelling it by its own type, and
+  rendering it as non-navigable rather than broken. Two environment quirks
+  were found and worked around, not treated as product bugs: the backend
+  dev server (port 8001) had exited hours earlier from a previous session
+  and needed restarting before the browser could reach it; and coordinate-
+  based clicks on the advanced-filter popover twice landed on an unrelated
+  sidebar link because the popover rendered below the visible preview
+  viewport — worked around with `element.click()` via direct DOM queries,
+  the same class of synthetic-click workaround Checkpoint 4's own notes
+  describe.
+
+### Accidental-change / secret check
+
+- `git status --short` reviewed against the file list above: every modified
+  and new file is one this checkpoint intentionally touched.
+- `backend/.env` (already gitignored, its `DATABASE_URL` repointed at
+  `checkpoint5_test` for this checkpoint's testing) and `frontend/.env.local`
+  remain untracked — confirmed via `git status` before staging.
+- Diff scanned for credential-shaped strings; none found in any tracked file.
+- `git diff --check`: no whitespace errors.
+
 ## Next Exact Step
 
-**Checkpoint 5 — Search + Reports + Dashboards + Dashboard Builder** (audit
-items 43, 61, 65, 66, plus 42/62–64 regression). Per "Recommended
-Implementation Order," this is where `@dnd-kit` (now adopted, see Checkpoint
-4) gets reused for dashboard widget placement, and where the report builder
-needs the advanced-filter model this checkpoint's layout condition list
-(`evaluate.py`'s operator set) deliberately mirrors, so filters and rule
-conditions stay one mental model instead of two.
+**Checkpoint 6 — Workflows + Blueprints + Notifications + Automation**
+(audit items 56–60, plus 55 regression). Per "Recommended Implementation
+Order," this runs on the existing transactional outbox (`PF/events/*`, the
+ARQ worker) rather than a new dispatch mechanism, and its actions (field
+update, create task, send email, notify, webhook) are themselves largely
+compositions of infrastructure every prior checkpoint already built —
+notably this checkpoint's own report/filter engine is a natural fit for a
+workflow rule's *condition*, the same way `layouts.evaluate` already is for
+a form rule's.

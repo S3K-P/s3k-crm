@@ -28,6 +28,9 @@ from app.products.crm.accounts.schemas import (
 from app.products.crm.accounts.service import AccountService
 from app.products.crm.common import CrmEntityType
 from app.products.crm.custom_fields.query import CustomFieldQueryDep
+from app.products.crm.reports.custom import build_advanced_filter_predicate
+from app.products.crm.reports.fields import ReportEntity
+from app.products.crm.shared.advanced_filter_query import AdvancedFilterDep
 from app.products.crm.shared.csv_export import collect_rows, csv_response
 from app.products.crm.shared.pagination import Page, PageParams, page_params
 from app.products.crm.shared.schemas import BulkIdsRequest, BulkOperationResult
@@ -60,8 +63,10 @@ def visible_to(principal: Principal) -> RecordVisibility:
 async def list_accounts(
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
     service: ServiceDep,
+    session: DbSession,
     params: PageParamsDep,
     custom: CustomFieldQueryDep,
+    advanced: AdvancedFilterDep,
     search: Annotated[str | None, Query(max_length=255)] = None,
     account_status: Annotated[AccountStatus | None, Query(alias="status")] = None,
     industry: Annotated[str | None, Query(max_length=120)] = None,
@@ -74,6 +79,9 @@ async def list_accounts(
     orders by one. Names are resolved against this organization's own
     definitions before any SQL is built (``custom_fields/query.py``), so an
     unrecognised one is a 422 rather than a filter on nothing.
+
+    ``?advanced_filter=`` (Checkpoint 5): see ``leads.router.list_leads``'s
+    docstring — the mechanism is identical, entity-parameterised.
     """
     filters = service.build_filters(
         search=search, status=account_status, industry=industry, owner_id=owner_id
@@ -84,6 +92,12 @@ async def list_accounts(
         entity_type=CrmEntityType.ACCOUNT,
     )
     filters = [*filters, *custom_filters]
+    if advanced is not None:
+        predicate = await build_advanced_filter_predicate(
+            session, principal.organization_id, ReportEntity.ACCOUNT, advanced
+        )
+        if predicate is not None:
+            filters.append(predicate)
     items, total = await service.list_accounts(
         principal.organization_id,
         params=params,

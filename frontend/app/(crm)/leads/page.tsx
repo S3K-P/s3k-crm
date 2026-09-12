@@ -16,6 +16,8 @@ import MergeDialog from '@/components/crm/dialogs/MergeDialog';
 import BulkActionsToolbar, { type BulkEditableField } from '@/components/crm/toolbar/BulkActionsToolbar';
 import ColumnChooser, { type ColumnOption } from '@/components/crm/toolbar/ColumnChooser';
 import SavedViewPicker from '@/components/crm/toolbar/SavedViewPicker';
+import AdvancedFilterBar from '@/components/crm/toolbar/AdvancedFilterBar';
+import type { ReportFilterGroup } from '@/features/crm/reports/custom';
 import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
@@ -137,6 +139,9 @@ export default function LeadsPage() {
     useQueryFilter('status', LEAD_STATUSES),
   );
   const [page, setPage] = useState(1);
+  // Checkpoint 5: a multi-condition AND/OR filter, additive on top of the
+  // named params above — see `AdvancedFilterBar`.
+  const [advancedFilter, setAdvancedFilter] = useState<ReportFilterGroup | null>(null);
 
   // The board needs every lead at once; the table is paginated.
   const pageSize = view === 'kanban' ? 200 : 25;
@@ -150,13 +155,14 @@ export default function LeadsPage() {
         status: (statusFilter || null) as LeadStatus | null,
         sort_by: 'created_at',
         sort_dir: 'desc',
+        advanced_filter: advancedFilter ? JSON.stringify(advancedFilter) : null,
       }),
-    [page, pageSize, search, statusFilter, view],
+    [page, pageSize, search, statusFilter, view, advancedFilter],
   );
 
   const { status, items, pagination, error, reload, refreshing } = useCollection<Lead>(
     fetcher,
-    [page, pageSize, search, statusFilter, view],
+    [page, pageSize, search, statusFilter, view, advancedFilter],
     { errorMessage: 'Something went wrong loading leads.' },
   );
 
@@ -539,6 +545,7 @@ export default function LeadsPage() {
             onChange={setVisibleColumns}
           />
         )}
+        <AdvancedFilterBar entity="LEAD" value={advancedFilter} onApply={setAdvancedFilter} />
         <SearchInput
           value={search}
           onChange={(event) => {

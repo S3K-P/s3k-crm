@@ -19,9 +19,13 @@ import datetime as dt
 import uuid
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.core.exceptions import ValidationFailedError
 from app.products.crm.common import CrmEntityType
+from app.products.crm.reports.conditions import ReportFilterGroup
+from app.products.crm.reports.custom import validate_builtin_filter_group
+from app.products.crm.reports.fields import REPORT_ENTITY_FOR_CRM_ENTITY_TYPE
 from app.products.crm.views.models import ViewVisibility
 
 #: Ceilings on one stored filter document.
@@ -88,11 +92,45 @@ def _validate_columns(value: list[str]) -> list[str]:
     return value
 
 
+def check_advanced_filter(
+    entity_type: CrmEntityType | None, value: ReportFilterGroup | None
+) -> ReportFilterGroup | None:
+    """Validate an advanced filter's *built-in* fields against the registry.
+
+    A ``custom:`` condition is left unchecked here — see
+    ``reports.custom.validate_builtin_filter_group`` for why: it needs a
+    database session to resolve, which a synchronous Pydantic validator
+    never has. The list endpoint applying the filter resolves it for real
+    when the view is actually used.
+
+    ``entity_type`` is ``None`` only when the model being validated has not
+    supplied one yet in this same payload (an update that changes nothing
+    else) — in which case there is nothing to validate against and the
+    document is accepted as given; the entity cannot change on an update
+    (see ``SavedViewUpdate``), so it was already validated when the view
+    was created.
+    """
+    if value is None or entity_type is None:
+        return value
+    report_entity = REPORT_ENTITY_FOR_CRM_ENTITY_TYPE.get(entity_type)
+    if report_entity is None:
+        msg = f"Advanced filters are not available for {entity_type.value.title()}."
+        raise ValueError(msg)
+    try:
+        validate_builtin_filter_group(report_entity, value)
+    except ValidationFailedError as exc:
+        raise ValueError(str(exc)) from exc
+    return value
+
+
 class SavedViewBase(BaseModel):
     name: Annotated[str, Field(min_length=1, max_length=120)]
     description: Annotated[str | None, Field(default=None, max_length=500)] = None
     visibility: ViewVisibility = ViewVisibility.PRIVATE
     filters: FilterDocument = Field(default_factory=dict)
+    #: A multi-condition AND/OR filter (Checkpoint 5), applied together with
+    #: ``filters`` above — see ``views.models.SavedView.advanced_filter``.
+    advanced_filter: ReportFilterGroup | None = None
     columns: Annotated[list[str], Field(default_factory=list, max_length=MAX_COLUMNS)]
     sort_by: Annotated[str | None, Field(default=None, max_length=80)] = None
     sort_dir: Literal["asc", "desc"] | None = None
@@ -119,19 +157,28 @@ class SavedViewCreate(SavedViewBase):
 
     entity_type: CrmEntityType
 
+    @model_validator(mode="after")
+    def _validate_advanced_filter(self) -> SavedViewCreate:
+        check_advanced_filter(self.entity_type, self.advanced_filter)
+        return self
+
 
 class SavedViewUpdate(BaseModel):
     """A partial update.
 
     ``entity_type`` and ``owner_id`` are absent: moving a view to another
     record type would leave its filters naming columns that entity has not got,
-    and reassigning it would hand somebody a view they never made.
+    and reassigning it would hand somebody a view they never made. Since
+    ``entity_type`` cannot change, an updated ``advanced_filter`` is validated
+    by the service layer, which already has the existing row's own
+    ``entity_type`` to hand — see ``SavedViewService.update_view``.
     """
 
     name: Annotated[str | None, Field(default=None, min_length=1, max_length=120)] = None
     description: Annotated[str | None, Field(default=None, max_length=500)] = None
     visibility: ViewVisibility | None = None
     filters: FilterDocument | None = None
+    advanced_filter: ReportFilterGroup | None = None
     columns: Annotated[list[str] | None, Field(default=None, max_length=MAX_COLUMNS)] = None
     sort_by: Annotated[str | None, Field(default=None, max_length=80)] = None
     sort_dir: Literal["asc", "desc"] | None = None
@@ -158,6 +205,7 @@ class SavedViewResponse(BaseModel):
     owner_id: uuid.UUID
     visibility: ViewVisibility
     filters: dict[str, Any]
+    advanced_filter: ReportFilterGroup | None
     columns: list[str]
     sort_by: str | None
     sort_dir: str | None
@@ -177,4 +225,5 @@ __all__ = [
     "SavedViewCreate",
     "SavedViewResponse",
     "SavedViewUpdate",
+    "check_advanced_filter",
 ]

@@ -22,7 +22,7 @@ from collections.abc import Sequence
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import ColumnElement, Select, func, or_, select, true
+from sqlalchemy import ColumnElement, Select, case, func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.products.crm.accounts.models import Account
@@ -301,6 +301,151 @@ class DashboardRepository:
         )
         return [
             (row[0], row[1], row[2], int(row[3]), Decimal(str(row[4]))) for row in result.all()
+        ]
+
+    # --- Revenue / pipeline (Checkpoint 5) ----------------------------------
+
+    async def sum_weighted_pipeline_value(
+        self, organization_id: uuid.UUID, *, visibility: RecordVisibility | None = None
+    ) -> Decimal:
+        """Open pipeline, each deal counted at its own ``win_probability``.
+
+        A deal with no probability set contributes zero rather than being
+        assumed at 0% or 100% — either guess would be a number nobody
+        actually estimated. The unweighted total (``sum_open_pipeline_value``)
+        stays the KPI that always accounts for every open deal; this one is
+        additional, not a replacement, for exactly that reason.
+        """
+        weighted = Opportunity.deal_value * func.coalesce(Opportunity.win_probability, 0) / 100.0
+        result = await self._session.execute(
+            self._scoped(
+                select(func.coalesce(func.sum(weighted), 0)).where(
+                    Opportunity.organization_id == organization_id,
+                    Opportunity.deleted_at.is_(None),
+                    Opportunity.won_at.is_(None),
+                    Opportunity.lost_at.is_(None),
+                ),
+                visibility,
+                Opportunity,
+            )
+        )
+        return Decimal(str(result.scalar_one())).quantize(Decimal("0.01"))
+
+    async def sum_won_revenue(
+        self,
+        organization_id: uuid.UUID,
+        *,
+        since: dt.datetime,
+        visibility: RecordVisibility | None = None,
+    ) -> Decimal:
+        """Value of deals won since ``since``."""
+        result = await self._session.execute(
+            self._scoped(
+                select(func.coalesce(func.sum(Opportunity.deal_value), 0)).where(
+                    Opportunity.organization_id == organization_id,
+                    Opportunity.deleted_at.is_(None),
+                    Opportunity.won_at.is_not(None),
+                    Opportunity.won_at >= since,
+                ),
+                visibility,
+                Opportunity,
+            )
+        )
+        return Decimal(str(result.scalar_one()))
+
+    async def lead_conversion_rate(
+        self, organization_id: uuid.UUID, *, visibility: RecordVisibility | None = None
+    ) -> float:
+        """Share of this caller's live leads that have converted, 0-100.
+
+        All-time and over every live lead, not just the trailing window
+        ``count_new_leads`` uses: a conversion rate measured only against
+        leads created this month would understate itself for exactly the
+        leads still working their way through the funnel. ``0.0`` for an
+        organization (or a caller's slice of one) with no leads at all,
+        rather than a division by zero surfacing as a 500.
+        """
+        converted = func.sum(case((Lead.status == LeadStatus.CONVERTED, 1), else_=0))
+        result = await self._session.execute(
+            self._scoped(
+                select(func.count(Lead.id), converted).where(
+                    Lead.organization_id == organization_id, Lead.deleted_at.is_(None)
+                ),
+                visibility,
+                Lead,
+            )
+        )
+        total, won = result.one()
+        if not total:
+            return 0.0
+        return round(int(won or 0) * 100 / int(total), 1)
+
+    async def won_revenue_by_month(
+        self,
+        organization_id: uuid.UUID,
+        *,
+        months: int,
+        today: dt.date,
+        visibility: RecordVisibility | None = None,
+    ) -> list[tuple[dt.date, Decimal]]:
+        """Won revenue per calendar month, oldest first, zero-filled.
+
+        Zero-filling matters here specifically: a trend line with a missing
+        point reads as "no data for March" to a chart, not as "zero revenue in
+        March", and the two are different facts about a pipeline.
+        """
+        start = (today.replace(day=1) - dt.timedelta(days=30 * (months - 1))).replace(day=1)
+        bucket = func.date_trunc("month", Opportunity.won_at)
+        result = await self._session.execute(
+            self._scoped(
+                select(bucket, func.coalesce(func.sum(Opportunity.deal_value), 0)).where(
+                    Opportunity.organization_id == organization_id,
+                    Opportunity.deleted_at.is_(None),
+                    Opportunity.won_at.is_not(None),
+                    Opportunity.won_at >= dt.datetime.combine(start, dt.time.min, tzinfo=dt.UTC),
+                ),
+                visibility,
+                Opportunity,
+            ).group_by(bucket)
+        )
+        found = {month.date().replace(day=1): Decimal(str(value)) for month, value in result.all()}
+        months_list: list[tuple[dt.date, Decimal]] = []
+        cursor = start
+        for _ in range(months):
+            months_list.append((cursor, found.get(cursor, Decimal(0))))
+            cursor = (cursor.replace(day=28) + dt.timedelta(days=4)).replace(day=1)
+        return months_list
+
+    async def pipeline_by_owner(
+        self,
+        organization_id: uuid.UUID,
+        *,
+        visibility: RecordVisibility | None = None,
+        limit: int = 10,
+    ) -> list[tuple[uuid.UUID | None, int, Decimal]]:
+        """Open deal count and value per owner, busiest first."""
+        result = await self._session.execute(
+            self._scoped(
+                select(
+                    Opportunity.owner_id,
+                    func.count(Opportunity.id),
+                    func.coalesce(func.sum(Opportunity.deal_value), 0),
+                ).where(
+                    Opportunity.organization_id == organization_id,
+                    Opportunity.deleted_at.is_(None),
+                    Opportunity.won_at.is_(None),
+                    Opportunity.lost_at.is_(None),
+                ),
+                visibility,
+                Opportunity,
+            )
+            .group_by(Opportunity.owner_id)
+            .order_by(func.coalesce(func.sum(Opportunity.deal_value), 0).desc())
+            .limit(limit)
+        )
+        return [
+            (owner_id, int(count), Decimal(str(value)))
+            for owner_id, count, value in result.all()
         ]
 
     # --- Lists -------------------------------------------------------------

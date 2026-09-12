@@ -29,6 +29,9 @@ from app.products.crm.leads.schemas import (
     LeadUpdate,
 )
 from app.products.crm.leads.service import LeadService
+from app.products.crm.reports.custom import build_advanced_filter_predicate
+from app.products.crm.reports.fields import ReportEntity
+from app.products.crm.shared.advanced_filter_query import AdvancedFilterDep
 from app.products.crm.shared.csv_export import collect_rows, csv_response
 from app.products.crm.shared.pagination import Page, PageParams, page_params
 from app.products.crm.shared.schemas import BulkIdsRequest, BulkOperationResult
@@ -61,8 +64,10 @@ def visible_to(principal: Principal) -> RecordVisibility:
 async def list_leads(
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
     service: ServiceDep,
+    session: DbSession,
     params: PageParamsDep,
     custom: CustomFieldQueryDep,
+    advanced: AdvancedFilterDep,
     search: Annotated[str | None, Query(max_length=255)] = None,
     lead_status: Annotated[LeadStatus | None, Query(alias="status")] = None,
     owner_id: Annotated[uuid.UUID | None, Query()] = None,
@@ -75,6 +80,14 @@ async def list_leads(
     orders by one. Names are resolved against this organization's own
     definitions before any SQL is built (``custom_fields/query.py``), so an
     unrecognised one is a 422 rather than a filter on nothing.
+
+    ``?advanced_filter=`` (Checkpoint 5) adds a multi-condition AND/OR filter
+    on top of the four named parameters above and any ``cf_*`` ones — the
+    same ``reports.conditions.ReportFilterGroup`` document a saved view's own
+    ``advanced_filter`` column stores, resolved through the identical
+    ``reports.custom.build_advanced_filter_predicate`` the custom-report
+    builder uses, so a condition means the same thing whether it narrows a
+    report or this list.
     """
     filters = service.build_filters(
         search=search, status=lead_status, owner_id=owner_id, lead_source_id=lead_source_id
@@ -85,6 +98,12 @@ async def list_leads(
         entity_type=CrmEntityType.LEAD,
     )
     filters = [*filters, *custom_filters]
+    if advanced is not None:
+        predicate = await build_advanced_filter_predicate(
+            session, principal.organization_id, ReportEntity.LEAD, advanced
+        )
+        if predicate is not None:
+            filters.append(predicate)
     items, total = await service.list_leads(
         principal.organization_id,
         params=params,

@@ -29,7 +29,7 @@ import datetime as dt
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from app.core.database import DbSession
 from app.platform.auth.dependencies import (
@@ -199,6 +199,8 @@ async def render_dashboard(
     dashboard_id: uuid.UUID,
     principal: PermissionedPrincipal,
     library: LibraryDep,
+    date_from: Annotated[dt.date | None, Query()] = None,
+    date_to: Annotated[dt.date | None, Query()] = None,
 ) -> DashboardData:
     """Run every tile as the caller.
 
@@ -206,11 +208,19 @@ async def render_dashboard(
     tile reading a module the viewer lacks comes back with ``unavailable``
     rather than failing the page or — far worse — showing somebody else's
     figures.
+
+    ``date_from``/``date_to`` (Checkpoint 5) are a dashboard-wide filter,
+    applied per tile only where the underlying report has a date dimension —
+    see ``DashboardLibraryService.render`` and
+    ``DashboardComponentData.date_filter_applied``. Neither is persisted:
+    they narrow this one render, the same way a saved report's own period is
+    resolved fresh on every run rather than cached.
     """
     dashboard = await library.get_visible_or_404(
         dashboard_id, principal.organization_id, viewer_id=principal.user_id
     )
-    rendered = await library.render(dashboard, principal)
+    date_filter = (date_from, date_to) if date_from is not None or date_to is not None else None
+    rendered = await library.render(dashboard, principal, date_filter=date_filter)
     return DashboardData(
         id=dashboard.id,
         name=dashboard.name,

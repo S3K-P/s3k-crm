@@ -9,6 +9,7 @@ import {
   LayoutGrid,
   Lock,
   Pencil,
+  Plus,
   RefreshCw,
   Save,
   Trash2,
@@ -49,6 +50,8 @@ import {
   type SavedReport,
   type ShareScope,
 } from '@/features/crm/reports/library';
+import ReportBuilder from '@/components/crm/reports/ReportBuilder';
+import type { CustomReportDefinition } from '@/features/crm/reports/custom';
 
 /* ============================================================
    REPORTS
@@ -99,11 +102,22 @@ export default function ReportsPage() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
-  const [drawer, setDrawer] = useState<'save' | 'edit' | 'folder' | null>(null);
+  const [drawer, setDrawer] = useState<
+    'save' | 'edit' | 'folder' | 'builder' | null
+  >(null);
   const [form, setForm] = useState<SaveForm>(EMPTY_FORM);
   const [folderName, setFolderName] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  /* --- Custom (ad-hoc) report builder (Checkpoint 5) ------------------ */
+  //
+  // A custom definition being previewed, waiting on a name before it can be
+  // saved (`drawer === 'save'` with this set rather than `activeCatalogue`).
+  const [customDefinition, setCustomDefinition] = useState<CustomReportDefinition | null>(null);
+  // The saved report whose *shape* the builder is currently editing, as
+  // opposed to `openEditDrawer`'s name/folder/period/visibility-only form.
+  const [editingDefinitionFor, setEditingDefinitionFor] = useState<SavedReport | null>(null);
 
   const activeCatalogue = useMemo(
     () =>
@@ -125,19 +139,28 @@ export default function ReportsPage() {
    *
    * Resolved against the catalogue for both modes: a saved report knows its
    * base key, and the catalogue is the only thing that knows whether that key
-   * takes a window.
+   * takes a window. A custom definition always has a date dimension — every
+   * one gets a `date_field` (defaulting to `created_at`) on the backend — so
+   * it always takes a period.
    */
   const periodApplies = useMemo(() => {
-    const key =
-      drawer === 'edit' ? activeSaved?.base_report_key : activeCatalogue?.key;
-    return catalogue?.find(report => report.key === key)?.accepts_date_range ?? false;
-  }, [drawer, activeSaved, activeCatalogue, catalogue]);
+    if (drawer === 'edit') {
+      return activeSaved?.custom_definition
+        ? true
+        : (catalogue?.find(report => report.key === activeSaved?.base_report_key)
+            ?.accepts_date_range ?? false);
+    }
+    if (customDefinition) return true;
+    return catalogue?.find(report => report.key === activeCatalogue?.key)?.accepts_date_range ?? false;
+  }, [drawer, activeSaved, activeCatalogue, catalogue, customDefinition]);
 
   /** The same question for whatever saved report is on screen. */
   const savedTakesPeriod = useMemo(
     () =>
-      catalogue?.find(report => report.key === activeSaved?.base_report_key)
-        ?.accepts_date_range ?? false,
+      activeSaved?.custom_definition
+        ? true
+        : (catalogue?.find(report => report.key === activeSaved?.base_report_key)
+            ?.accepts_date_range ?? false),
     [activeSaved, catalogue],
   );
 
@@ -227,6 +250,7 @@ export default function ReportsPage() {
 
   const openSaveDrawer = () => {
     if (!activeCatalogue) return;
+    setCustomDefinition(null);
     setForm({
       ...EMPTY_FORM,
       name: activeCatalogue.name,
@@ -255,6 +279,44 @@ export default function ReportsPage() {
     setDrawer('edit');
   };
 
+  /** Builder finished a preview and the user asked to save it. */
+  const handleBuilderSave = (definition: CustomReportDefinition) => {
+    if (editingDefinitionFor) {
+      // Editing an existing custom report's shape: no naming step, the
+      // report keeps its name/folder/period/visibility exactly as they were.
+      setBusy(true);
+      updateSavedReport(editingDefinitionFor.id, { custom_definition: definition })
+        .then(async updated => {
+          await loadLibrary();
+          setDrawer(null);
+          setEditingDefinitionFor(null);
+          setSelection({ kind: 'saved', id: updated.id });
+          void runSaved(updated.id);
+        })
+        .catch((cause: unknown) => {
+          setFormError(describeApiError(cause, 'Unable to save this report.'));
+        })
+        .finally(() => setBusy(false));
+      return;
+    }
+    // A brand new custom report: hand off to the same name/folder/period/
+    // visibility drawer a catalogue report is saved through.
+    setCustomDefinition(definition);
+    setForm({ ...EMPTY_FORM, name: 'Custom report' });
+    setFormError(null);
+    setDrawer('save');
+  };
+
+  const openBuilderForNew = () => {
+    setEditingDefinitionFor(null);
+    setDrawer('builder');
+  };
+
+  const openBuilderToEditShape = (saved: SavedReport) => {
+    setEditingDefinitionFor(saved);
+    setDrawer('builder');
+  };
+
   const submitSave = async () => {
     setBusy(true);
     setFormError(null);
@@ -277,6 +339,16 @@ export default function ReportsPage() {
         await loadLibrary();
         setDrawer(null);
         void runSaved(activeSaved.id);
+      } else if (customDefinition) {
+        const created = await createSavedReport({
+          ...payload,
+          custom_definition: customDefinition,
+        });
+        await loadLibrary();
+        setDrawer(null);
+        setCustomDefinition(null);
+        setSelection({ kind: 'saved', id: created.id });
+        void runSaved(created.id);
       } else if (activeCatalogue) {
         const created = await createSavedReport({
           ...payload,
@@ -378,6 +450,15 @@ export default function ReportsPage() {
             their own, "Dashboards", which read as a second copy of the home
             screen; the routes are unchanged, only the way in. Gated on the
             same `dashboard` permission the API enforces on every board call. */}
+        <button
+          type="button"
+          onClick={openBuilderForNew}
+          className="flex shrink-0 items-center gap-1.5 rounded-xl px-3.5 py-2 text-[12.5px] font-semibold text-white transition hover:opacity-90"
+          style={{ background: 'var(--accent)' }}
+        >
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+          New custom report
+        </button>
         {mayViewBoards && (
           <Link
             href="/dashboards"
@@ -567,12 +648,23 @@ export default function ReportsPage() {
                     <Save className="h-3.5 w-3.5" /> Save
                   </button>
                 )}
+                {activeSaved?.custom_definition && (
+                  <button
+                    type="button"
+                    onClick={() => openBuilderToEditShape(activeSaved)}
+                    className="ctl bd inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[12.5px] font-semibold transition hover:opacity-80"
+                    title="Change which fields, filters or grouping this report uses"
+                  >
+                    <BarChart3 className="h-3.5 w-3.5" /> Edit shape
+                  </button>
+                )}
                 {activeSaved && (
                   <>
                     <button
                       type="button"
                       onClick={openEditDrawer}
                       className="ctl bd inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[12.5px] font-semibold transition hover:opacity-80"
+                      title="Rename, refile, reshare or change the period"
                     >
                       <Pencil className="h-3.5 w-3.5" /> Edit
                     </button>
@@ -805,6 +897,29 @@ export default function ReportsPage() {
             still depends on who opens it.
           </p>
         </div>
+      </SlideDrawer>
+
+      {/* Custom report builder (Checkpoint 5) */}
+      <SlideDrawer
+        open={drawer === 'builder'}
+        onClose={() => {
+          setDrawer(null);
+          setEditingDefinitionFor(null);
+        }}
+        title={editingDefinitionFor ? `Edit “${editingDefinitionFor.name}”` : 'Build a custom report'}
+        subtitle="Choose a module, the fields or summary you want, and any filters. Preview before saving."
+        width="max-w-2xl"
+      >
+        <ReportBuilder
+          initial={editingDefinitionFor?.custom_definition ?? undefined}
+          busy={busy}
+          saveLabel={editingDefinitionFor ? 'Save changes' : 'Continue'}
+          onSave={definition => handleBuilderSave(definition)}
+          onCancel={() => {
+            setDrawer(null);
+            setEditingDefinitionFor(null);
+          }}
+        />
       </SlideDrawer>
     </div>
   );

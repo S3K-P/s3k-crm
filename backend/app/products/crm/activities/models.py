@@ -22,7 +22,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.core.models import TimestampMixin, UUIDPrimaryKeyMixin
-from app.products.crm.common import CRM_SCHEMA, CrmEntityMixin, CrmEntityType
+from app.products.crm.common import CRM_SCHEMA, CrmEntityMixin, CrmEntityType, searchable
 
 
 class ActivityType(enum.StrEnum):
@@ -101,6 +101,19 @@ class Activity(Base, CrmEntityMixin):
         nullable=True,
     )
     related_entity_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+
+    # --- Search --------------------------------------------------------
+    #: A meeting's own ``location``/``agenda`` (a separate table, joined by
+    #: ``activity_id``) are deliberately not folded in here — a generated
+    #: column can only read its own row, and copying them in via a trigger
+    #: would be the second search-maintenance mechanism the other four
+    #: entities' migration (``20260826_0100``) specifically avoided. A search
+    #: for a meeting's location finds it by ``subject``/``outcome`` instead.
+    search_vector: Mapped[str | None] = searchable(
+        "setweight(to_tsvector('english'::regconfig, coalesce(subject, '')), 'A') || "
+        "setweight(to_tsvector('english'::regconfig, coalesce(outcome, '')), 'C') || "
+        "setweight(to_tsvector('english'::regconfig, coalesce(description, '')), 'D')"
+    )
 
 
 class Meeting(Base, UUIDPrimaryKeyMixin, TimestampMixin):
