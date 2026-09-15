@@ -47,16 +47,43 @@ export interface CurrentUser {
 }
 
 export interface TokenResponse {
+  mfa_required?: false;
   access_token: string;
   token_type: string;
   expires_at: string;
   organization_id: string | null;
 }
 
+/**
+ * Returned by `POST /auth/login` in place of {@link TokenResponse} when the
+ * account has MFA enabled — the password was correct, but no session exists
+ * yet. Redeem `mfa_challenge_token` at `POST /auth/mfa/verify`.
+ */
+export interface MfaChallengeResponse {
+  mfa_required: true;
+  mfa_challenge_token: string;
+  expires_at: string;
+}
+
+export type LoginResponse = TokenResponse | MfaChallengeResponse;
+
 export interface LoginCredentials {
   email: string;
   password: string;
   organization_id?: string;
+}
+
+export interface MfaStatus {
+  enabled: boolean;
+  /** A secret was generated but not yet confirmed with a correct code. */
+  pending: boolean;
+}
+
+/** Shown exactly once — neither value is retrievable again after this. */
+export interface MfaEnrollment {
+  secret: string;
+  provisioning_uri: string;
+  recovery_codes: string[];
 }
 
 /**

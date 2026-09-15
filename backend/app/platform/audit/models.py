@@ -87,6 +87,12 @@ class AuditAction(enum.StrEnum):
     #: never arrived" from "nobody tried".
     PASSWORD_RESET_REQUESTED = "PASSWORD_RESET_REQUESTED"  # noqa: S105
     PASSWORD_RESET_COMPLETED = "PASSWORD_RESET_COMPLETED"  # noqa: S105
+    #: Checkpoint 8. Enrollment *starting* is not recorded — a secret was
+    #: generated but grants nothing until confirmed — only the moment MFA
+    #: actually becomes a gate on the account, and the moment it stops being
+    #: one.
+    MFA_ENABLED = "MFA_ENABLED"
+    MFA_DISABLED = "MFA_DISABLED"
 
     # --- Record lifecycle --------------------------------------------------
     CREATED = "CREATED"

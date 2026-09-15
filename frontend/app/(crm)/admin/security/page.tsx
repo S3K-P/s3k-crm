@@ -31,6 +31,16 @@ import NotConfigured from '@/components/crm/shared/NotConfigured';
    is not connected" claim in Checkpoint 1 — a stale negative is
    the same class of bug as a stale positive.
 
+   Multi-factor authentication (TOTP) shipped in this same
+   checkpoint — app/platform/auth/mfa.py, service.py's
+   begin_mfa_enrollment/confirm_mfa_enrollment/verify_mfa_challenge
+   — self-service at Account -> Security, same "configured vs
+   built" shape as email: needs MFA_ENCRYPTION_KEY set. SSO/SAML
+   remains a real gap, not attempted: it needs a specific external
+   identity provider to integrate against, which is a
+   deployment-specific project rather than a generic toggle to
+   ship.
+
    The items marked active below are enforced by the backend and
    covered by tests; the values match `app/core/config.py`
    defaults. A deployment that overrides them will differ, which
@@ -113,15 +123,16 @@ const NEEDS_CONFIGURATION: Control[] = [
       'Self-service reset by emailed link (single-use, expiring token), invitations and reminders are fully built and tested. Ships with EMAIL_PROVIDER=null (no transport) until a deployment sets EMAIL_PROVIDER=smtp with real SMTP credentials — set it in backend/.env or the platform\'s environment variables.',
     active: false,
   },
+  {
+    name: 'Multi-factor authentication (TOTP)',
+    detail:
+      'Enrollment, a login challenge, and one-time recovery codes are fully built and tested — a person turns it on for their own account at Account → Security. A TOTP secret cannot be one-way hashed like a password, so it is encrypted at rest instead; that needs MFA_ENCRYPTION_KEY set, which this deployment ships without by default.',
+    active: false,
+  },
 ];
 
 /** Not built. Listed so their absence is explicit rather than assumed. */
 const NOT_IN_FORCE: Control[] = [
-  {
-    name: 'Multi-factor authentication',
-    detail: 'Not implemented. There is no enrolment, challenge or recovery flow.',
-    active: false,
-  },
   {
     name: 'Single sign-on (SAML / OIDC)',
     detail:

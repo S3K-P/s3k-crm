@@ -11,7 +11,13 @@ from sqlalchemy import CursorResult, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.platform.auth.models import PasswordResetToken, Session, User, UserProfile
+from app.platform.auth.models import (
+    MfaCredential,
+    PasswordResetToken,
+    Session,
+    User,
+    UserProfile,
+)
 
 
 class AuthRepository:
@@ -170,6 +176,24 @@ class AuthRepository:
             ),
         )
         return int(result.rowcount or 0)
+
+    # --- MFA -----------------------------------------------------------------
+
+    async def get_mfa_credential(self, user_id: uuid.UUID) -> MfaCredential | None:
+        """The user's own credential, active or pending — there is at most one."""
+        result = await self._session.execute(
+            select(MfaCredential).where(MfaCredential.user_id == user_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def add_mfa_credential(self, credential: MfaCredential) -> MfaCredential:
+        self._session.add(credential)
+        await self._session.flush()
+        return credential
+
+    async def delete_mfa_credential(self, credential: MfaCredential) -> None:
+        await self._session.delete(credential)
+        await self._session.flush()
 
 
 __all__ = ["AuthRepository"]

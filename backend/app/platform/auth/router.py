@@ -27,6 +27,12 @@ from app.platform.auth.schemas import (
     ForgotPasswordRequest,
     LoginRequest,
     MembershipSummary,
+    MfaChallengeResponse,
+    MfaConfirmRequest,
+    MfaDisableRequest,
+    MfaEnrollResponse,
+    MfaStatusResponse,
+    MfaVerifyRequest,
     RefreshRequest,
     ResetPasswordRequest,
     SignupRequest,
@@ -34,7 +40,12 @@ from app.platform.auth.schemas import (
     UserResponse,
 )
 from app.platform.auth.security import PasswordHasher, TokenIssuer
-from app.platform.auth.service import AuthenticationError, AuthService, IssuedTokens
+from app.platform.auth.service import (
+    AuthenticationError,
+    AuthService,
+    IssuedTokens,
+    MfaChallenge,
+)
 from app.platform.auth.throttle import AuthThrottle
 from app.platform.authorization.repository import AuthorizationRepository
 from app.platform.authorization.service import AuthorizationService
@@ -155,7 +166,11 @@ async def signup(
     )
 
 
-@router.post("/login", response_model=TokenResponse, status_code=status.HTTP_200_OK)
+@router.post(
+    "/login",
+    response_model=TokenResponse | MfaChallengeResponse,
+    status_code=status.HTTP_200_OK,
+)
 async def login(
     payload: LoginRequest,
     request: Request,
@@ -163,7 +178,7 @@ async def login(
     service: AuthServiceDep,
     settings: SettingsDep,
     throttle: ThrottleDep,
-) -> TokenResponse:
+) -> TokenResponse | MfaChallengeResponse:
     """Exchange credentials for an access token and a refresh cookie.
 
     Two brute-force controls apply, and they cover different attacks. The
@@ -175,19 +190,68 @@ async def login(
     The throttle runs before the credentials are checked, so a rejected caller
     learns nothing about whether the account exists.
 
+    With MFA enabled on the account, this returns :class:`MfaChallengeResponse`
+    instead — no cookie is set and no session exists yet, only the password
+    has been verified. The caller completes sign-in at ``/auth/mfa/verify``.
+
     Raises:
         TooManyAttemptsError: 429, the address is over its attempt budget.
         AuthenticationError: 401, wrong credentials or a locked account.
     """
     await throttle.check()
-    tokens = await service.authenticate(
+    result = await service.authenticate(
         email=payload.email,
         password=payload.password.get_secret_value(),
         organization_id=payload.organization_id,
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("User-Agent"),
     )
-    # Only on success: a wrong password leaves the counter standing.
+    # Only on success: a wrong password leaves the counter standing. A
+    # correct password that still owes a second factor counts as success
+    # here — the throttle's job is credential stuffing, which this defeats.
+    await throttle.clear()
+
+    if isinstance(result, MfaChallenge):
+        return MfaChallengeResponse(
+            mfa_challenge_token=result.challenge_token, expires_at=result.expires_at
+        )
+
+    _set_refresh_cookie(response, result, settings)
+    return TokenResponse(
+        access_token=result.access_token,
+        expires_at=result.access_expires_at,
+        organization_id=result.organization_id,
+    )
+
+
+@router.post("/mfa/verify", response_model=TokenResponse, status_code=status.HTTP_200_OK)
+async def verify_mfa(
+    payload: MfaVerifyRequest,
+    request: Request,
+    response: Response,
+    service: AuthServiceDep,
+    settings: SettingsDep,
+    throttle: ThrottleDep,
+) -> TokenResponse:
+    """Redeem an MFA challenge from ``/auth/login`` for a real session.
+
+    Unauthenticated by design — the caller has no session yet, only the
+    challenge token ``/auth/login`` just handed back, which is why this is
+    throttled the same way ``/login`` itself is.
+
+    Raises:
+        TooManyAttemptsError: 429, the address is over its attempt budget.
+        InvalidTokenError: 401, the challenge token is invalid or expired.
+        AccountLockedError: 423, too many wrong codes locked the account.
+        InvalidMfaCodeError: 401, the code is wrong.
+    """
+    await throttle.check()
+    tokens = await service.verify_mfa_challenge(
+        challenge_token=payload.mfa_challenge_token.get_secret_value(),
+        code=payload.code.get_secret_value(),
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("User-Agent"),
+    )
     await throttle.clear()
     _set_refresh_cookie(response, tokens, settings)
     return TokenResponse(
@@ -195,6 +259,64 @@ async def login(
         expires_at=tokens.access_expires_at,
         organization_id=tokens.organization_id,
     )
+
+
+@router.get("/mfa/status", response_model=MfaStatusResponse)
+async def mfa_status(user: CurrentUser, service: AuthServiceDep) -> MfaStatusResponse:
+    """Whether the caller's own account has MFA enabled or mid-enrollment."""
+    enabled, pending = await service.mfa_status(user.id)
+    return MfaStatusResponse(enabled=enabled, pending=pending)
+
+
+@router.post("/mfa/enroll", response_model=MfaEnrollResponse, status_code=status.HTTP_201_CREATED)
+async def enroll_mfa(user: CurrentUser, service: AuthServiceDep) -> MfaEnrollResponse:
+    """Start enrollment: a fresh secret and recovery codes, shown exactly once.
+
+    Not yet active — the account is not gated on MFA until
+    ``POST /mfa/enroll/confirm`` proves the code works.
+
+    Raises:
+        MfaNotConfiguredError: 503, no ``MFA_ENCRYPTION_KEY`` is set in this
+            deployment.
+        ConflictError: 409, MFA is already enabled.
+    """
+    secret, uri, recovery_codes = await service.begin_mfa_enrollment(user=user)
+    return MfaEnrollResponse(secret=secret, provisioning_uri=uri, recovery_codes=recovery_codes)
+
+
+@router.post("/mfa/enroll/confirm", status_code=status.HTTP_204_NO_CONTENT)
+async def confirm_mfa_enrollment(
+    payload: MfaConfirmRequest, user: CurrentUser, service: AuthServiceDep
+) -> Response:
+    """Activate a pending enrollment.
+
+    Raises:
+        ConflictError: 409, no enrollment is pending.
+        InvalidMfaCodeError: 401, the code does not match.
+    """
+    await service.confirm_mfa_enrollment(user=user, code=payload.code.get_secret_value())
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/mfa/disable", status_code=status.HTTP_204_NO_CONTENT)
+async def disable_mfa(
+    payload: MfaDisableRequest, user: CurrentUser, service: AuthServiceDep
+) -> Response:
+    """Remove MFA from the caller's own account.
+
+    Requires the current password even though the caller is already
+    signed in: MFA is meant to still gate the account against someone who
+    has only stolen a bearer token, and this is exactly the action that
+    guard has to cover.
+
+    Raises:
+        AuthenticationError: 401, the current password is wrong.
+        ConflictError: 409, MFA is not enabled.
+    """
+    await service.disable_mfa(
+        user=user, current_password=payload.current_password.get_secret_value()
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/refresh", response_model=TokenResponse, status_code=status.HTTP_200_OK)

@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Building2, Check, LogOut } from 'lucide-react';
+import Link from 'next/link';
+import { Building2, Check, KeyRound, LogOut } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
@@ -141,6 +142,18 @@ export default function AccountMenu() {
               })}
             </div>
           )}
+
+          <div className="bd border-b py-1.5">
+            <Link
+              href="/account/security"
+              role="menuitem"
+              onClick={() => setOpen(false)}
+              className="hover:surface-2 flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[12.5px] font-medium transition-colors"
+            >
+              <KeyRound className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              Security
+            </Link>
+          </div>
 
           <button
             role="menuitem"

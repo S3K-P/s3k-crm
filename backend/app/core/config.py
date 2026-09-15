@@ -158,6 +158,22 @@ class Settings(BaseSettings):
     login_rate_limit_attempts: int = Field(default=30, ge=1, le=1000)
     login_rate_limit_window_seconds: int = Field(default=300, ge=10, le=86400)
 
+    # --- Multi-factor authentication (Checkpoint 8) ------------------------
+    #: A TOTP secret cannot be one-way hashed like a password — the server
+    #: must recover the plaintext to compute the next code — so it is
+    #: encrypted at rest with this key (``cryptography.fernet.Fernet``,
+    #: already a transitive dependency via ``pyjwt[crypto]``) instead. Unset
+    #: by default: MFA enrollment is a 503 ``mfa_not_configured`` until a
+    #: deployment sets one, the same "built but not switched on" shape as
+    #: email — see ``Settings.mfa_configured``. Generate with
+    #: ``Fernet.generate_key()``.
+    mfa_encryption_key: SecretStr | None = None
+    #: Seconds an issued MFA challenge (the token returned by ``/auth/login``
+    #: in place of real credentials, once the password has already been
+    #: verified) stays redeemable. Short: it is a mid-login artefact, not a
+    #: session.
+    mfa_challenge_ttl_seconds: int = Field(default=300, ge=60, le=1800)
+
     #: Reverse proxies between the internet and this process.
     #:
     #: Decides which ``X-Forwarded-For`` entry is the real client: the address
@@ -346,6 +362,16 @@ class Settings(BaseSettings):
     # --- Observability (ADR-018) -------------------------------------------
     log_level: LogLevel = "INFO"
     log_json: bool = True
+
+    @property
+    def mfa_configured(self) -> bool:
+        """Whether a deployment can encrypt/decrypt TOTP secrets at all.
+
+        False is a first-class state: enrollment answers 503
+        ``mfa_not_configured`` rather than storing a secret nobody set a key
+        to protect.
+        """
+        return self.mfa_encryption_key is not None
 
     @property
     def ai_credential(self) -> SecretStr | None:
