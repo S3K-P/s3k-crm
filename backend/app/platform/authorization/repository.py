@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.platform.authorization.models import (
@@ -99,6 +99,35 @@ class AuthorizationRepository:
         for permission_id in permission_ids:
             self._session.add(RolePermission(role_id=role_id, permission_id=permission_id))
         await self._session.flush()
+
+    async def refresh_role_permissions(self, role: Role) -> Role:
+        """Reload ``role.permissions`` from the database.
+
+        ``set_role_permissions`` writes the join table directly, bypassing
+        the ORM collection; the session's identity map still hands back the
+        same ``Role`` instance on a later `select(Role)`, with its
+        previously-``selectin``-loaded ``permissions`` unchanged. An explicit
+        refresh is the only way the caller sees its own write.
+        """
+        await self._session.refresh(role, attribute_names=["permissions"])
+        return role
+
+    async def count_role_assignments(self, role_id: uuid.UUID) -> int:
+        """How many memberships currently hold this role.
+
+        Checked before a delete: removing a role out from under an assigned
+        member would silently strip their access rather than asking an
+        administrator to reassign them first.
+        """
+        result = await self._session.execute(
+            select(func.count())
+            .select_from(MembershipRole)
+            .where(MembershipRole.role_id == role_id)
+        )
+        return result.scalar_one()
+
+    async def delete_role(self, role_id: uuid.UUID) -> None:
+        await self._session.execute(delete(Role).where(Role.id == role_id))
 
     # --- Assignments -------------------------------------------------------
 

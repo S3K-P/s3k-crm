@@ -10,9 +10,13 @@
  * is the point: a hardcoded matrix drifts from what is actually enforced, and
  * a permission matrix that lies is worse than no matrix.
  *
- * **Read-only.** There is no endpoint for editing a role's permissions; the
- * backend seeds them from `catalog.py`. Role assignment to a member is
- * supported (`assignRole` / `revokeRole`).
+ * **System templates (Admin/Manager/User) stay read-only** — seeded by
+ * migration, shared by every tenant. A tenant's **own** roles (Checkpoint 8)
+ * can be created, renamed, re-permissioned and deleted through
+ * `createRole`/`updateRole`/`deleteRole`; the backend refuses all three for a
+ * system template (409 `conflict`) and refuses a delete while any member
+ * still holds the role. Role *assignment* to a member is separate and
+ * unchanged (`assignRole` / `revokeRole`).
  */
 
 import { api } from '@/lib/api-client';
@@ -46,6 +50,21 @@ export const getRole = (id: string) => api.get<RoleDetail>(`/roles/${id}`);
 
 export const getPermissionCatalog = () =>
   api.get<PermissionCatalog>('/roles/permissions');
+
+export interface RoleFormInput {
+  name: string;
+  description: string | null;
+  permissions: string[];
+}
+
+export const createRole = (input: RoleFormInput) =>
+  api.post<RoleDetail>('/roles', input);
+
+/** Every field optional: only what's sent is changed — see the backend's `RoleUpdateRequest`. */
+export const updateRole = (id: string, changes: Partial<RoleFormInput>) =>
+  api.patch<RoleDetail>(`/roles/${id}`, changes);
+
+export const deleteRole = (id: string) => api.delete<void>(`/roles/${id}`);
 
 export const assignRole = (membershipId: string, roleId: string) =>
   api.post<void>('/roles/assignments', {
