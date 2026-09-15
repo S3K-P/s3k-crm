@@ -11,6 +11,7 @@ import AttachmentsPanel from '@/components/crm/shared/AttachmentsPanel';
 import CustomFieldsPanel from '@/components/crm/shared/CustomFieldsPanel';
 import { ActivityTimelinePanel, NotesPanel } from '@/components/crm/shared/RecordPanels';
 import RecordTimeline from '@/components/crm/shared/RecordTimeline';
+import AiRecordPanel from '@/components/crm/ai/AiRecordPanel';
 import EmailsPanel from '@/components/crm/emails/EmailsPanel';
 import { useRecord } from '@/components/crm/shared/useRecord';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
@@ -422,6 +423,8 @@ export default function OpportunityDetailPage() {
       </div>
 
       <CustomFieldsPanel entityType="OPPORTUNITY" values={opportunity.custom_fields} />
+
+      <AiRecordPanel entityType="OPPORTUNITY" entityId={opportunity.id} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <ActivityTimelinePanel entityType="OPPORTUNITY" entityId={opportunity.id} />

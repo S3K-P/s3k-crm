@@ -19,6 +19,7 @@ import {
 } from '@/components/crm/shared/RelatedLists';
 import AccountSummary from '@/components/crm/accounts/AccountSummary';
 import AccountTimeline from '@/components/crm/accounts/AccountTimeline';
+import AiRecordPanel from '@/components/crm/ai/AiRecordPanel';
 import { useRecord } from '@/components/crm/shared/useRecord';
 import { usePermissions } from '@/context/AuthContext';
 import { getAccount, type Account } from '@/features/crm/accounts';
@@ -187,6 +188,11 @@ export default function AccountDetailPage() {
       id: 'timeline',
       label: 'Timeline',
       content: <AccountTimeline accountId={account.id} />,
+    },
+    {
+      id: 'ai',
+      label: 'AI',
+      content: <AiRecordPanel entityType="ACCOUNT" entityId={account.id} />,
     },
   ];
 

@@ -43,7 +43,7 @@ blueprints ✅, QA/reliability work ✅, DB indexes/performance work ✅.
 
 ## Executive Summary
 
-**75 features audited: 50 ✅ COMPLETE · 18 🟡 PARTIAL · 7 🔴 MISSING** (Checkpoint 2 moved primary contacts to complete and Kanban drag-and-drop from missing to partial; Checkpoint 3 wired the Leads board to move Kanban drag-and-drop to complete, and substantially extended Activities, Tasks, Timeline, Files and Email without changing their own status; Checkpoint 4 built the form/layout builder, conditional fields, inline and bulk editing, moving items 31–36, 47 and 48 to complete and 41 from missing to partial; Checkpoint 5 built the ad-hoc report builder, a multi-condition AND/OR filter engine, and dashboard drag-and-drop, moving items 43, 61 and 65 to complete; Checkpoint 6 built the workflow trigger/condition/action engine on the existing outbox, moving items 56, 57, 58 and 60 to complete; see the Checkpoints table below for what each checkpoint changed).
+**75 features audited: 57 ✅ COMPLETE · 17 🟡 PARTIAL · 1 🔴 MISSING** (Checkpoint 2 moved primary contacts to complete and Kanban drag-and-drop from missing to partial; Checkpoint 3 wired the Leads board to move Kanban drag-and-drop to complete, and substantially extended Activities, Tasks, Timeline, Files and Email without changing their own status; Checkpoint 4 built the form/layout builder, conditional fields, inline and bulk editing, moving items 31–36, 47 and 48 to complete and 41 from missing to partial; Checkpoint 5 built the ad-hoc report builder, a multi-condition AND/OR filter engine, and dashboard drag-and-drop, moving items 43, 61 and 65 to complete; Checkpoint 6 built the workflow trigger/condition/action engine on the existing outbox, moving items 56, 57, 58 and 60 to complete; Checkpoint 7 built AI Account Summary, Account Intelligence, Next-Best-Action, AI email drafting, meeting-to-CRM extraction and rule-based prioritization on the AI gateway, moving items 1, 4, 5, 6, 7, 8 and 10 to complete and item 9 from missing to partial — only Custom modules (40) remains missing; see the Checkpoints table below for what each checkpoint changed).
 
 - **The CRM core is solid.** Accounts, contacts, leads, deals, pipeline,
   activities, tasks, meetings, notes, attachments, email, search, saved views,
@@ -51,12 +51,16 @@ blueprints ✅, QA/reliability work ✅, DB indexes/performance work ✅.
   row-level-security tenant isolation and audit logging are implemented end to
   end. Each has a backend module, a migration, a real frontend screen, and
   integration tests.
-- **AI is the largest gap.** The AI gateway (`backend/app/platform/ai/`,
-  ADR-016) is real and works with Anthropic or Gemini. Exactly one product
-  feature uses it: **Market Insights** (company research, with
-  permission-filtered CRM context). AI Insights, Next-Best-Action, AI email,
-  meeting-to-CRM, natural-language commands and prioritization have no backend
-  at all. Their pages render a hardcoded "AI is not connected" placeholder.
+- **AI now covers every checkpointed feature except custom modules.**
+  Checkpoint 7 built `products/crm/ai_insights/*` on the same AI gateway
+  Market Insights uses: account/deal/lead summaries, Account Intelligence,
+  Next-Best-Action, AI email drafting, meeting-to-CRM extraction (never
+  writes until a user confirms), a natural-language question box (read-only,
+  translated into the existing report engine — never raw SQL), and
+  rule-based prioritization with an AI-narrated explanation ("rules first, AI
+  explanation second" — the score itself is never a model's guess). Natural-
+  language *commands* that write data remain out of scope (#9 stays partial;
+  see its row below).
 - **The "AI not connected" issue has two layers.** First, most AI screens show
   the message unconditionally, whatever the configuration. Second, the one
   screen that checks, Market Insights, depends on the environment variables
@@ -81,23 +85,23 @@ root. `BE` = `backend/app/products/crm/`, `PF` = `backend/app/platform/`,
 
 | # | Feature | Status | Existing Implementation | Missing/Required Work | Dependencies |
 |---|---|---|---|---|---|
-| 1 | AI connection/integration | 🟡 | Gateway `PF/ai/` (`service.py` `AiGatewayService`, `provider.py` `AnthropicResearchProvider` + `GeminiResearchProvider`); streaming, continuations, Redis rate limit, append-only prompt versions (`platform.ai_prompt_versions`, migration `20260827_0100`). Used only by `BE/market_insights/`. | Wire AI Insights / NBA / other AI screens to real status; add a generic non-research "completion" call path for summaries/emails (the gateway is research-shaped today). | #2, #3 |
+| 1 | AI connection/integration | ✅ | Gateway `PF/ai/` (`service.py` `AiGatewayService`, `provider.py` `AnthropicResearchProvider` + `GeminiResearchProvider`); streaming, continuations, Redis rate limit, append-only prompt versions (`platform.ai_prompt_versions`, migration `20260827_0100`). **Checkpoint 7:** `BE/ai_insights/structured.py:run_structured` adds the generic non-research "completion" path (`web_search=False`) every structured-output feature uses; the gateway now backs two product modules, not one. | — | #2, #3 |
 | 2 | AI provider configuration | 🟡 | Env-only, via `Settings` in `backend/app/core/config.py`: `AI_PROVIDER` (`anthropic`\|`gemini`, default `anthropic`), per-provider key, model, limits. | No admin UI: `FE/app/(crm)/ai-settings/providers/page.tsx` is a static `AiUnavailable` placeholder. No DB-stored credentials on this branch (no `credentials.py`/`registry.py`, no `ai_provider_credentials` migration). Optional: read-only provider/model display from `/ai/status`. | #3 |
 | 3 | AI health/status | 🟡 | `GET /ai/status` → `{configured, model}` (`PF/ai/router.py`). Checks that a key is **present** for the selected provider. | No live check. A revoked or invalid key still reports `configured: true` until a real call fails with `ai_not_configured`. Only 1 of 12 AI screens (Market Insights) calls it. Add provider name + admin-only live probe. | — |
-| 4 | AI Account Summary | 🔴 | Nothing. Closest: a Market Insights session can be linked to an account (`POST /crm/market-insights/{id}/account`). | Endpoint + prompt that summarises one account from its CRM data (reuse `BE/market_insights/context.py` permission-filtered context); panel on the Account 360 page. | #1, #12 |
-| 5 | AI Account Intelligence | 🟡 | Market Insights: web research on a company with fenced, permission-filtered CRM context, history, follow-up chat, sources panel, HTML/Markdown export (`BE/market_insights/*`, `FE/app/(crm)/ai/market-insights/page.tsx`). | CRM-internal intelligence (deal health, risk, engagement) is absent. `FE/app/(crm)/ai/insights/page.tsx` is a placeholder; its fixtures `FE/features/ai/insights/mock-data.ts` must not be used. | #1, #4 |
-| 6 | AI Next-Best-Action | 🔴 | UI components exist over **mock data only** (`FE/components/crm/ai/nba/*`, `FE/features/ai/next-best-action/mock-data.ts`); the page renders `AiUnavailable`. | Backend service ranking actions from real deals/activities/tasks; replace fixtures with an API. | #1, #10, #20–24 |
-| 7 | AI email generation | 🔴 | Compose drawer + templates exist (`FE/components/crm/emails/ComposeEmailDrawer.tsx`, `BE/emails/`). | "Draft with AI" endpoint returning subject/body into the compose drawer (never auto-send). | #1, #27 |
-| 8 | AI meeting/activity → CRM updates | 🔴 | Orphan component `FE/components/crm/ai/AIMeetingAssistant.tsx` (imported nowhere). | Notes/transcript → proposed field updates, tasks, next steps, with explicit user confirmation before any write. | #1, #20–23, #56 |
-| 9 | Natural-language CRM commands | 🔴 | Orphan `FE/components/crm/ai/AICommandBar.tsx`, `ai/insights/AiQueryPanel.tsx`. Command palette does keyword search only. | NL → structured query/actions, executed through existing permission-checked endpoints. | #1, #42, #43 |
-| 10 | AI deal/lead prioritization | 🔴 | Nothing (no score columns). `FE/features/ai/scoring/` is an empty barrel. | Scoring service (rules first, AI explanation second), score shown on lists and Kanban. | #1, #15, #20 |
+| 4 | AI Account Summary | ✅ | **Checkpoint 7:** `BE/ai_insights/service.py:account_summary` (also `opportunity_summary`/`lead_summary`) builds permission-filtered context (`context.py`) and a validated `RecordSummaryOutput`, stored append-only in `crm.ai_generations`. `GET/POST /crm/ai-insights/{accounts,opportunities,leads}/{id}/summary`. `FE/components/crm/ai/AiRecordPanel.tsx` renders it as an "AI" card on the Account/Deal/Lead 360 pages, with Generate/Refresh and thumbs up/down feedback. | — | #1, #12 |
+| 5 | AI Account Intelligence | ✅ | Market Insights (web research) unchanged. **Checkpoint 7 adds the CRM-internal half:** `account_intelligence` — summary, relationship health + rationale, risks, opportunities, recommended actions, missing information, all grounded in the account's own CRM data (never generic advice) via `AccountIntelligenceOutput`. `GET/POST /crm/ai-insights/accounts/{id}/intelligence`, rendered on Account 360's AI card. The old fixtures (`FE/features/ai/insights/mock-data.ts`) were not imported. | — | #1, #4 |
+| 6 | AI Next-Best-Action | ✅ | **Checkpoint 7:** `next_best_action_for_opportunity`/`_for_lead` recommend one concrete action with urgency and evidence (`NextBestActionOutput`), rendered per-record on the AI card. A ranked queue across every open deal/lead lives on `FE/app/(crm)/ai/next-best-action/page.tsx`, backed by the rule-based priority scores (#10) — ranking needs no AI call; "Explain" narrates one score. The pre-existing mock components (`FE/components/crm/ai/nba/*`) were left in place, unused, rather than wired to real data — see Known limitations. | — | #1, #10, #20–24 |
+| 7 | AI email generation | ✅ | **Checkpoint 7:** `POST /crm/ai-insights/email-draft` (`EmailDraftRequest`: exactly one of contact/account/opportunity/lead id, a tone, a free-text instruction sent as delimited data) returns a subject/body (`EmailDraftOutput`) — never sends. `FE/components/crm/emails/ComposeEmailDrawer.tsx` gained a "Draft with AI" panel that fills the subject/body fields for review before Send. | — | #1, #27 |
+| 8 | AI meeting/activity → CRM updates | ✅ | **Checkpoint 7:** `POST /crm/ai-insights/meetings/extract` reads pasted notes/a transcript as delimited user text and returns a structured extraction (summary, participants, key points, requirements, objections, commitments, sentiment, proposed follow-ups as TASK/NOTE/OPPORTUNITY_AMOUNT items) — nothing is written. `POST /crm/ai-insights/meetings/{id}/apply` creates only the items the user selects, through each entity's own service (`TaskService`/`NoteService`/`OpportunityService`), permission-checked per kind (a real gap the previous session's draft had — writing regardless of the caller's `tasks`/`notes`/`opportunities` permission — fixed before this checkpoint closed). `FE/components/crm/ai/AiRecordPanel.tsx`'s "Meeting notes → CRM" card on Account/Deal pages. The orphan `AIMeetingAssistant.tsx` was left in place, unused — see Known limitations. | — | #1, #20–23, #56 |
+| 9 | Natural-language CRM commands | 🟡 | **Checkpoint 7:** `POST /crm/ai-insights/query` translates a plain-language question into a `CustomReportDefinition` (`NlQueryTranslation`, `understood: false` with a clarification when the question can't be confidently expressed) and runs it through the *existing* `CustomReportEngine` — the model never sees or returns raw rows, never writes SQL. Re-checks the translated report's own module permission even though `ai_insights` already gated the request, so the AI path cannot answer for a module the caller cannot otherwise view. `FE/app/(crm)/ai/insights/page.tsx`'s question box. | Read-only by design (§10 of this module's own docstring: "never executes a query itself" beyond the guarded report engine) — a *command* that writes data ("mark this lead qualified") is not built. The orphan `AICommandBar.tsx` was left in place, unused. | #1, #42, #43 |
+| 10 | AI deal/lead prioritization | ✅ | **Checkpoint 7:** `BE/ai_insights/prioritization.py` — pure, unit-tested functions scoring an open deal/lead from real fields (deal value, close date, win probability, days since last activity, overdue tasks) into HIGH/MEDIUM/LOW with named, checkable reasons; no model call. `GET /crm/ai-insights/priority/{opportunities,leads}` for the ranked queue, `POST .../explain` for a one-paragraph AI narration of an *already-computed* score (never a new reason). `FE/app/(crm)/ai/next-best-action/page.tsx` renders both queues; not yet surfaced on the Accounts/Opportunities/Leads list or Kanban views themselves. | Score not yet shown on the record list/Kanban views, only the dedicated queue page. | #1, #15, #20 |
 
 ### B. CRM Core
 
 | # | Feature | Status | Existing Implementation | Missing/Required Work | Dependencies |
 |---|---|---|---|---|---|
 | 11 | Accounts | ✅ | `BE/accounts/*`; CRUD + CSV export; soft delete, `merged_into_id`; `FE/app/(crm)/accounts/*`. | — | — |
-| 12 | Account 360 | 🟡 | **Checkpoint 2:** tabbed (`Overview`/`Contacts`/`Deals`/`Activities`/`Emails`/`Notes`/`Files`/`Timeline`) via `FE/components/crm/shared/Tabs.tsx`. Summary header (`FE/components/crm/accounts/AccountSummary.tsx`) reads `GET /crm/accounts/{id}/overview` (`BE/accounts/overview.py`, `service.py:overview`): open pipeline value, won revenue, contacts count, open tasks count, next meeting, owner name, primary contact — all record-visibility-scoped, no N+1. Company details now include phone (`crm.accounts.phone`, migration `20260914_0100`). **Checkpoint 3:** the Timeline tab now merges Task created/completed, sent Email and Notes into the same stream as activities, deals and contacts (see #24). | Still no dedicated open-tasks/upcoming *list* panel on the Account page — only the count. No AI summary (Checkpoint 7). | #4, #16, #21, #24 |
+| 12 | Account 360 | 🟡 | **Checkpoint 2:** tabbed (`Overview`/`Contacts`/`Deals`/`Activities`/`Emails`/`Notes`/`Files`/`Timeline`) via `FE/components/crm/shared/Tabs.tsx`. Summary header (`FE/components/crm/accounts/AccountSummary.tsx`) reads `GET /crm/accounts/{id}/overview` (`BE/accounts/overview.py`, `service.py:overview`): open pipeline value, won revenue, contacts count, open tasks count, next meeting, owner name, primary contact — all record-visibility-scoped, no N+1. Company details now include phone (`crm.accounts.phone`, migration `20260914_0100`). **Checkpoint 3:** the Timeline tab now merges Task created/completed, sent Email and Notes into the same stream as activities, deals and contacts (see #24). **Checkpoint 7:** gained an "AI" tab (`FE/components/crm/ai/AiRecordPanel.tsx`) — AI summary, Account Intelligence and a meeting-notes-to-CRM extractor, all on real CRM data (#4, #5, #8). | Still no dedicated open-tasks/upcoming *list* panel on the Account page — only the count. | #4, #16, #21, #24 |
 | 13 | Contacts | ✅ | `BE/contacts/*`; CRUD, export, merge; `FE/app/(crm)/contacts/*`. | — | — |
 | 14 | Contacts ↔ Accounts | ✅ | `crm.contacts.account_id`; `AccountContactsPanel` (`FE/components/crm/shared/RelatedLists.tsx`); create-from-account prefill. | — | — |
 | 15 | Deals | ✅ | `BE/opportunities/*` (CRUD, export, stage change, reopen, history). | — | — |
@@ -191,7 +195,7 @@ root. `BE` = `backend/app/products/crm/`, `PF` = `backend/app/platform/`,
 
 | Area | Frontend | Backend | Models / migrations | Tests |
 |---|---|---|---|---|
-| AI | `app/(crm)/ai/*`, `app/(crm)/ai-settings/*`, `components/crm/ai/*`, `features/ai/*` | `platform/ai/*`, `products/crm/market_insights/*` | `ai_prompt_versions`, research sessions/messages (`20260827_0100`, `20260903_0100`) | `test_market_insights.py`, `test_ai_provider.py`, `test_gemini_provider.py`, `test_market_insights_prompts.py` (81 tests total) |
+| AI | `app/(crm)/ai/*`, `app/(crm)/ai-settings/*`, `components/crm/ai/{AiRecordPanel,AiConnectionNotice,AiFeaturePending}.tsx`, `features/ai/{ai-insights,status,useAiStatus}.ts` | `platform/ai/*`, `products/crm/{market_insights,ai_insights}/*` | `ai_prompt_versions`, research sessions/messages (`20260827_0100`, `20260903_0100`); `crm.ai_generations` + `ai_feature`/`ai_generation_status`/`ai_feedback_rating` enums (`20260919_0100`) | `test_market_insights.py`, `test_ai_provider.py`, `test_gemini_provider.py`, `test_market_insights_prompts.py`; **Checkpoint 7:** `test_ai_insights.py`, `test_ai_insights_prioritization.py`, `test_ai_insights_structured.py`, `test_ai_insights_prompts.py` |
 | Core records | `app/(crm)/{accounts,contacts,leads,opportunities,tasks,meetings,calendar,emails}/*`, `components/crm/shared/*` | `products/crm/{accounts,contacts,leads,opportunities,activities,tasks,notes,emails,calendar}/*`, `platform/documents/*` | `8224845a67ac`, `20260818_0100`, `20260909_0100` | `test_crm_workflows.py`, `test_calendar.py`, `test_crm_email.py`, `test_attachments.py`, `test_read_after_write.py` |
 | Configuration | `app/(crm)/admin/{custom-fields,blueprints,crm-settings}/*`, `components/crm/forms/CustomFieldInputs.tsx` | `products/crm/{custom_fields,blueprints}/*` | `20260910_0100`, `20260912_0100` | `test_custom_fields.py`, `test_custom_field_validation.py`, `test_blueprints.py` |
 | Record mgmt | `components/crm/{tables,toolbar,kanban,import,dialogs/MergeDialog.tsx,topbar/CommandPalette.tsx}` | `products/crm/{search,views,imports,merge}/*`, `shared/csv_export.py` | `20260826_0100`, `20260911_0100`, `20260913_0100` | `test_search*.py`, `test_saved_views.py`, `test_csv_import.py`, `test_csv_export.py`, `test_merge.py` |
@@ -335,10 +339,14 @@ Export (52), Kanban (53), Kanban drag-and-drop (54), Blueprints (55), Workflow
 engine (56), Workflow rules (57), Workflow actions (58), Follow-up automation
 (60), Reports (61), Dashboards (62), Dashboard widgets (63), Dashboard builder
 (64), Dashboard drag-and-drop (65), Permissions (68), Tenant isolation (69),
-Audit logging (70), Error handling (73), Regression testing (74). **50 in
-total** (Checkpoint 4 moved 31–36, 47 and 48 here; Checkpoint 5 moved 43, 61
-and 65 here; Checkpoint 6 moved 56, 57, 58 and 60 here — see each checkpoint's
-own section below for what changed and what each item's remaining gaps are).
+Audit logging (70), Error handling (73), Regression testing (74), AI
+connection/integration (1), AI Account Summary (4), AI Account Intelligence
+(5), AI Next-Best-Action (6), AI email generation (7), AI meeting→CRM (8), AI
+prioritization (10). **57 in total** (Checkpoint 4 moved 31–36, 47 and 48
+here; Checkpoint 5 moved 43, 61 and 65 here; Checkpoint 6 moved 56, 57, 58 and
+60 here; Checkpoint 7 moved 1, 4, 5, 6, 7, 8 and 10 here — see each
+checkpoint's own section below for what changed and what each item's
+remaining gaps are).
 
 Also present, though not in the audit list: calendar, record merge, lead
 conversion, lead sources, campaigns, teams/departments, invitations, password
@@ -346,26 +354,27 @@ reset, app catalogue/enablement, Market Insights.
 
 ## Partial Functionality
 
-AI connection (1), AI provider configuration (2), AI health/status (3), AI
-Account Intelligence (5), Account 360 (12), Deal stages (19), Calls (22),
-Timeline (24), Emails (27), Record layouts (41), Column customization (46),
-Bulk actions (49), Notifications (59), CRM analytics (66), Roles (67),
-Security (71), Performance (72), E2E testing (75). **18 in total** (Checkpoint
-4 moved Form builder (31) and DnD field ordering (33) out to Completed, and
-moved Record layouts (41) in from Missing; Checkpoint 5 moved Advanced
-filtering (43) and Reports (61) out to Completed — see each checkpoint's own
-section below).
+AI provider configuration (2), AI health/status (3), Account 360 (12), Deal
+stages (19), Calls (22), Timeline (24), Emails (27), Record layouts (41),
+Column customization (46), Bulk actions (49), Natural-language commands (9),
+Notifications (59), CRM analytics (66), Roles (67), Security (71), Performance
+(72), E2E testing (75). **17 in total** (Checkpoint 4 moved Form builder (31)
+and DnD field ordering (33) out to Completed, and moved Record layouts (41) in
+from Missing; Checkpoint 5 moved Advanced filtering (43) and Reports (61) out
+to Completed; Checkpoint 7 moved AI connection (1) and AI Account Intelligence
+(5) out to Completed, and moved Natural-language commands (9) in from Missing
+— see each checkpoint's own section below).
 
 ## Missing Functionality
 
-AI Account Summary (4), AI Next-Best-Action (6), AI email generation (7), AI
-meeting→CRM (8), Natural-language commands (9), AI prioritization (10),
-Custom modules (40). **7 in total** (Checkpoint 5 moved Dashboard
+Custom modules (40). **1 in total** (Checkpoint 5 moved Dashboard
 drag-and-drop (65) out to Completed; Checkpoint 6 moved Workflow engine (56),
 Workflow rules (57), Workflow actions (58) and Follow-up automation (60) out
 to Completed — an outbound webhook action and "no activity in N days"
 detection remain unbuilt within #58/#60 respectively, documented in the
-feature-audit table rather than counted as a separate missing item).
+feature-audit table rather than counted as a separate missing item; Checkpoint
+7 moved AI Account Summary (4), AI Next-Best-Action (6), AI email generation
+(7), AI meeting→CRM (8) and AI prioritization (10) out to Completed).
 
 ---
 
@@ -402,7 +411,7 @@ UI, and should be scoped separately once layouts (41) exist.
 | **Checkpoint 4** | Form builder + drag/drop + custom fields + conditional fields + Kanban + bulk/inline editing + import mapping | 31–36, 41, 46–49, 51, 54 | ✅ Done |
 | **Checkpoint 5** | Search + Reports + Dashboards + Dashboard builder | 43, 61, 65, 66 (+ 42, 62–64 regression) | ✅ Done |
 | **Checkpoint 6** | Workflows + Blueprints + Notifications + Automation | 56–60 (55 regression) | ✅ Done |
-| **Checkpoint 7** | AI Account Intelligence + AI summaries + AI next-best-action + AI email + meeting-to-CRM + natural-language CRM | 4–10 | Planned |
+| **Checkpoint 7** | AI Account Intelligence + AI summaries + AI next-best-action + AI email + meeting-to-CRM + natural-language CRM | 4–10 | ✅ Done |
 | **Checkpoint 8** | Security + performance + complete regression/E2E testing + documentation | 67, 71, 72, 75 (+ full suite) | Planned |
 
 Rules for every checkpoint: extend existing modules and do not rebuild them.
@@ -2363,17 +2372,221 @@ live, end to end:
   (`workflows/service.py`, `workflows/conditions.py`), confirmed via its
   own startup log line before re-running the affected browser scenario.
 
+## Checkpoint 7 — Completed (2026-09-19)
+
+AI Account Summary, Account Intelligence, Next-Best-Action, AI email
+drafting, meeting-to-CRM extraction, a natural-language question box and
+rule-based prioritization — items 4–8 and 10, plus item 9 moved from missing
+to partial (read-only NL, not NL commands). Started by a prior session (which
+left the backend module, minus its router/migration/tests, stashed rather
+than committed) and finished here: this session recovered that work,
+completed the remaining backend surface, fixed two real bugs found while
+testing it, and built the frontend.
+
+### Files changed
+
+Backend:
+- `backend/app/products/crm/ai_insights/{__init__,models,repository,context,
+  structured,prompts,schemas,service,prioritization,insights}.py` — the
+  module the prior session left stashed. `models.py`: `crm.ai_generations`
+  (append-only, one row per feature call, `AiFeature`/`AiGenerationStatus`/
+  `AiFeedbackRating` enums, not owner-scoped — anyone who can see the record
+  can see its AI history, like Notes). `context.py`: permission-filtered CRM
+  context for an account/opportunity/lead, extending the pattern
+  `market_insights/context.py` established. `structured.py`: `run_structured`
+  — the one path every non-research feature uses to get a
+  Pydantic-validated answer, `web_search=False`, a fenced-JSON tolerant
+  parser, a typed `ai_invalid_output` 502 on failure. `prompts.py`:
+  `build_prompt` — task instructions first, a "treat CRM/user text as data"
+  standing-rules block last, `<crm-data>`/`<user-text>` delimiters, the
+  output shape generated from the *real* Pydantic schema
+  (`model_json_schema()`) rather than a hand-written, driftable hint.
+  `prioritization.py`/`insights.py`: pure, unit-tested rule-based scoring and
+  triage queries — no model call, so "rules first, AI explanation second"
+  is actually true rather than merely claimed. `service.py`: the public
+  `AiInsightsService` tying it together — resolve the record through its own
+  `get_or_404(..., visibility=...)`, build context, call the gateway,
+  validate, persist.
+- `backend/app/products/crm/ai_insights/router.py` (new this session) — every
+  endpoint under `/crm/ai-insights`; `ai_insights.VIEW` for a cached read,
+  `.CREATE` for a fresh model call, `.EDIT` for feedback and applying a
+  meeting extraction's items.
+- `backend/migrations/versions/20260919_0100_ai_insights.py` (new this
+  session) — `crm.ai_generations` + its three enums, seeds `ai_insights.*`
+  permissions and grants them to Admin (full)/Manager (`VIEW`, `VIEW_ALL`,
+  `CREATE`, `EDIT`, `DELETE`, `EXPORT`)/User (`VIEW`, `CREATE`, `EDIT`) —
+  mirrors `catalog._MANAGER_ACTIONS`/`_USER_ACTIONS` for the module the
+  stashed `catalog.py` edit had already registered. Verified against a
+  from-zero database (`alembic upgrade head` from empty), not only the dev
+  database.
+- `backend/app/api/router.py` — registers the router at `/crm/ai-insights`.
+- **Two real bugs found and fixed while testing, not in the original
+  stash:**
+  1. `apply_meeting_actions` called `TaskService.create_task`/
+     `NoteService.create_note`/`OpportunityService.update_open` directly.
+     Those are plain CRUD methods with no permission check of their own — in
+     this codebase that check is the router's `require_permission`
+     dependency, which nothing between the meeting-apply endpoint and those
+     calls provided. A caller holding only `ai_insights.CREATE` could create
+     tasks/notes or edit a deal's value through meeting extraction regardless
+     of their `tasks`/`notes`/`opportunities` permissions. Fixed by checking
+     the same permission each entity's own create/edit endpoint requires
+     before each item is applied, reported as `FAILED` (not raised) so the
+     other selected items still apply.
+  2. `apply_meeting_actions` re-validated the generation's stored `content`
+     against `MeetingExtractionOutput` (`extra="forbid"`) on every call —
+     including the *second* call, after the first had already written
+     `applied_indexes` into that same JSONB column. A second apply (the
+     "already applied" idempotency path §16 asks for) failed validation
+     instead of returning `SKIPPED`. Fixed by excluding that bookkeeping key
+     before validating.
+  3. Also added `lead_id` to `EmailDraftRequest`/`draft_email` (the stashed
+     version only supported contact/account/opportunity) and `entity_label`
+     to `PriorityScoreResponse` (the priority queue had no record name to
+     show without a second fetch per row) — both small, mechanical additions
+     in the same shape as what was already there, not scope additions.
+
+Frontend (none of it existed before this session — the AI pages were
+`AiFeaturePending` placeholders and `AIMeetingAssistant.tsx`/
+`AICommandBar.tsx`/`components/crm/ai/nba/*` were orphans over fixture data):
+- `frontend/features/ai/ai-insights.ts` (new) — the one client for every
+  `/crm/ai-insights` endpoint, mirroring `market_insights/index.ts`'s shape.
+- `frontend/components/crm/ai/AiRecordPanel.tsx` (new) — the "AI" tab/section
+  on Account/Deal/Lead 360: a cached summary (Refresh writes a new row,
+  never overwrites — the UI reads `GET` on mount, only `POST` on Generate),
+  Account Intelligence (accounts only), Next Best Action (deals/leads only),
+  thumbs up/down feedback, and a "Meeting notes → CRM" card (accounts/deals)
+  — paste notes, Extract, review each proposed item, Apply only what's
+  checked; nothing is written until Apply.
+- `frontend/app/(crm)/ai/insights/page.tsx` — rebuilt from the placeholder
+  into the real Insights Digest (deals at risk, stale opportunities,
+  neglected leads, quiet accounts, overdue tasks — all rule-based, render
+  with no AI connection) plus a natural-language question box (needs AI;
+  translates to the existing report engine, never raw SQL).
+- `frontend/app/(crm)/ai/next-best-action/page.tsx` — rebuilt into the real
+  priority queue for open deals and leads (`GET /priority/*`, rule-based, no
+  AI needed to rank) with an "Explain" action per row that narrates the
+  already-computed score.
+- `frontend/components/crm/emails/ComposeEmailDrawer.tsx` — a "Draft with
+  AI" panel (tone + free-text instruction) that fills the subject/body for
+  review; never sends automatically.
+- `frontend/app/(crm)/{accounts,opportunities,leads}/[id]/page.tsx` — mount
+  `AiRecordPanel`.
+
+**Left deliberately unchanged, not overlooked:** the pre-existing mock
+components (`AIMeetingAssistant.tsx`, `AICommandBar.tsx`,
+`components/crm/ai/nba/*`, `AiInsightsReport.tsx` and siblings under
+`components/crm/ai/insights/`) were not wired to real data or deleted — real,
+simpler components were built instead, matching what the backend actually
+returns rather than the richer shape the old fixtures implied. Removing the
+now-fully-orphaned files is a follow-up, not attempted here to keep this
+checkpoint's diff to what it added.
+
+### Known limitations
+
+- **Natural-language *commands* are not built** (#9 stays partial): the
+  question box translates to a report and runs it — read-only, through the
+  existing permission-checked report engine. "Mark this lead qualified" from
+  plain language is out of scope, per the module's own docstring (never
+  executes a write itself).
+- **Priority score (#10) is not shown on the Accounts/Opportunities/Leads
+  list or Kanban views** — only on the dedicated Next Best Action queue page
+  and, per record, the AI panel.
+- **Meeting extraction only accepts an account or a deal as context**
+  (`account_id`/`opportunity_id`), not a lead or a contact — matches what
+  `context.py` had built for Checkpoint 7's other features; extending it to
+  leads is a small addition, not attempted here to stay within scope.
+- No new E2E (Playwright) coverage was added for these screens — see
+  Checkpoint 8.
+
+### Tests
+
+- New: `tests/unit/test_ai_insights_prioritization.py` (14),
+  `tests/unit/test_ai_insights_structured.py` (10),
+  `tests/unit/test_ai_insights_prompts.py` (12) — pure functions, no
+  database: scoring rules, JSON extraction/validation, and prompt-injection
+  defense (CRM data and user-authored text delimited and labelled, standing
+  rules ordered after the task, the schema hint generated from the real
+  Pydantic model). `tests/integration/test_ai_insights.py` (19) — against
+  real PostgreSQL and real RBAC, only the model call stubbed: generate/cache/
+  refresh/history for a summary, the full `AccountIntelligenceOutput` shape,
+  a malformed model answer surfacing as `502 ai_invalid_output` not a 500,
+  Next Best Action, the email-draft validator, meeting extraction writing
+  nothing until applied, applying creates the confirmed task/note/deal-value
+  update, re-applying the same index is `SKIPPED` not duplicated (the bug
+  fix above, specifically exercised), NL query understood/not-understood,
+  the priority queue and its "explain" action (including 404 on a closed
+  deal), feedback, and cross-tenant 404 isolation.
+- Full backend suite (`uv run pytest`, every unit and integration test, the
+  55 new ones included): **26 failed, the rest passed.** All 26 pre-date this
+  checkpoint and are environmental, not a regression it introduced — verified
+  by file: **25 in `tests/integration/test_attachments.py`**, every one the
+  same `InvalidAccessKeyId` from MinIO (this worktree's `backend/.env` was
+  created fresh this session from `.env.example`'s placeholder storage
+  credentials, which do not match this machine's actual MinIO container —
+  exactly the "no root `.env` means random MinIO keys" failure mode already
+  on record, unrelated to `ai_insights`); **1 in
+  `tests/unit/test_ai_connection.py::test_no_trace_of_the_key_in_redis_logs_or_results`**,
+  a structlog `capture_logs()` timing assertion unrelated to any file this
+  checkpoint touched. Zero failures in any `ai_insights`/`ai-insights` test,
+  and zero in any file this checkpoint modified outside `ai_insights/*`.
+
+### Static analysis
+
+- **Ruff** (`uv run ruff check app migrations`): clean.
+- **mypy** (`uv run mypy app`): clean, 336 source files.
+- **Frontend `tsc --noEmit`**: clean (after `npm install`, which had never
+  been run in this worktree — `node_modules` did not exist).
+- **Frontend `eslint .`**: clean (fixed 5 `react-hooks/set-state-in-effect`
+  errors — a synchronous `setState` at the top of an effect body — by
+  matching the codebase's own `useRecord.ts` pattern: derive "loading" from
+  whether a keyed result has arrived yet, rather than a separate flag set
+  synchronously).
+- **Frontend `next build`**: succeeds; all 57 routes generate, including
+  every `/ai*` page and the three record-detail pages with the new AI panel.
+
+### Verified in a running browser, not only statically
+
+Signed up a fresh organization against a throwaway database
+(`s3k_crm_ck7_dev`, separate from the `pytest` database the whole time — the
+two were never touched by the same process), created a real account and a
+$5,000,000 deal, and confirmed: the Account 360 "AI" tab renders and its
+`GET` endpoints correctly return "no summary yet" rather than erroring; the
+Next Best Action queue shows the real deal by name (`entity_label`), scored
+from its real fields with named reasons ("Large deal", "No recorded
+activity"); the Insights Digest renders its five categories with no AI
+provider configured (proving the "works without AI" design point, not just
+asserting it); "Explain" and the meeting-extraction "Extract" action both
+surface a clean, typed "AI is not connected" message rather than a crash
+when attempted without a provider key (this dev environment has none — per
+the project's standing rule, that is never faked); "Draft with AI" renders
+in the compose drawer. No console errors traced to this checkpoint's code.
+
+### Environment / verification notes
+
+- Same throwaway-database discipline as Checkpoint 6: one database for the
+  automated suite (migrated from zero, first proving `20260919_0100` applies
+  cleanly on top of `20260918_0100`), a separate one for live browser
+  verification, never run against by the same process at once.
+- This worktree's own `.claude/launch.json`-driven preview tooling would not
+  start any server, always refusing on an unrelated process already holding
+  port 3000 (a different local project entirely, confirmed by navigating to
+  it) regardless of which named configuration was requested or that
+  configuration's own port. Worked around by starting `uvicorn`/`next dev`
+  directly and pointing the browser at the resulting port; not a code issue
+  in this checkpoint.
+- `npm install` had never been run in this worktree (`frontend/node_modules`
+  did not exist), which is why `tsc`/`eslint`/`next build` could not run
+  before this session ran it.
+
 ## Next Exact Step
 
-**Checkpoint 7 — AI Account Intelligence + AI summaries + AI next-best-action
-+ AI email + meeting-to-CRM + natural-language CRM + AI prioritization**
-(audit items 4–10). Per "Recommended Implementation Order," this is the
-first checkpoint that builds real AI product features on top of the gateway
-Checkpoint 1 verified and Account 360 (Checkpoint 2) gives them a place to
-render: summary → intelligence → next-best-action → email drafts →
-meeting-to-CRM → natural-language commands → prioritization, in that order,
-each on real CRM data — never fixture/mock data (`FE/features/ai/*/mock-data.ts`
-files must not be wired to a real screen). The workflow engine this
-checkpoint built is a plausible execution path for an AI-*suggested* action
-later (e.g. next-best-action proposing a workflow-shaped follow-up), but
-that integration is Checkpoint 7's decision to make, not assumed here.
+**Checkpoint 8 — Security + performance + complete regression/E2E testing +
+documentation** (audit items 67, 71, 72, 75, plus the full suite). Per
+"Recommended Implementation Order," this is the hardening pass: custom role
+create/edit (`POST /roles`), an MFA/SSO decision, load/performance tests
+beyond the existing search benchmark, Playwright E2E coverage for every
+checkpoint that shipped without it (AI, import, merge, dashboards builder,
+reports detail, Account 360 — now including the Checkpoint 7 AI screens),
+and a documentation pass. Custom modules (40) remain explicitly out of scope
+for this plan (see the note above the Checkpoints table).

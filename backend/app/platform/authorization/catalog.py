@@ -135,6 +135,23 @@ PERMISSION_MODULES: Final[tuple[str, ...]] = (
     #: rule that hid a field has to be visible to whoever is filling in the
     #: rest of the form.
     "record_layouts",
+    #: AI intelligence built on real CRM data (Checkpoint 7): account/deal/lead
+    #: summaries, account intelligence, next-best-action, AI email drafting,
+    #: meeting-to-CRM extraction, natural-language queries and prioritization
+    #: explanations. Gates *requesting* an AI feature — not the underlying
+    #: data it reads or the records a confirmed action writes, both of which
+    #: stay behind their own module's permission and record-level visibility
+    #: exactly as they do for a human doing the same thing by hand (the
+    #: context builder checks ``accounts.VIEW``/``opportunities.VIEW``/etc.
+    #: per section, and a meeting-extraction action a user confirms is
+    #: created through that entity's own service, e.g. ``TaskService``, which
+    #: enforces its own permission independently). Same reasoning as
+    #: ``market_insights`` for why this is its own module rather than reusing
+    #: ``ai`` (ADR-016's ``ai.ADMIN`` governs the gateway itself, not a
+    #: product feature built on it) — a distinct module keeps "may this
+    #: caller ask the AI for X" separate from "may this caller configure the
+    #: AI provider".
+    "ai_insights",
 )
 
 #: Actions available on every module (doc 04 ``PermissionAction``).
@@ -181,6 +198,11 @@ _CRM_MODULES: Final[tuple[str, ...]] = (
     "dashboard",
     "reports",
     "market_insights",
+    #: Day-to-day AI features (Checkpoint 7). Same tier as ``market_insights``:
+    #: a rep may ask for a summary or a next-best-action on a record they can
+    #: already see; deleting one's AI history follows the manager/user split
+    #: every other CRM module uses.
+    "ai_insights",
     "emails",
     #: Every role may keep its own views. Sharing one is a decision made per
     #: view through its ``visibility``, not a permission an administrator

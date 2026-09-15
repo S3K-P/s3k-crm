@@ -66,6 +66,7 @@ from app.platform.products.policies import product_gate
 from app.platform.teams import router as teams_router
 from app.products.crm.accounts import router as accounts_router
 from app.products.crm.activities import router as activities_router
+from app.products.crm.ai_insights import router as ai_insights_router
 from app.products.crm.blueprints import router as blueprints_router
 from app.products.crm.calendar import router as calendar_router
 from app.products.crm.campaigns import router as campaigns_router
@@ -371,6 +372,15 @@ crm_router.include_router(
     prefix="/crm/market-insights",
     tags=["crm:market-insights"],
 )
+# Day-to-day AI features built on real CRM data (Checkpoint 7): summaries,
+# Account Intelligence, next-best-action, AI email drafts, meeting-to-CRM
+# extraction, natural-language queries and prioritization. Its own module
+# beside `market_insights` and `ai` — see `ai_insights/router.py`.
+crm_router.include_router(
+    ai_insights_router.router,
+    prefix="/crm/ai-insights",
+    tags=["crm:ai-insights"],
+)
 # Saved list views. A view names filters over a record type and holds no rows,
 # so `views.VIEW` reaches no record: running one goes through that record
 # type's own endpoint, behind its own permission and record-level visibility.
@@ -378,9 +388,7 @@ crm_router.include_router(views_router.router, prefix="/crm/views", tags=["crm:v
 # The calendar names no permission of its own — it would either duplicate
 # `activities.VIEW` and `tasks.VIEW` or, worse, become a way to read records
 # around them. It decides per source inside the handler (calendar/policies.py).
-crm_router.include_router(
-    calendar_router.router, prefix="/crm/calendar", tags=["crm:calendar"]
-)
+crm_router.include_router(calendar_router.router, prefix="/crm/calendar", tags=["crm:calendar"])
 # Merge chooses its entity from a path parameter, so the permission it needs is
 # not known when the route is declared — the shape imports already use. It
 # authorizes against the named entity's module inside the handler, and demands
