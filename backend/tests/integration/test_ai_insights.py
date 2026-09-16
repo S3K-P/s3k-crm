@@ -281,7 +281,9 @@ def test_opportunity_next_best_action(alpha_member: ApiSession, provider: StubPr
         }
     )
 
-    response = alpha_member.post(f"{AI_INSIGHTS}/opportunities/{opportunity['id']}/next-best-action")
+    response = alpha_member.post(
+        f"{AI_INSIGHTS}/opportunities/{opportunity['id']}/next-best-action"
+    )
 
     assert response.status_code == 200, response.text
     content = response.json()["content"]
@@ -513,7 +515,9 @@ def test_explaining_a_priority_narrates_the_precomputed_reasons(
     )
     provider.text = json.dumps({"explanation": "This deal is high priority because ..."})
 
-    response = alpha_member.post(f"{AI_INSIGHTS}/priority/opportunities/{opportunity['id']}/explain")
+    response = alpha_member.post(
+        f"{AI_INSIGHTS}/priority/opportunities/{opportunity['id']}/explain"
+    )
 
     assert response.status_code == 200, response.text
     assert "Large deal" in provider.last_system or "Past close date" in provider.last_system
@@ -530,7 +534,9 @@ def test_explaining_a_closed_deals_priority_is_404(
     )
     assert won.status_code == 200, won.text
 
-    response = alpha_member.post(f"{AI_INSIGHTS}/priority/opportunities/{opportunity['id']}/explain")
+    response = alpha_member.post(
+        f"{AI_INSIGHTS}/priority/opportunities/{opportunity['id']}/explain"
+    )
 
     assert response.status_code == 404
 
