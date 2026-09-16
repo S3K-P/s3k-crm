@@ -851,6 +851,7 @@ async def accept_invitation(
     user: CurrentUser,
     service: ServiceDep,
     session: DbSession,
+    auth_service: AuthServiceDep,
 ) -> OrganizationResponse:
     """Join the organization the token names.
 
@@ -894,6 +895,12 @@ async def accept_invitation(
             organization_id=invitation.organization_id,
             actor_id=invitation.invited_by_id,
         )
+
+    # The invitation was mailed to this address and redeemed by the account
+    # that holds it, which proves control of the address exactly as a
+    # verification link would. Asking the person to click a second link to
+    # prove the same thing would be ceremony.
+    await auth_service.mark_email_verified(user)
 
     organization = await service.get_organization(invitation.organization_id)
     return OrganizationResponse.model_validate(organization)

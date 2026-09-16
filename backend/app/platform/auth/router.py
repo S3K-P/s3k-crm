@@ -23,7 +23,9 @@ from app.platform.auth.dependencies import (
 from app.platform.auth.repository import AuthRepository
 from app.platform.auth.schemas import (
     ChangePasswordRequest,
+    ConfirmEmailVerificationRequest,
     CurrentUserResponse,
+    EmailVerificationRequestResponse,
     ForgotPasswordRequest,
     LoginRequest,
     MembershipSummary,
@@ -137,6 +139,11 @@ async def signup(
         first_name=payload.first_name,
         last_name=payload.last_name,
     )
+    # In the signup transaction, so an account that fails to commit leaves no
+    # verification mail behind. Verification is not a gate on signing in: the
+    # person can use the product at once and confirm the address when the
+    # message arrives.
+    await service.request_email_verification(user)
 
     # Not ``authenticate``: that refuses a user who belongs to no organization,
     # which is exactly what this user is until the next screen. See
@@ -382,6 +389,53 @@ async def reset_password(
         new_password=payload.new_password.get_secret_value(),
     )
     _clear_refresh_cookie(response, settings)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/verify-email/request",
+    response_model=EmailVerificationRequestResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def request_email_verification(
+    user: CurrentUser,
+    service: AuthServiceDep,
+    throttle: ThrottleDep,
+) -> EmailVerificationRequestResponse:
+    """Email the signed-in user a fresh verification link.
+
+    Authenticated, so it can only ever mail the caller's own address — the
+    route cannot be pointed at anybody else's inbox. Throttled all the same:
+    each call is an outbound message, and "resend" is a button people press
+    repeatedly.
+
+    Raises:
+        TooManyAttemptsError: 429, over the attempt budget.
+    """
+    await throttle.check()
+    sent = await service.request_email_verification(user)
+    return EmailVerificationRequestResponse(sent=sent, email_verified=not sent)
+
+
+@router.post("/verify-email/confirm", status_code=status.HTTP_204_NO_CONTENT)
+async def confirm_email_verification(
+    payload: ConfirmEmailVerificationRequest,
+    service: AuthServiceDep,
+    throttle: ThrottleDep,
+) -> Response:
+    """Redeem a verification link.
+
+    Unauthenticated on purpose: the link is opened from an inbox, frequently on
+    a phone that is not signed in. The token is the proof, it is single-use and
+    it expires; confirming it grants no session and no access.
+
+    Raises:
+        TooManyAttemptsError: 429, over the attempt budget.
+        InvalidVerificationTokenError: 400, unknown, spent, expired or issued
+            for an address the account no longer has.
+    """
+    await throttle.check()
+    await service.confirm_email_verification(token=payload.token.get_secret_value())
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

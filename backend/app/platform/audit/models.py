@@ -87,6 +87,9 @@ class AuditAction(enum.StrEnum):
     #: never arrived" from "nobody tried".
     PASSWORD_RESET_REQUESTED = "PASSWORD_RESET_REQUESTED"  # noqa: S105
     PASSWORD_RESET_COMPLETED = "PASSWORD_RESET_COMPLETED"  # noqa: S105
+    #: The account holder proved control of their address through an emailed
+    #: link, or by redeeming an invitation sent to it.
+    EMAIL_VERIFIED = "EMAIL_VERIFIED"
 
     # --- Record lifecycle --------------------------------------------------
     CREATED = "CREATED"

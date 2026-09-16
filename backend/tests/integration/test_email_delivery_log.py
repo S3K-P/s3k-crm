@@ -118,12 +118,12 @@ async def test_a_failure_says_why(
         organization_id=alpha.organization_id,
         to_address="bounced@example.com",
         status=EmailDeliveryStatus.FAILED,
-        error="SMTPRecipientsRefused: 550 unknown mailbox",
+        error="Microsoft Graph sendMail failed with HTTP 400 (ErrorInvalidRecipients).",
     )
 
     row = as_alpha_admin.get(DELIVERIES).json()["data"][0]
     assert row["status"] == "FAILED"
-    assert "550 unknown mailbox" in row["error"]
+    assert "ErrorInvalidRecipients" in row["error"]
 
 
 async def test_filters_are_applied_in_sql_not_in_the_browser(

@@ -22,6 +22,8 @@
 # ---------------------------------------------------------------------------
 set -eu
 
+. "$(dirname "$0")/require-public-app-url.sh"
+
 PORT="${PORT:-8000}"
 
 echo "entrypoint: applying database migrations"

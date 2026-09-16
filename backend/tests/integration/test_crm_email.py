@@ -2,7 +2,7 @@
 
 Everything here is real except the provider — the outbox, the dispatcher, the
 delivery log, RLS, the permission checks. A stub provider is the one honest
-fake: there is no SMTP server in CI, and a test suite that sent real mail would
+fake: there is no Microsoft Graph tenant in CI, and a test suite that sent real mail would
 be a defect rather than a test.
 
 The tests are grouped by the promise they hold:
@@ -780,7 +780,7 @@ async def test_an_unconfigured_provider_fails_permanently_rather_than_retrying(
     Five attempts would only delay the moment somebody notices email was never
     set up.
     """
-    _with_provider(StubProvider(fail_with=EmailNotConfiguredError("no SMTP_HOST")))
+    _with_provider(StubProvider(fail_with=EmailNotConfiguredError("Missing: MICROSOFT_TENANT_ID")))
     created = _compose(as_alpha_admin, send=True)
 
     result = await EventDispatcher(session_factory).drain_once()
@@ -788,7 +788,7 @@ async def test_an_unconfigured_provider_fails_permanently_rather_than_retrying(
 
     stored = await _message(session_factory, alpha, str(created["id"]))
     assert stored.status is EmailStatus.FAILED
-    assert "no SMTP_HOST" in (stored.error or "")
+    assert "MICROSOFT_TENANT_ID" in (stored.error or "")
 
 
 async def test_archiving_a_queued_message_stops_it_being_sent(

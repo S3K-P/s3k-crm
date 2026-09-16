@@ -231,8 +231,49 @@ class PasswordResetToken(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         return self.used_at is None and self.expires_at > now
 
 
+class EmailVerificationToken(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """One outstanding request to prove control of an email address.
+
+    The same construction as :class:`PasswordResetToken`, for the same
+    reasons: a global identity has no tenant, so there is no RLS and the token
+    itself is the isolation — only a SHA-256 digest is stored, and the row is
+    reachable by presenting the secret and in no other way.
+
+    ``email`` records **which address** the link was sent to. Verification
+    proves control of that address, not of the account in general, so a token
+    issued before the account's address changed must not mark the new address
+    verified; redemption compares the two.
+    """
+
+    __tablename__ = "email_verification_tokens"
+    __table_args__ = (
+        Index("uq_email_verification_tokens_token_hash", "token_hash", unique=True),
+        Index("ix_email_verification_tokens_user_id", "user_id"),
+        {"schema": PLATFORM_SCHEMA},
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(f"{PLATFORM_SCHEMA}.users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    used_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    def is_redeemable_at(self, now: dt.datetime) -> bool:
+        """A token may be spent once, before it expires."""
+        return self.used_at is None and self.expires_at > now
+
+
 __all__ = [
     "PLATFORM_SCHEMA",
+    "EmailVerificationToken",
     "PasswordResetToken",
     "Session",
     "User",

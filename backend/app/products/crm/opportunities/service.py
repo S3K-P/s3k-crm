@@ -36,6 +36,7 @@ from app.products.crm.opportunities.models import (
     PipelineStage,
 )
 from app.products.crm.shared.pagination import PageParams
+from app.products.crm.shared.record_notifications import OPPORTUNITY_WON, notify_record_event
 from app.products.crm.shared.repository import TenantScopedRepository
 from app.products.crm.shared.service import TenantScopedService
 from app.products.crm.shared.visibility import RecordVisibility
@@ -333,6 +334,25 @@ class OpportunityService(TenantScopedService[Opportunity]):
                 "win_reason": win_reason,
             },
         )
+        if stage.is_won:
+            # P4-W27-BE-03: the owner hears the deal closed, unless they closed it.
+            value = (
+                f" worth {opportunity.currency} {opportunity.deal_value:,.2f}"
+                if opportunity.deal_value is not None
+                else ""
+            )
+            await notify_record_event(
+                self._session,
+                organization_id=opportunity.organization_id,
+                recipient_id=opportunity.owner_id,
+                actor_id=actor_id,
+                kind=OPPORTUNITY_WON,
+                title=f"Opportunity won: {opportunity.name}",
+                message=f'Your opportunity "{opportunity.name}"{value} has been won.',
+                entity_type="opportunity",
+                entity_id=opportunity.id,
+                record_path=f"/opportunities/{opportunity.id}",
+            )
         return opportunity
 
     async def reopen(

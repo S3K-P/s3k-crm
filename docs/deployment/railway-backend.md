@@ -1,8 +1,15 @@
 # Deploying the backend to Railway
 
-The Railway service **s3k-crm** (environment `production`) runs the FastAPI
-backend from `backend/` and nothing else. The frontend is hosted separately and
-is not part of this service.
+The backend is **two Railway services built from the same image** in
+`backend/` (environment `production`): **s3k-crm** runs the FastAPI API, and
+**s3k-crm-worker** runs the background worker that drains the outbox. The
+frontend is hosted separately and is not part of either.
+
+**Without the worker service no email is ever sent.** The API only records an
+email in the outbox, in the same transaction as the change that caused it;
+invitations, verification and password-reset links, notifications and
+user-composed CRM mail all leave through Microsoft Graph from the worker. A
+deployment with only the API service looks healthy and accepts every send.
 
 ---
 
@@ -42,7 +49,8 @@ same file now builds on Railway, on plain Docker and in CI.
 
 | Railway service | Why |
 | --- | --- |
-| `s3k-crm` | the FastAPI backend itself |
+| `s3k-crm` | the FastAPI backend itself; runs migrations on boot |
+| `s3k-crm-worker` | the outbox worker (`sh /app/scripts/worker.sh`); **delivers all email** and dispatches reminders |
 | PostgreSQL | required; the process refuses to start without `DATABASE_URL` |
 | Redis | required; refresh-token and rate-limit state (ADR-013) |
 | Cloudflare R2 (external) | attachments; **required** when `ENVIRONMENT=production` |
@@ -55,17 +63,32 @@ service rebuild cannot leave a stale address behind.
 
 ## 3. Service settings
 
-| Setting | Value |
-| --- | --- |
-| Root Directory | `backend` |
-| Builder | Dockerfile (`backend/railway.json` pins it) |
-| Config-as-code path | `railway.json`, relative to the root directory |
-| Start command | `sh /app/scripts/start.sh` |
-| Health check path | `/health` |
-| Replicas | 1 |
+| Setting | `s3k-crm` (API) | `s3k-crm-worker` |
+| --- | --- | --- |
+| Source | this repository | the same repository and branch |
+| Root Directory | `backend` | `backend` |
+| Builder | Dockerfile | Dockerfile |
+| Config-as-code path | `/backend/railway.json` | `/backend/railway.worker.json` |
+| Start command | `sh /app/scripts/start.sh` | `sh /app/scripts/worker.sh` |
+| Health check path | `/health` | **none** — it has no HTTP listener |
+| Public networking | a domain | **none** |
+| Restart policy | on failure | always |
+| Replicas | 2 | 1 |
 
-`backend/railway.json` carries all of these except the root directory, which is
-a dashboard-only setting. Root Directory **must** be `backend`: the Dockerfile's
+Each config file carries everything in its column except the root directory,
+which is a dashboard-only setting. The config-as-code path is set per service
+under **Settings → Config-as-code**; if the worker is left on the default
+`railway.json` it inherits the API's start command and `/health` check, runs a
+second API instead of the worker, and still sends nothing.
+
+To create the worker: in the project, **+ New → GitHub Repo** and pick this
+repository again, rename the service `s3k-crm-worker`, then set the root
+directory and config-as-code path above. Do not generate a domain for it.
+
+The worker does not run migrations — the API does, and waiting on the schema
+is harmless: a worker that starts first finds no outbox table, logs it, and
+succeeds on a later tick. It is safe to scale past one replica (the outbox
+claims rows with `FOR UPDATE SKIP LOCKED`), but one is enough. Root Directory **must** be `backend`: the Dockerfile's
 build context is the backend tree, so a repo-root context cannot find
 `pyproject.toml` or `uv.lock`.
 
@@ -143,7 +166,25 @@ to Railway's pre-deploy command so replicas cannot race.
 
 ## 5. Environment variables
 
-Set on the **s3k-crm** service, `production` environment.
+Set on **both** the `s3k-crm` and `s3k-crm-worker` services, `production`
+environment. They load the same `Settings`, so the worker applies every startup
+check below too: it refuses to boot without the JWT keys and storage settings,
+even though it serves no requests, and it cannot send mail without the Graph
+settings. A variable set only on the API is invisible to the worker.
+
+Keep a single copy of each value so the two cannot drift. Either define them as
+**project Shared Variables** and add each to both services, or set them on
+`s3k-crm` and point the worker at them with reference variables:
+
+```
+DATABASE_URL=${{s3k-crm.DATABASE_URL}}
+REDIS_URL=${{s3k-crm.REDIS_URL}}
+MICROSOFT_CLIENT_SECRET=${{s3k-crm.MICROSOFT_CLIENT_SECRET}}
+...one line per variable in the Required table
+```
+
+`PORT` and `CORS_ALLOWED_ORIGINS` do nothing on the worker and may be omitted
+there; everything else in **Required** and **Recommended** belongs on both.
 
 ### Required
 
@@ -161,6 +202,19 @@ Set on the **s3k-crm** service, `production` environment.
 | `STORAGE_SECRET_ACCESS_KEY` | R2 API token secret | required in production |
 | `STORAGE_ENDPOINT_URL` | `https://<account-id>.r2.cloudflarestorage.com` | |
 | `CORS_ALLOWED_ORIGINS` | the frontend origin | comma-separated, no wildcard — see §6 |
+| `PUBLIC_APP_URL` | the production CRM frontend origin, e.g. `https://crm.<your-domain>` | links in invitation, verification, reset and notification emails. Must be `https://`, with no trailing path, and never `localhost` — both entrypoints refuse to start in staging or production otherwise (`scripts/require-public-app-url.sh`), because the default is `http://localhost:3000` |
+| `EMAIL_PROVIDER` | `graph` | Microsoft Graph is the only transport; `console` is refused in production |
+| `MICROSOFT_TENANT_ID` | Entra ID tenant id | required when `EMAIL_PROVIDER=graph` |
+| `MICROSOFT_CLIENT_ID` | app registration (client) id | as above |
+| `MICROSOFT_CLIENT_SECRET` | app registration client secret | as above; server-side only, never logged |
+| `MICROSOFT_GRAPH_SENDER_EMAIL` | the mailbox mail is sent from | as above |
+
+The Microsoft app registration needs the **application** permissions
+`Mail.Send` and `Mail.ReadWrite` (the second is used only for messages whose
+attachments exceed Graph's 4 MB request limit, which are built as a draft and
+uploaded in chunks), with admin consent. Scope it to the sender mailbox with
+an Exchange Online application access policy, so the secret cannot send as any
+other mailbox in the tenant.
 
 Prefer Railway's variable references for the datastore hosts, so they follow a
 rebuilt service: the Postgres private domain and the Redis URL are both
