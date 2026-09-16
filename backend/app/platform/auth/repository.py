@@ -11,7 +11,13 @@ from sqlalchemy import CursorResult, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.platform.auth.models import PasswordResetToken, Session, User, UserProfile
+from app.platform.auth.models import (
+    EmailVerificationToken,
+    PasswordResetToken,
+    Session,
+    User,
+    UserProfile,
+)
 
 
 class AuthRepository:
@@ -165,6 +171,47 @@ class AuthRepository:
                 .where(
                     PasswordResetToken.user_id == user_id,
                     PasswordResetToken.used_at.is_(None),
+                )
+                .values(used_at=at)
+            ),
+        )
+        return int(result.rowcount or 0)
+
+    # --- Email verification tokens -------------------------------------------
+
+    async def add_email_verification_token(
+        self, token: EmailVerificationToken
+    ) -> EmailVerificationToken:
+        self._session.add(token)
+        await self._session.flush()
+        return token
+
+    async def get_email_verification_token(
+        self, digest: str
+    ) -> EmailVerificationToken | None:
+        """Look a verification token up by digest, and by nothing else."""
+        result = await self._session.execute(
+            select(EmailVerificationToken).where(
+                EmailVerificationToken.token_hash == digest
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def spend_outstanding_verification_tokens(
+        self, user_id: uuid.UUID, *, at: dt.datetime
+    ) -> int:
+        """Mark every unused verification token for ``user_id`` as spent.
+
+        Asking for a second link, or verifying through the first, leaves no
+        other working link behind in an inbox.
+        """
+        result = cast(
+            "CursorResult[Any]",
+            await self._session.execute(
+                update(EmailVerificationToken)
+                .where(
+                    EmailVerificationToken.user_id == user_id,
+                    EmailVerificationToken.used_at.is_(None),
                 )
                 .values(used_at=at)
             ),

@@ -17,9 +17,17 @@
 #   no --reload    same as the API in production, stated because the local
 #                  developer command does use it.
 #
+# This is the process that actually sends email, so it needs the full email
+# configuration, not the API alone: `EMAIL_PROVIDER=graph`, the four
+# `MICROSOFT_*` settings and a public `PUBLIC_APP_URL`. On Railway it is its
+# own service using `backend/railway.worker.json`; see
+# docs/deployment/railway-backend.md.
+#
 # `arq` comes from the image's virtualenv, which the Dockerfile puts on PATH.
 # ---------------------------------------------------------------------------
 set -eu
+
+. "$(dirname "$0")/require-public-app-url.sh"
 
 echo "entrypoint: starting the outbox worker"
 exec arq app.worker.WorkerSettings

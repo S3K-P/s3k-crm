@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.platform.email.models import EmailDelivery, EmailDeliveryStatus
 from app.platform.email.provider import (
-    EmailNotConfiguredError,
+    PERMANENT_EMAIL_FAILURES,
     EmailProvider,
     OutboundEmail,
 )
@@ -160,14 +160,15 @@ async def deliver_email_event(
                 text_body=rendered.text_body,
             )
         )
-    except EmailNotConfiguredError as failure:
+    except PERMANENT_EMAIL_FAILURES as failure:
         # Committed before raising, like the transient path below: the
         # dispatcher rolls this session back when the handler raises, and an
         # uncommitted failure row would vanish — leaving an administrator with
         # a dead-lettered event and no delivery log entry saying why.
         await _record_failure(session, delivery, str(failure))
-        # Permanent: retrying cannot configure a provider, and five attempts
-        # would only delay the moment somebody notices.
+        # Permanent: retrying cannot configure a provider or make Microsoft
+        # Graph accept what it refused, and five attempts would only delay the
+        # moment somebody notices.
         raise PermanentEventError(str(failure)) from failure
     except Exception as failure:
         # An operator watching deliveries should see the attempts, not only

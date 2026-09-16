@@ -279,7 +279,7 @@ export default function AdminEmailDeliveriesPage() {
             The email provider is set to{' '}
             <span className="font-mono text-[11.5px]">{undeliveringProvider}</span>, which
             records a delivery without sending one. Messages marked “Sent” below
-            reached the provider, not the recipient. Configure SMTP to change that.
+            reached the provider, not the recipient. Configure Microsoft Graph to change that.
           </p>
         </div>
       )}

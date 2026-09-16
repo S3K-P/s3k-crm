@@ -32,7 +32,7 @@ export interface EmailDelivery {
   /** Which template produced it — `invitation`, `meeting_reminder`, … */
   template: string;
   status: EmailDeliveryStatus;
-  /** Which provider took it: `smtp`, `console`, `null`. */
+  /** Which provider took it: `graph` (Microsoft Graph), `console`, `null`. */
   provider: string;
   /** The provider's own handle for the message, for asking them what happened. */
   provider_message_id: string | null;
@@ -115,7 +115,7 @@ export function statusVariantFor(
 export function providerLabel(provider: string): string {
   if (provider === 'null') return 'Not configured';
   if (provider === 'console') return 'Console (development)';
-  if (provider === 'smtp') return 'SMTP';
+  if (provider === 'graph') return 'Microsoft Graph';
   return provider;
 }
 

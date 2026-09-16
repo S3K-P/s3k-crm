@@ -1,6 +1,6 @@
 """The messages the product sends.
 
-Plain Python format strings, not a template engine. There are three messages,
+Plain Python format strings, not a template engine. There are a handful of messages,
 they are short, and none of them loops or branches; a Jinja environment would
 be a dependency, a search path and an autoescaping decision in exchange for
 nothing these need.
@@ -40,9 +40,38 @@ class EmailTemplate:
 INVITATION = "invitation"
 PASSWORD_RESET = "password_reset"  # noqa: S105 - a template name, not a secret
 MEETING_REMINDER = "meeting_reminder"
+EMAIL_VERIFICATION = "email_verification"
+#: The email twin of an in-app notification. One template for every kind,
+#: because the notification already carries its own title and body — a
+#: template per kind would be a second copy of text the product already wrote.
+NOTIFICATION = "notification"
 
 
 _TEMPLATES: Final[tuple[EmailTemplate, ...]] = (
+    EmailTemplate(
+        name=EMAIL_VERIFICATION,
+        subject="Confirm your email address for S3K",
+        body=(
+            "Hello,\n\n"
+            "Please confirm that this address belongs to your S3K account:\n"
+            "{verify_url}\n\n"
+            "This link expires on {expires_on} and can be used once.\n\n"
+            "If you did not create an S3K account, ignore this message.\n\n"
+            "— S3K\n"
+        ),
+        required=("verify_url", "expires_on"),
+    ),
+    EmailTemplate(
+        name=NOTIFICATION,
+        subject="{title}",
+        body=(
+            "Hello {recipient_name},\n\n"
+            "{message}\n\n"
+            "Open it in S3K:\n{record_url}\n\n"
+            "— S3K\n"
+        ),
+        required=("recipient_name", "title", "message", "record_url"),
+    ),
     EmailTemplate(
         name=INVITATION,
         subject="{inviter_name} invited you to {organization_name} on S3K",
@@ -121,8 +150,10 @@ def render(name: str, context: dict[str, Any]) -> RenderedEmail:
 
 
 __all__ = [
+    "EMAIL_VERIFICATION",
     "INVITATION",
     "MEETING_REMINDER",
+    "NOTIFICATION",
     "PASSWORD_RESET",
     "TEMPLATES",
     "EmailTemplate",

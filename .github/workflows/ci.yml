@@ -210,13 +210,18 @@ jobs:
       #
       # Tags are pinned rather than `latest` — an unpinned tag is what made
       # this break arrive silently in the first place.
+      #
+      # Pulled from quay.io, MinIO's own registry: the `minio/minio` and
+      # `minio/mc` Docker Hub repositories were later removed outright ("pull
+      # access denied ... repository does not exist"). The same release tags
+      # are still published there, so this is the identical build.
       - name: Start MinIO
         run: |
           docker run -d --name minio \
             -p 9000:9000 \
             -e MINIO_ROOT_USER=s3k-ci \
             -e MINIO_ROOT_PASSWORD=s3k_ci_secret \
-            minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+            quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
 
           # Wait for the health endpoint rather than sleeping a fixed amount.
           for i in $(seq 1 30); do
@@ -242,7 +247,7 @@ jobs:
           # own `entrypoint:` key.
           docker run --rm --network host \
             --entrypoint sh \
-            minio/mc:RELEASE.2025-04-16T18-13-26Z \
+            quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z \
             -c "mc alias set local http://localhost:9000 s3k-ci s3k_ci_secret &&
                 mc mb --ignore-existing local/s3k-attachments"
 

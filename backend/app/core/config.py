@@ -179,25 +179,41 @@ class Settings(BaseSettings):
     #: visibly so — a link to localhost in a real inbox is an obvious
     #: misconfiguration, where a silently absent link is not.
     public_app_url: str = "http://localhost:3000"
-    #: ``smtp`` in production, ``console`` for development, ``null`` when no
-    #: email is configured. ``null`` fails every send loudly rather than
-    #: silently accepting it — the behaviour that let invitations be created
-    #: for months without anybody being sent one.
-    email_provider: Literal["smtp", "console", "null"] = "null"
+    #: ``graph`` (Microsoft Graph) wherever mail must actually leave the
+    #: building, ``console`` for development, ``null`` when no email is
+    #: configured. Microsoft Graph is the **only** delivery transport: there is
+    #: deliberately no SMTP, SendGrid, Resend or SES option to fall back to.
+    #: ``null`` fails every send loudly rather than silently accepting it — the
+    #: behaviour that let invitations be created for months without anybody
+    #: being sent one.
+    email_provider: Literal["graph", "console", "null"] = "null"
     email_from_address: str = "S3K <no-reply@s3k.local>"
     #: Right-hand side of the ``Message-ID`` we generate. Ours rather than the
     #: provider's, so a delivery can be traced from our log into theirs.
     email_message_id_domain: str = "s3k.local"
 
-    smtp_host: str | None = None
-    smtp_port: int = Field(default=587, ge=1, le=65535)
-    smtp_username: str | None = None
-    smtp_password: SecretStr | None = None
-    #: STARTTLS on a plain connection. The usual choice on port 587.
-    smtp_use_tls: bool = True
-    #: Implicit TLS from the first byte. The usual choice on port 465.
-    smtp_use_ssl: bool = False
-    smtp_timeout_seconds: float = Field(default=30.0, ge=1.0, le=300.0)
+    #: How long a signed-in user's email-verification link stays redeemable.
+    #: Longer than a password reset: the link proves ownership of an address
+    #: rather than granting access to anything, so the exposure of a slow inbox
+    #: is small, and a person who signs up late in the evening should still be
+    #: able to use it the next day.
+    email_verification_ttl_seconds: int = Field(
+        default=60 * 60 * 48, ge=300, le=60 * 60 * 24 * 7
+    )
+
+    # --- Microsoft Graph (the email transport) ------------------------------
+    #: The Entra ID (Azure AD) app registration used for app-only sending. It
+    #: needs the ``Mail.Send`` application permission, plus ``Mail.ReadWrite``
+    #: for messages whose attachments exceed Graph's inline request limit (see
+    #: ``app.platform.email.graph``). All four are required when
+    #: ``EMAIL_PROVIDER=graph``; the validator below refuses to start otherwise.
+    microsoft_tenant_id: str | None = None
+    microsoft_client_id: str | None = None
+    #: ``SecretStr`` so the value never appears in ``repr()``, logs or errors.
+    microsoft_client_secret: SecretStr | None = None
+    #: The mailbox Graph sends as, e.g. ``notifications@example.com``.
+    microsoft_graph_sender_email: str | None = None
+    graph_timeout_seconds: float = Field(default=30.0, ge=1.0, le=300.0)
 
     # --- The outbox and its worker (ADR-013) --------------------------------
     #: Events claimed per drain. Larger batches amortise the query; smaller
@@ -465,7 +481,32 @@ class Settings(BaseSettings):
                 "that fail at the last step."
             )
             raise ValueError(msg)
+        if self.email_provider == "graph" and not self.graph_email_configured:
+            msg = (
+                "MICROSOFT_TENANT_ID, MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET and "
+                "MICROSOFT_GRAPH_SENDER_EMAIL are all required when EMAIL_PROVIDER=graph."
+            )
+            raise ValueError(msg)
+        if self.email_provider == "console" and self.environment in ("staging", "production"):
+            # The console provider logs every body in full, reset links
+            # included, and reports success without delivering anything.
+            msg = (
+                f"EMAIL_PROVIDER=console is not allowed when ENVIRONMENT={self.environment}. "
+                "Use EMAIL_PROVIDER=graph."
+            )
+            raise ValueError(msg)
         return self
+
+    @property
+    def graph_email_configured(self) -> bool:
+        """Whether every Microsoft Graph email setting is present."""
+        return bool(
+            self.microsoft_tenant_id
+            and self.microsoft_client_id
+            and self.microsoft_client_secret
+            and self.microsoft_client_secret.get_secret_value()
+            and self.microsoft_graph_sender_email
+        )
 
     @property
     def is_production(self) -> bool:

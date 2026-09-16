@@ -8,8 +8,8 @@ are the ways that could go wrong once it does.
 
 The provider is a stub, and only the provider. Everything else — the outbox,
 the dispatcher, the delivery log, RLS — is real, because those are where the
-guarantees live. A stub provider is the one honest fake: there is no SMTP
-server in CI and sending real mail from a test suite would be a bug.
+guarantees live. A stub provider is the one honest fake: there is no Graph tenant
+in CI, and sending real mail from a test suite would be a bug.
 """
 
 from __future__ import annotations
