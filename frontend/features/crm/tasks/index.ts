@@ -55,6 +55,10 @@ export interface TaskListParams extends ListParams {
   related_entity_type?: CrmEntityType | null;
   related_entity_id?: string | null;
   open_only?: boolean;
+  /** Open, due before this instant — the Overdue quick view. */
+  due_before?: string | null;
+  /** Due on or after this instant — the Upcoming quick view. */
+  due_after?: string | null;
 }
 
 export interface TaskStatusCounts {

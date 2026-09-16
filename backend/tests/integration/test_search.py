@@ -129,6 +129,27 @@ def test_an_opportunity_is_found_and_labelled_with_its_stage(
     assert hit["subtitle"] == "Qualification"
 
 
+def test_an_activity_is_found_by_subject_and_labelled_with_its_type(
+    as_alpha_admin: ApiSession,
+) -> None:
+    """Checkpoint 5's fifth searchable entity.
+
+    ``subject`` is the A-weighted, name-equivalent field (see
+    ``activities/models.py``); the subtitle is the activity's own ``type``
+    rather than ``outcome``, which is empty for most of an activity's life.
+    """
+    as_alpha_admin.post(
+        "/crm/activities",
+        json={"type": "CALL", "subject": "Quarterly renewal check-in"},
+    )
+
+    payload = _search(as_alpha_admin, "renewal check-in")
+    hit = next(h for h in payload["hits"] if h["title"] == "Quarterly renewal check-in")
+
+    assert hit["type"] == "ACTIVITY"
+    assert hit["subtitle"] == "CALL"
+
+
 def test_a_prefix_finds_a_record_full_text_search_alone_would_miss(
     as_alpha_admin: ApiSession,
 ) -> None:
@@ -242,7 +263,7 @@ def test_punctuation_only_query_is_answered_not_crashed(
 def test_searched_reports_the_types_the_caller_holds_view_on(
     rep: ApiSession,
 ) -> None:
-    """A plain ``User`` holds ``VIEW`` on all four, so all four are searched.
+    """A plain ``User`` holds ``VIEW`` on all five, so all five are searched.
 
     The *narrowing* case — a caller holding ``VIEW`` on some types and not
     others — has no fixture here, because the three seeded roles all hold
@@ -252,7 +273,13 @@ def test_searched_reports_the_types_the_caller_holds_view_on(
     """
     payload = _search(rep, "anything")
 
-    assert set(payload["searched"]) == {"ACCOUNT", "CONTACT", "LEAD", "OPPORTUNITY"}
+    assert set(payload["searched"]) == {
+        "ACCOUNT",
+        "CONTACT",
+        "LEAD",
+        "OPPORTUNITY",
+        "ACTIVITY",
+    }
 
 
 def test_the_types_parameter_can_only_narrow(as_alpha_admin: ApiSession) -> None:

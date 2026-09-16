@@ -23,12 +23,25 @@ from sqlalchemy import ColumnElement, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError
+from app.platform.audit.service import Action as AuditAction
+from app.platform.auth.dependencies import Principal
 from app.products.crm.accounts.models import Account
 from app.products.crm.common import CrmEntityType
 from app.products.crm.contacts.models import Contact, ContactStatus
+from app.products.crm.opportunities.models import Opportunity
 from app.products.crm.shared.pagination import PageParams
 from app.products.crm.shared.repository import TenantScopedRepository
 from app.products.crm.shared.service import TenantScopedService
+from app.products.crm.shared.timeline import (
+    TimelineEntry,
+    activity_entries,
+    deal_created_entries,
+    email_entries,
+    merge_timeline_entries,
+    note_entries,
+    stage_changed_entries,
+    task_entries,
+)
 from app.products.crm.shared.visibility import RecordVisibility
 
 
@@ -160,6 +173,18 @@ class ContactService(TenantScopedService[Contact]):
             await self.set_primary(updated, actor_id=actor_id)
         return updated
 
+    async def _bulk_update_one(
+        self, entity: Contact, *, actor_id: uuid.UUID | None, values: dict[str, Any]
+    ) -> Contact:
+        """Route bulk updates (Checkpoint 4) through the same account/email checks.
+
+        ``allow_duplicate`` stays ``False``: a bulk edit that would collide two
+        contacts' emails reports that one record as failed rather than
+        silently creating the duplicate the single-record form would have
+        asked the user to confirm.
+        """
+        return await self.update_contact(entity, actor_id=actor_id, values=values)
+
     async def set_primary(self, contact: Contact, *, actor_id: uuid.UUID | None) -> Contact:
         """Make ``contact`` the primary contact of its account.
 
@@ -174,6 +199,14 @@ class ContactService(TenantScopedService[Contact]):
         if contact.account_id is None:
             raise NotFoundError("This contact is not attached to an account.")
 
+        previous = await self._session.execute(
+            select(Account.primary_contact_id).where(
+                Account.id == contact.account_id,
+                Account.organization_id == contact.organization_id,
+            )
+        )
+        previous_contact_id = previous.scalar_one_or_none()
+
         await self._session.execute(
             update(Account)
             .where(
@@ -183,7 +216,84 @@ class ContactService(TenantScopedService[Contact]):
             .values(primary_contact_id=contact.id, updated_by_id=actor_id)
         )
         await self._session.flush()
+
+        # Recorded against the *account* — ``primary_contact_id`` is the
+        # account's own field — even though this call lives on
+        # ContactService, which is why the module/entity_type are named
+        # explicitly here rather than taken from ``self.audit_module``.
+        # ``record_change`` no-ops when before == after, so promoting the
+        # contact that is already primary writes nothing.
+        await self.audit.record_change(
+            organization_id=contact.organization_id,
+            action=AuditAction.UPDATED,
+            module="accounts",
+            entity_type=CrmEntityType.ACCOUNT,
+            entity_id=contact.account_id,
+            actor_id=actor_id,
+            before={
+                "primary_contact_id": str(previous_contact_id) if previous_contact_id else None
+            },
+            after={"primary_contact_id": str(contact.id)},
+        )
         return contact
+
+    async def timeline(
+        self, contact: Contact, principal: Principal, *, limit: int = 50
+    ) -> list[TimelineEntry]:
+        """Every event this caller may see against this contact, newest first.
+
+        Deal activity is scoped by ``primary_contact_id`` — the same
+        relationship the Deals panel on the contact page reads — rather than
+        by account, so a contact does not inherit every deal on its account,
+        only the ones it is the primary contact for.
+        """
+        organization_id = contact.organization_id
+        opportunities_visibility = RecordVisibility.for_module(principal, "opportunities")
+        tasks_visibility = RecordVisibility.for_module(principal, "tasks")
+        opportunity_filter = Opportunity.primary_contact_id == contact.id
+
+        activities = await activity_entries(
+            self._session,
+            organization_id=organization_id,
+            entity_type=CrmEntityType.CONTACT,
+            entity_id=contact.id,
+        )
+        deals_created = await deal_created_entries(
+            self._session,
+            organization_id=organization_id,
+            opportunity_filter=opportunity_filter,
+            visibility=opportunities_visibility,
+        )
+        stage_changes = await stage_changed_entries(
+            self._session,
+            organization_id=organization_id,
+            opportunity_filter=opportunity_filter,
+            visibility=opportunities_visibility,
+        )
+        tasks = await task_entries(
+            self._session,
+            organization_id=organization_id,
+            entity_type=CrmEntityType.CONTACT,
+            entity_id=contact.id,
+            visibility=tasks_visibility,
+        )
+        emails = await email_entries(
+            self._session,
+            organization_id=organization_id,
+            entity_type=CrmEntityType.CONTACT,
+            entity_id=contact.id,
+            viewer_id=principal.user_id,
+        )
+        notes = await note_entries(
+            self._session,
+            organization_id=organization_id,
+            entity_type=CrmEntityType.CONTACT,
+            entity_id=contact.id,
+            viewer_id=principal.user_id,
+        )
+        return merge_timeline_entries(
+            activities, deals_created, stage_changes, tasks, emails, notes, limit=limit
+        )
 
     async def is_primary(self, contact: Contact) -> bool:
         """Whether this contact is its account's primary contact."""

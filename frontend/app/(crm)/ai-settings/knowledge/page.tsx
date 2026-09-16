@@ -2,11 +2,11 @@
 
 import { BookOpen } from 'lucide-react';
 
-import AiUnavailable from '@/components/crm/ai/AiUnavailable';
+import AiFeaturePending from '@/components/crm/ai/AiFeaturePending';
 
 export default function AIKnowledgePage() {
   return (
-    <AiUnavailable
+    <AiFeaturePending
       icon={BookOpen}
       title="Knowledge Base"
       subtitle="Documents the assistant can ground its answers in."

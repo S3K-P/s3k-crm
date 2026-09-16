@@ -7,6 +7,7 @@ import enum
 import uuid
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     Enum,
     ForeignKey,
@@ -21,7 +22,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.core.models import TimestampMixin, UUIDPrimaryKeyMixin
-from app.products.crm.common import CRM_SCHEMA, CrmEntityMixin, CrmEntityType
+from app.products.crm.common import CRM_SCHEMA, CrmEntityMixin, CrmEntityType, searchable
 
 
 class ActivityType(enum.StrEnum):
@@ -64,6 +65,10 @@ class Activity(Base, CrmEntityMixin):
         ),
         Index("ix_activities_organization_id_due_date", "organization_id", "due_date"),
         Index("ix_activities_organization_id_deleted_at", "organization_id", "deleted_at"),
+        CheckConstraint(
+            "duration_minutes IS NULL OR duration_minutes >= 0",
+            name="duration_minutes_non_negative",
+        ),
         {"schema": CRM_SCHEMA},
     )
 
@@ -84,12 +89,31 @@ class Activity(Base, CrmEntityMixin):
         DateTime(timezone=True), nullable=True
     )
     outcome: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: How long a call ran. Meaningful for ``CALL`` and left unset for other
+    #: types; not restricted to ``CALL`` by a constraint, since a duration
+    #: quietly recorded against a differently-typed activity is harmless and
+    #: a hard type check would be one more thing an ``ActivityUpdate`` could
+    #: violate for no safety gained.
+    duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     owner_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
     related_entity_type: Mapped[CrmEntityType | None] = mapped_column(
         Enum(CrmEntityType, name="crm_entity_type", schema=CRM_SCHEMA, native_enum=True),
         nullable=True,
     )
     related_entity_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+
+    # --- Search --------------------------------------------------------
+    #: A meeting's own ``location``/``agenda`` (a separate table, joined by
+    #: ``activity_id``) are deliberately not folded in here — a generated
+    #: column can only read its own row, and copying them in via a trigger
+    #: would be the second search-maintenance mechanism the other four
+    #: entities' migration (``20260826_0100``) specifically avoided. A search
+    #: for a meeting's location finds it by ``subject``/``outcome`` instead.
+    search_vector: Mapped[str | None] = searchable(
+        "setweight(to_tsvector('english'::regconfig, coalesce(subject, '')), 'A') || "
+        "setweight(to_tsvector('english'::regconfig, coalesce(outcome, '')), 'C') || "
+        "setweight(to_tsvector('english'::regconfig, coalesce(description, '')), 'D')"
+    )
 
 
 class Meeting(Base, UUIDPrimaryKeyMixin, TimestampMixin):

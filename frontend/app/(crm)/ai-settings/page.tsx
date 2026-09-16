@@ -2,11 +2,11 @@
 
 import { Activity } from 'lucide-react';
 
-import AiUnavailable from '@/components/crm/ai/AiUnavailable';
+import AiFeaturePending from '@/components/crm/ai/AiFeaturePending';
 
 export default function AISettingsDashboard() {
   return (
-    <AiUnavailable
+    <AiFeaturePending
       icon={Activity}
       title="AI Overview"
       subtitle="Platform utilisation and AI performance metrics."

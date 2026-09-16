@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import asdict
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response, status
@@ -16,6 +17,8 @@ from app.products.crm.common import CrmEntityType
 from app.products.crm.custom_fields.query import CustomFieldQueryDep
 from app.products.crm.opportunities.models import Opportunity
 from app.products.crm.opportunities.schemas import (
+    OpportunityBulkStageChange,
+    OpportunityBulkUpdate,
     OpportunityCreate,
     OpportunityReopen,
     OpportunityResponse,
@@ -25,8 +28,16 @@ from app.products.crm.opportunities.schemas import (
     StageHistoryEntry,
 )
 from app.products.crm.opportunities.service import OpportunityService
+from app.products.crm.reports.custom import build_advanced_filter_predicate
+from app.products.crm.reports.fields import ReportEntity
+from app.products.crm.shared.advanced_filter_query import AdvancedFilterDep
 from app.products.crm.shared.csv_export import collect_rows, csv_response
 from app.products.crm.shared.pagination import Page, PageParams, page_params
+from app.products.crm.shared.schemas import (
+    BulkIdsRequest,
+    BulkOperationResult,
+    TimelineEntryResponse,
+)
 from app.products.crm.shared.visibility import RecordVisibility
 
 router = APIRouter()
@@ -56,8 +67,10 @@ def visible_to(principal: Principal) -> RecordVisibility:
 async def list_opportunities(
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
     service: ServiceDep,
+    session: DbSession,
     params: PageParamsDep,
     custom: CustomFieldQueryDep,
+    advanced: AdvancedFilterDep,
     search: Annotated[str | None, Query(max_length=255)] = None,
     stage_id: Annotated[uuid.UUID | None, Query()] = None,
     account_id: Annotated[uuid.UUID | None, Query()] = None,
@@ -72,6 +85,9 @@ async def list_opportunities(
     orders by one. Names are resolved against this organization's own
     definitions before any SQL is built (``custom_fields/query.py``), so an
     unrecognised one is a 422 rather than a filter on nothing.
+
+    ``?advanced_filter=`` (Checkpoint 5): see ``leads.router.list_leads``'s
+    docstring — the mechanism is identical, entity-parameterised.
     """
     filters = service.build_filters(
         search=search,
@@ -87,6 +103,12 @@ async def list_opportunities(
         entity_type=CrmEntityType.OPPORTUNITY,
     )
     filters = [*filters, *custom_filters]
+    if advanced is not None:
+        predicate = await build_advanced_filter_predicate(
+            session, principal.organization_id, ReportEntity.OPPORTUNITY, advanced
+        )
+        if predicate is not None:
+            filters.append(predicate)
     items, total = await service.list_opportunities(
         principal.organization_id,
         params=params,
@@ -164,6 +186,56 @@ async def list_stages(
     """The organization's pipeline stages, in order."""
     stages = await service.list_stages(principal.organization_id)
     return [PipelineStageResponse.model_validate(stage) for stage in stages]
+
+
+@router.post("/bulk-update", response_model=BulkOperationResult)
+async def bulk_update_opportunities(
+    payload: OpportunityBulkUpdate,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.EDIT))],
+    service: ServiceDep,
+) -> BulkOperationResult:
+    """Patch the same fields on many deals. ``stage_id`` is not among them."""
+    return await service.bulk_update(
+        payload.ids,
+        principal.organization_id,
+        actor_id=principal.user_id,
+        values=payload.values.model_dump(exclude_unset=True),
+        visibility=visible_to(principal),
+    )
+
+
+@router.post("/bulk-delete", response_model=BulkOperationResult)
+async def bulk_delete_opportunities(
+    payload: BulkIdsRequest,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.DELETE))],
+    service: ServiceDep,
+) -> BulkOperationResult:
+    return await service.bulk_delete(
+        payload.ids,
+        principal.organization_id,
+        actor_id=principal.user_id,
+        visibility=visible_to(principal),
+    )
+
+
+@router.post("/bulk-stage", response_model=BulkOperationResult)
+async def bulk_change_opportunity_stage(
+    payload: OpportunityBulkStageChange,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.EDIT))],
+    service: ServiceDep,
+) -> BulkOperationResult:
+    """Move many deals to the same stage — the same rules as one drag."""
+    return await service.bulk_change_stage(
+        payload.ids,
+        principal.organization_id,
+        stage_id=payload.stage_id,
+        actor_id=principal.user_id,
+        note=payload.note,
+        loss_reason=payload.loss_reason,
+        win_reason=payload.win_reason,
+        principal=principal,
+        visibility=visible_to(principal),
+    )
 
 
 @router.post("", response_model=OpportunityResponse, status_code=status.HTTP_201_CREATED)
@@ -274,6 +346,21 @@ async def stage_history(
     )
     entries = await service.stage_history(opportunity)
     return [StageHistoryEntry.model_validate(entry) for entry in entries]
+
+
+@router.get("/{opportunity_id}/timeline", response_model=list[TimelineEntryResponse])
+async def get_opportunity_timeline(
+    opportunity_id: uuid.UUID,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
+    service: ServiceDep,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> list[TimelineEntryResponse]:
+    """Everything this caller may see against this deal, newest first."""
+    opportunity = await service.get_or_404(
+        opportunity_id, principal.organization_id, visibility=visible_to(principal)
+    )
+    entries = await service.timeline(opportunity, principal, limit=limit)
+    return [TimelineEntryResponse(**asdict(entry)) for entry in entries]
 
 
 @router.delete("/{opportunity_id}", status_code=status.HTTP_204_NO_CONTENT)

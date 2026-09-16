@@ -23,6 +23,7 @@ class AccountBase(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     industry: str | None = Field(default=None, max_length=120)
     website: str | None = Field(default=None, max_length=512)
+    phone: str | None = Field(default=None, max_length=32)
     company_size: str | None = Field(default=None, max_length=64)
     annual_revenue: Decimal | None = Field(default=None, ge=0)
     status: AccountStatus = AccountStatus.ACTIVE
@@ -53,6 +54,7 @@ class AccountUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     industry: str | None = Field(default=None, max_length=120)
     website: str | None = Field(default=None, max_length=512)
+    phone: str | None = Field(default=None, max_length=32)
     company_size: str | None = Field(default=None, max_length=64)
     annual_revenue: Decimal | None = Field(default=None, ge=0)
     status: AccountStatus | None = None
@@ -72,6 +74,13 @@ class AccountUpdate(BaseModel):
     custom_fields: CustomFieldValues | None = None
 
 
+class AccountBulkUpdate(BaseModel):
+    """Patch the same fields on many accounts at once (Checkpoint 4)."""
+
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    values: AccountUpdate
+
+
 class AccountResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -80,6 +89,7 @@ class AccountResponse(BaseModel):
     name: str
     industry: str | None
     website: str | None
+    phone: str | None
     company_size: str | None
     annual_revenue: Decimal | None
     status: AccountStatus
@@ -101,4 +111,54 @@ class AccountResponse(BaseModel):
     custom_fields: dict[str, Any] = Field(default_factory=dict)
 
 
-__all__ = ["AccountCreate", "AccountResponse", "AccountUpdate"]
+class AccountOverviewResponse(BaseModel):
+    """The Account 360 summary header: real aggregates, never sample data.
+
+    Every count and sum is scoped to what the caller may see — see
+    ``AccountService.overview`` — so this can never claim more pipeline or
+    more contacts than the caller's own list views would show them.
+    """
+
+    contacts_count: int
+    open_deals_count: int
+    open_pipeline_value: Decimal
+    #: Set only when every open deal shares one currency; ``None`` when they
+    #: differ, because a sum across currencies has no single symbol to show.
+    open_pipeline_currency: str | None
+    won_deals_count: int
+    won_revenue: Decimal
+    won_revenue_currency: str | None
+    open_tasks_count: int
+    last_activity_at: dt.datetime | None
+    next_meeting_id: uuid.UUID | None
+    next_meeting_title: str | None
+    next_meeting_at: dt.datetime | None
+    owner_name: str | None
+    primary_contact_name: str | None
+    primary_contact_title: str | None
+
+
+class AccountTimelineEntryResponse(BaseModel):
+    """One event in the account's unified timeline.
+
+    ``kind`` is a small fixed vocabulary (``activity``, ``deal_created``,
+    ``stage_changed``, ``contact_created``) so the frontend can choose an icon
+    without parsing ``title``.
+    """
+
+    kind: str
+    occurred_at: dt.datetime
+    title: str
+    detail: str | None
+    entity_type: str
+    entity_id: uuid.UUID
+
+
+__all__ = [
+    "AccountBulkUpdate",
+    "AccountCreate",
+    "AccountOverviewResponse",
+    "AccountResponse",
+    "AccountTimelineEntryResponse",
+    "AccountUpdate",
+]

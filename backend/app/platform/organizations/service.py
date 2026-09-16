@@ -16,6 +16,7 @@ from typing import Any
 
 import structlog
 from fastapi import status as http_status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppError, ConflictError, NotFoundError
@@ -27,6 +28,7 @@ from app.platform.organizations.models import (
     MembershipStatus,
     Organization,
     OrganizationMembership,
+    OrganizationStatus,
 )
 from app.platform.organizations.repository import OrganizationRepository
 
@@ -201,6 +203,26 @@ class OrganizationService:
 
     async def list_for_user(self, user_id: uuid.UUID) -> Sequence[Organization]:
         return await self._repository.list_for_user(user_id)
+
+    async def list_active_organization_ids(self) -> Sequence[uuid.UUID]:
+        """Every active, non-deleted organization's id.
+
+        The seam a cross-tenant background scan uses instead of querying
+        ``platform.organizations`` itself — ``app.products.*`` may not import
+        another module's ``models.py`` (ARCHITECTURE-BOUNDARIES.md rule 2),
+        and this is the same class of read
+        ``platform.notifications.dispatch_due_reminders_for_all_organizations``
+        already makes for its own, identical purpose. Read with no tenant
+        context, same as that caller: this table carries the tenant, so a
+        request scoped to one could never see the rest.
+        """
+        result = await self._repository.session.execute(
+            select(Organization.id).where(
+                Organization.status == OrganizationStatus.ACTIVE,
+                Organization.deleted_at.is_(None),
+            )
+        )
+        return result.scalars().all()
 
     # --- Memberships -------------------------------------------------------
 

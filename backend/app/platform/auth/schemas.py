@@ -37,10 +37,61 @@ class TokenResponse(BaseModel):
     cookie exists to provide, so it is deliberately absent.
     """
 
+    mfa_required: bool = False
     access_token: str
     token_type: str = "Bearer"  # noqa: S105 - an OAuth token *type*, not a secret
     expires_at: dt.datetime
     organization_id: uuid.UUID | None = None
+
+
+class MfaChallengeResponse(BaseModel):
+    """Returned by ``/auth/login`` in place of :class:`TokenResponse` when the
+    account has MFA enabled — the password was correct, but no session
+    exists yet.
+    """
+
+    mfa_required: bool = True
+    #: Opaque, short-lived; carries no more privilege than "this password was
+    #: correct" until redeemed at ``/auth/mfa/verify``.
+    mfa_challenge_token: str
+    expires_at: dt.datetime
+
+
+class MfaVerifyRequest(BaseModel):
+    mfa_challenge_token: SecretStr = Field(min_length=1, max_length=2048)
+    #: A 6-digit TOTP code, or one recovery code — the service tries the
+    #: TOTP path first and falls back only if the input does not look like a
+    #: TOTP code at all.
+    code: SecretStr = Field(min_length=1, max_length=64)
+
+
+class MfaStatusResponse(BaseModel):
+    enabled: bool
+    #: A secret was generated (``POST /auth/mfa/enroll``) but not yet
+    #: confirmed with a correct code.
+    pending: bool
+
+
+class MfaEnrollResponse(BaseModel):
+    """Shown exactly once — neither the secret nor the recovery codes are
+    ever retrievable again after this response.
+    """
+
+    secret: str
+    provisioning_uri: str
+    recovery_codes: list[str]
+
+
+class MfaConfirmRequest(BaseModel):
+    code: SecretStr = Field(min_length=6, max_length=10)
+
+
+class MfaDisableRequest(BaseModel):
+    """Re-proves the current password — MFA guards the account even from
+    someone who has stolen an already-signed-in session's request.
+    """
+
+    current_password: SecretStr = Field(min_length=1, max_length=256)
 
 
 class UserProfileResponse(BaseModel):
@@ -159,6 +210,12 @@ __all__ = [
     "ForgotPasswordRequest",
     "LoginRequest",
     "MembershipSummary",
+    "MfaChallengeResponse",
+    "MfaConfirmRequest",
+    "MfaDisableRequest",
+    "MfaEnrollResponse",
+    "MfaStatusResponse",
+    "MfaVerifyRequest",
     "RefreshRequest",
     "RegisterUserRequest",
     "ResetPasswordRequest",

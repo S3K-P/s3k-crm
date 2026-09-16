@@ -24,6 +24,7 @@ import { LOGIN_PATH, POST_LOGIN_PATH } from '@/lib/api-config';
 import type {
   CurrentUser,
   LoginCredentials,
+  LoginResponse,
   Membership,
   PermissionAction,
   TokenResponse,
@@ -41,6 +42,18 @@ import type { SignupPayload } from '@/features/platform/types';
    and it can never end up in a serialized React tree.
    ============================================================ */
 
+/**
+ * What a login attempt produced: a session, or one more step.
+ *
+ * `login`/`verifyMfa` resolve to this rather than throwing on the MFA case —
+ * needing a second factor is not a failure, and forcing the caller into a
+ * `catch` block for an expected outcome is what a discriminated return value
+ * is for.
+ */
+export type LoginOutcome =
+  | { mfaRequired: false }
+  | { mfaRequired: true; challengeToken: string };
+
 interface AuthContextValue {
   /** `null` once loading finishes and nobody is signed in. */
   currentUser: CurrentUser | null;
@@ -50,7 +63,9 @@ interface AuthContextValue {
   /** Organizations the user belongs to. */
   memberships: Membership[];
   activeOrganizationId: string | null;
-  login: (credentials: LoginCredentials) => Promise<void>;
+  login: (credentials: LoginCredentials) => Promise<LoginOutcome>;
+  /** Redeem an MFA challenge from `login` for a real session. */
+  verifyMfa: (challengeToken: string, code: string) => Promise<void>;
   /** Create an S3K account and start a session for it — no organization yet. */
   signup: (payload: SignupPayload) => Promise<void>;
   logout: () => Promise<void>;
@@ -185,13 +200,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => setSessionExpiredHandler(null);
   }, [clearSession, router]);
 
-  const login = useCallback(
-    async (credentials: LoginCredentials) => {
-      const tokens = await apiRequest<TokenResponse>('/auth/login', {
-        method: 'POST',
-        body: credentials,
-        skipRefresh: true,
-      });
+  /** Installs a completed session and loads the profile — shared by a plain
+   * login and one that first had to clear an MFA challenge.
+   */
+  const installSession = useCallback(
+    async (tokens: TokenResponse) => {
       // A session established by hand overtakes whatever the cookie probe
       // found when the tab loaded, so that answer must not be replayed by a
       // later mount.
@@ -202,6 +215,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await loadCurrentUser();
     },
     [loadCurrentUser],
+  );
+
+  const login = useCallback(
+    async (credentials: LoginCredentials): Promise<LoginOutcome> => {
+      const result = await apiRequest<LoginResponse>('/auth/login', {
+        method: 'POST',
+        body: credentials,
+        skipRefresh: true,
+      });
+      if (result.mfa_required) {
+        return { mfaRequired: true, challengeToken: result.mfa_challenge_token };
+      }
+      await installSession(result);
+      return { mfaRequired: false };
+    },
+    [installSession],
+  );
+
+  const verifyMfa = useCallback(
+    async (challengeToken: string, code: string) => {
+      const tokens = await apiRequest<TokenResponse>('/auth/mfa/verify', {
+        method: 'POST',
+        body: { mfa_challenge_token: challengeToken, code },
+        skipRefresh: true,
+      });
+      await installSession(tokens);
+    },
+    [installSession],
   );
 
   const signup = useCallback(
@@ -277,6 +318,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       memberships: currentUser?.memberships ?? [],
       activeOrganizationId: currentUser?.active_organization_id ?? null,
       login,
+      verifyMfa,
       signup,
       logout,
       switchOrganization,
@@ -288,6 +330,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       currentUser,
       loading,
       login,
+      verifyMfa,
       signup,
       logout,
       switchOrganization,

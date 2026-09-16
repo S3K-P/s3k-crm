@@ -16,6 +16,7 @@ one person's default is not another's.
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 
 import pytest
@@ -460,6 +461,70 @@ def test_a_tile_uses_its_reports_name_until_given_one(
 
     after = as_alpha_admin.get(f"{BOARDS}/{board['id']}/data")
     assert after.json()["components"][0]["title"] == "New name"
+
+
+def test_a_dashboard_wide_date_filter_narrows_a_capable_tile(
+    as_alpha_admin: ApiSession,
+) -> None:
+    """Checkpoint 5. ``won-lost-summary`` accepts a date range; the request's
+    ``date_from``/``date_to`` override its saved (``ALL_TIME``) period for
+    this render only, and the tile says so via ``date_filter_applied``."""
+    account_id = _account(as_alpha_admin, "Date Filter Co")
+    deal_id = _deal(as_alpha_admin, name="Won Today", account_id=account_id, value="7000.00")
+    won_stage = next(
+        s["id"]
+        for s in as_alpha_admin.get("/crm/opportunities/stages").json()
+        if s["name"] == "Closed Won"
+    )
+    as_alpha_admin.post(f"/crm/opportunities/{deal_id}/stage", json={"stage_id": won_stage})
+
+    report = _save(as_alpha_admin, name="Won summary", key="won-lost-summary")
+    board = _board(as_alpha_admin, "Date-filtered board")
+    _tile(as_alpha_admin, str(board["id"]), str(report["id"]))
+
+    today_iso = dt.datetime.now(dt.UTC).date().isoformat()
+    today = as_alpha_admin.get(
+        f"{BOARDS}/{board['id']}/data",
+        params={"date_from": today_iso, "date_to": today_iso},
+    )
+    excluded = as_alpha_admin.get(
+        f"{BOARDS}/{board['id']}/data",
+        params={"date_from": "2000-01-01", "date_to": "2000-01-02"},
+    )
+
+    assert today.status_code == 200, today.text
+    today_tile = today.json()["components"][0]
+    assert today_tile["date_filter_applied"] is True
+    assert today_tile["result"]["totals"]["deals"] == 1
+
+    excluded_tile = excluded.json()["components"][0]
+    assert excluded_tile["date_filter_applied"] is True
+    assert excluded_tile["result"]["totals"]["deals"] == 0
+
+
+def test_a_dashboard_wide_date_filter_does_not_affect_a_tile_with_no_date_dimension(
+    as_alpha_admin: ApiSession,
+) -> None:
+    """``pipeline-by-stage`` has no date parameter at all — the filter must
+    not silently no-op the tile's own numbers, and the flag says so."""
+    account_id = _account(as_alpha_admin, "Undated Co")
+    _deal(as_alpha_admin, name="Open Deal", account_id=account_id, value="4000.00")
+
+    report = _save(as_alpha_admin, name="Pipeline snapshot", key="pipeline-by-stage")
+    board = _board(as_alpha_admin, "Undated board")
+    _tile(as_alpha_admin, str(board["id"]), str(report["id"]))
+
+    unfiltered = as_alpha_admin.get(f"{BOARDS}/{board['id']}/data")
+    filtered = as_alpha_admin.get(
+        f"{BOARDS}/{board['id']}/data",
+        params={"date_from": "2000-01-01", "date_to": "2000-01-02"},
+    )
+
+    assert filtered.json()["components"][0]["date_filter_applied"] is False
+    assert (
+        filtered.json()["components"][0]["result"]["rows"]
+        == unfiltered.json()["components"][0]["result"]["rows"]
+    )
 
 
 def test_an_empty_dashboard_renders_as_empty_not_as_an_error(

@@ -28,7 +28,8 @@ export type AttachableEntityType =
   | 'CONTACT'
   | 'LEAD'
   | 'OPPORTUNITY'
-  | 'CAMPAIGN';
+  | 'CAMPAIGN'
+  | 'ACTIVITY';
 
 export interface Attachment {
   id: string;

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Blocks, Building2, Loader2, ScrollText, GitBranch,
+  LayoutTemplate,
   Shield,
   SlidersHorizontal, UsersRound, Workflow } from 'lucide-react';
 
@@ -230,6 +231,16 @@ export default function AdminDashboardPage() {
             </div>
           </Link>
           <Link
+            href="/admin/layouts"
+            className="bd flex items-center gap-3 rounded-xl border p-3.5 transition hover:border-[var(--accent)]"
+          >
+            <LayoutTemplate className="txt-muted h-4 w-4 shrink-0" />
+            <div>
+              <p className="txt text-[13px] font-semibold">Form layouts</p>
+              <p className="txt-muted text-[11.5px]">Sections, fields and conditional rules</p>
+            </div>
+          </Link>
+          <Link
             href="/admin/blueprints"
             className="bd flex items-center gap-3 rounded-xl border p-3.5 transition hover:border-[var(--accent)]"
           >
@@ -237,6 +248,16 @@ export default function AdminDashboardPage() {
             <div>
               <p className="txt text-[13px] font-semibold">Blueprints</p>
               <p className="txt-muted text-[11.5px]">Your own process over record states</p>
+            </div>
+          </Link>
+          <Link
+            href="/admin/workflows"
+            className="bd flex items-center gap-3 rounded-xl border p-3.5 transition hover:border-[var(--accent)]"
+          >
+            <Workflow className="txt-muted h-4 w-4 shrink-0" />
+            <div>
+              <p className="txt text-[13px] font-semibold">Workflows</p>
+              <p className="txt-muted text-[11.5px]">Trigger, conditions and actions on records</p>
             </div>
           </Link>
           <Link

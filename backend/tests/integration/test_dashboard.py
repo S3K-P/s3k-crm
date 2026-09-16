@@ -243,11 +243,21 @@ def test_an_organization_with_no_records_returns_a_real_empty_state(
         "tasks_due": 0,
         "tasks_due_high_priority": 0,
         "opportunities_closing_soon": 0,
+        # Checkpoint 5.
+        "weighted_pipeline_value": "0.00",
+        "won_revenue": "0",
+        "lead_conversion_rate": 0.0,
     }
     assert body["tasks"] == []
     assert body["meetings"] == []
     assert body["activities"] == []
     assert Decimal(body["pipeline_total"]) == Decimal(0)
+    # Checkpoint 5: zero-filled, not missing — see
+    # ``DashboardRepository.won_revenue_by_month``.
+    assert len(body["revenue_trend"]) == 6
+    assert all(Decimal(point["value"]) == Decimal(0) for point in body["revenue_trend"])
+    assert body["pipeline_by_owner"] == []
+    assert body["lead_source_performance"] == []
 
 
 def test_configured_stages_appear_even_with_no_deals_in_them(
@@ -282,6 +292,132 @@ def test_the_kpis_count_the_organizations_own_records(as_alpha_admin: ApiSession
     assert kpis["qualified_leads"] == 1
     assert kpis["open_opportunities"] == 2
     assert Decimal(kpis["pipeline_value"]) == Decimal("75000.50")
+
+
+def test_weighted_pipeline_uses_each_deals_own_win_probability(
+    as_alpha_admin: ApiSession,
+) -> None:
+    """Checkpoint 5. A deal's ``win_probability`` is only defaulted from its
+    stage on a stage *change* (``opportunities/service.py``'s
+    ``change_stage``/``reopen``) — a freshly created deal carries whatever
+    the create request supplied, which is exactly what this weights."""
+    account_id = _account(as_alpha_admin, "Weighted Deal Ltd")
+    created = as_alpha_admin.post(
+        "/crm/opportunities",
+        json={
+            "name": "Weighted Deal",
+            "account_id": account_id,
+            "stage_id": _stage_id(as_alpha_admin, "Qualification"),
+            "deal_value": "50000.00",
+            "win_probability": 10,
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    kpis = as_alpha_admin.get(SUMMARY).json()["kpis"]
+
+    assert Decimal(kpis["weighted_pipeline_value"]) == Decimal("5000.00")
+    assert Decimal(kpis["pipeline_value"]) == Decimal("50000.00")
+
+
+def test_weighted_pipeline_treats_an_unset_probability_as_zero(
+    as_alpha_admin: ApiSession,
+) -> None:
+    """Documented, deliberate behaviour — see
+    ``DashboardRepository.sum_weighted_pipeline_value``: a deal nobody has
+    estimated contributes nothing to the weighted figure rather than a guess,
+    while the unweighted total still counts it in full."""
+    _opportunity(as_alpha_admin, name="Unestimated Deal", value="20000.00", stage="Qualification")
+
+    kpis = as_alpha_admin.get(SUMMARY).json()["kpis"]
+
+    assert Decimal(kpis["weighted_pipeline_value"]) == Decimal("0.00")
+    assert Decimal(kpis["pipeline_value"]) == Decimal("20000.00")
+
+
+def test_won_revenue_counts_only_deals_closed_won_recently(
+    as_alpha_admin: ApiSession,
+) -> None:
+    deal_id = _opportunity(
+        as_alpha_admin, name="Just Won", value="12000.00", stage="Qualification"
+    )
+    won_stage = _stage_id(as_alpha_admin, "Closed Won")
+    changed = as_alpha_admin.post(
+        f"/crm/opportunities/{deal_id}/stage", json={"stage_id": won_stage}
+    )
+    assert changed.status_code == 200, changed.text
+    # A deal still open contributes nothing to won revenue.
+    _opportunity(as_alpha_admin, name="Still Open", value="99999.00", stage="Proposal")
+
+    kpis = as_alpha_admin.get(SUMMARY).json()["kpis"]
+
+    assert Decimal(kpis["won_revenue"]) == Decimal("12000.00")
+
+
+def test_lead_conversion_rate_is_the_share_of_leads_converted(
+    as_alpha_admin: ApiSession,
+) -> None:
+    converted = as_alpha_admin.post(
+        "/crm/leads", json={"first_name": "Will", "last_name": "Convert"}
+    ).json()["id"]
+    for status in ("CONTACTED", "QUALIFIED"):
+        as_alpha_admin.post(f"/crm/leads/{converted}/status", json={"status": status})
+    convert = as_alpha_admin.post(
+        f"/crm/leads/{converted}/convert", json={"create_opportunity": False}
+    )
+    assert convert.status_code == 201, convert.text
+    _lead(as_alpha_admin, company="Never Converts")
+
+    kpis = as_alpha_admin.get(SUMMARY).json()["kpis"]
+
+    # One of two live leads converted.
+    assert kpis["lead_conversion_rate"] == 50.0
+
+
+def test_revenue_trend_is_zero_filled_across_six_months(
+    as_alpha_admin: ApiSession,
+) -> None:
+    deal_id = _opportunity(
+        as_alpha_admin, name="Trend Deal", value="8000.00", stage="Qualification"
+    )
+    won_stage = _stage_id(as_alpha_admin, "Closed Won")
+    as_alpha_admin.post(f"/crm/opportunities/{deal_id}/stage", json={"stage_id": won_stage})
+
+    body = as_alpha_admin.get(SUMMARY).json()
+
+    assert len(body["revenue_trend"]) == 6
+    this_month_total = sum(
+        Decimal(point["value"])
+        for point in body["revenue_trend"]
+        if point["month"].startswith(dt.datetime.now(dt.UTC).strftime("%Y-%m"))
+    )
+    assert this_month_total == Decimal("8000.00")
+
+
+def test_pipeline_by_owner_resolves_a_display_name(as_alpha_admin: ApiSession) -> None:
+    _opportunity(as_alpha_admin, name="Owned Deal", value="3000.00", stage="Qualification")
+
+    body = as_alpha_admin.get(SUMMARY).json()
+
+    assert len(body["pipeline_by_owner"]) >= 1
+    entry = body["pipeline_by_owner"][0]
+    assert entry["owner"] not in ("", None)
+    assert Decimal(entry["value"]) >= Decimal("3000.00")
+
+
+def test_lead_source_performance_matches_the_reports_own_answer(
+    as_alpha_admin: ApiSession,
+) -> None:
+    """Reused from ``ReportRepository.lead_conversion_by_source`` rather than
+    a second query — the two numbers must always agree."""
+    _lead(as_alpha_admin, company="Source Co")
+
+    summary_rows = as_alpha_admin.get(SUMMARY).json()["lead_source_performance"]
+    report = as_alpha_admin.post("/crm/reports/lead-conversion-by-source/run", json={})
+    assert report.status_code == 200, report.text
+    report_rows = report.json()["rows"][:8]
+
+    assert summary_rows == report_rows
 
 
 def test_the_pipeline_breakdown_matches_the_deals_in_each_stage(

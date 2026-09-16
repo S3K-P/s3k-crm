@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.products.crm.reports.conditions import ReportFilterGroup
+from app.products.crm.reports.fields import AggOp, DateInterval, ReportEntity
 from app.products.crm.reports.models import ReportPeriod, ShareScope
 
 
@@ -95,6 +97,70 @@ class ReportResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Custom (ad-hoc) reports — the report builder's own definition shape
+# ---------------------------------------------------------------------------
+
+
+class ReportAggregation(BaseModel):
+    """One summary column: ``COUNT()`` needs no field, everything else does."""
+
+    field: str | None = Field(default=None, max_length=80)
+    op: AggOp
+
+    @model_validator(mode="after")
+    def _field_required_unless_count(self) -> ReportAggregation:
+        if self.op is not AggOp.COUNT and self.field is None:
+            msg = f"'{self.op.value}' needs a field to aggregate."
+            raise ValueError(msg)
+        return self
+
+
+class CustomReportDefinition(BaseModel):
+    """A user-authored report: entity, shape, filters — never SQL.
+
+    Two output shapes, chosen by whether ``group_by`` is set:
+
+    * **Grouped** — one row per distinct value of ``group_by`` (or per
+      ``group_by_interval`` bucket, for a date field), with one column per
+      entry in ``aggregations``. ``fields`` is ignored.
+    * **Row listing** — one row per record, showing exactly ``fields``, sorted
+      and capped the same way the built-in catalogue's row-per-record reports
+      are (see ``reports.repository.MAX_REPORT_ROWS``). ``aggregations`` is
+      ignored.
+    """
+
+    entity: ReportEntity
+    fields: list[str] = Field(default_factory=list, max_length=20)
+    filters: ReportFilterGroup | None = None
+    group_by: str | None = Field(default=None, max_length=80)
+    group_by_interval: DateInterval | None = None
+    aggregations: list[ReportAggregation] = Field(default_factory=list, max_length=10)
+    sort_by: str | None = Field(default=None, max_length=80)
+    sort_dir: Literal["asc", "desc"] = "asc"
+    #: Which date-typed field ``date_from``/``date_to`` narrow by. Defaults to
+    #: ``reports.fields.DEFAULT_DATE_FIELD`` (``created_at``) when unset.
+    date_field: str | None = Field(default=None, max_length=80)
+    chart_kind: Literal["BAR", "DONUT", "FUNNEL"] | None = None
+
+    @model_validator(mode="after")
+    def _shape_is_coherent(self) -> CustomReportDefinition:
+        if self.group_by is None:
+            if self.group_by_interval is not None:
+                msg = "group_by_interval needs a group_by field."
+                raise ValueError(msg)
+            if self.chart_kind is not None:
+                msg = "A chart needs group_by — a row listing has no category axis."
+                raise ValueError(msg)
+            if not self.fields:
+                msg = "Select at least one field, or set group_by to summarise instead."
+                raise ValueError(msg)
+        elif not self.aggregations:
+            msg = "A grouped report needs at least one aggregation."
+            raise ValueError(msg)
+        return self
+
+
+# ---------------------------------------------------------------------------
 # The saved-report library
 # ---------------------------------------------------------------------------
 
@@ -146,18 +212,28 @@ class SavedReportBase(BaseModel):
 class SavedReportCreate(SavedReportBase):
     name: str = Field(min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=2000)
-    base_report_key: str = Field(min_length=1, max_length=64)
+    #: Exactly one of these two must be set — see ``_exactly_one_definition``.
+    base_report_key: str | None = Field(default=None, min_length=1, max_length=64)
+    custom_definition: CustomReportDefinition | None = None
     folder_id: uuid.UUID | None = None
     period: ReportPeriod = ReportPeriod.ALL_TIME
     date_from: dt.date | None = None
     date_to: dt.date | None = None
     visibility: ShareScope = ShareScope.PRIVATE
 
+    @model_validator(mode="after")
+    def _exactly_one_definition(self) -> SavedReportCreate:
+        if (self.base_report_key is None) == (self.custom_definition is None):
+            msg = "A saved report needs exactly one of base_report_key or custom_definition."
+            raise ValueError(msg)
+        return self
+
 
 class SavedReportUpdate(SavedReportBase):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     description: str | None = Field(default=None, max_length=2000)
     base_report_key: str | None = Field(default=None, min_length=1, max_length=64)
+    custom_definition: CustomReportDefinition | None = None
     folder_id: uuid.UUID | None = None
     period: ReportPeriod | None = None
     date_from: dt.date | None = None
@@ -171,7 +247,8 @@ class SavedReportResponse(BaseModel):
     id: uuid.UUID
     name: str
     description: str | None
-    base_report_key: str
+    base_report_key: str | None
+    custom_definition: CustomReportDefinition | None
     folder_id: uuid.UUID | None
     period: ReportPeriod
     date_from: dt.date | None
@@ -182,8 +259,38 @@ class SavedReportResponse(BaseModel):
     updated_at: dt.datetime
 
 
+class AvailableFieldInfo(BaseModel):
+    """One field a custom report over an entity may select, filter or group by.
+
+    Mirrors ``layouts.schemas.AvailableFieldInfo`` in spirit — a field, its
+    label, and whether it is a tenant-defined one — with the extra capability
+    flags a report builder needs that a form builder does not.
+    """
+
+    key: str
+    label: str
+    type: str
+    is_custom: bool
+    filterable: bool
+    groupable: bool
+    sortable: bool
+    aggregations: list[str]
+
+
+class CustomReportPreviewRequest(BaseModel):
+    """Run a definition that has not been saved yet — the builder's preview step."""
+
+    definition: CustomReportDefinition
+    date_from: dt.date | None = None
+    date_to: dt.date | None = None
+
+
 __all__ = [
+    "AvailableFieldInfo",
     "ChartInfo",
+    "CustomReportDefinition",
+    "CustomReportPreviewRequest",
+    "ReportAggregation",
     "ReportColumnInfo",
     "ReportFolderCreate",
     "ReportFolderResponse",

@@ -17,14 +17,19 @@ import {
   notifySuccess,
 } from '@/components/crm/feedback/notify';
 import {
+  deleteMappingTemplate,
   downloadImportTemplate,
+  fieldDisplayLabel,
   listImportableEntities,
+  listMappingTemplates,
   readCsvHeaders,
   runImport,
+  saveMappingTemplate,
   suggestMapping,
   type DuplicatePolicy,
   type ImportEntityInfo,
   type ImportEntitySlug,
+  type ImportMappingTemplate,
   type ImportResult,
   type ImportRowIssue,
 } from '@/features/crm/imports';
@@ -102,6 +107,9 @@ export default function ImportWizard({ open, onClose, slug, onImported }: Import
   const [preview, setPreview] = useState<ImportResult | null>(null);
   const [outcome, setOutcome] = useState<ImportResult | null>(null);
   const [busy, setBusy] = useState(false);
+  const [templates, setTemplates] = useState<ImportMappingTemplate[]>([]);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [templateName, setTemplateName] = useState('');
 
   /* The field list drives the mapping step; fetched once per open. */
   useEffect(() => {
@@ -120,6 +128,62 @@ export default function ImportWizard({ open, onClose, slug, onImported }: Import
       cancelled = true;
     };
   }, [open, entity, slug]);
+
+  /* Saved mappings (Checkpoint 4) — loaded once the wizard opens, so the map
+     step can offer them without a per-render fetch. */
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const loaded = await listMappingTemplates(slug);
+        if (!cancelled) setTemplates(loaded);
+      } catch {
+        if (!cancelled) setTemplates([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, slug]);
+
+  const applyTemplate = (template: ImportMappingTemplate) => {
+    // Only columns this file actually has are applied — a template saved
+    // against a different export should not invent mappings for headers
+    // that are not here, which `suggestMapping` already avoids doing.
+    const next: Record<string, string> = {};
+    for (const header of headers) {
+      if (template.mapping[header]) next[header] = template.mapping[header];
+    }
+    setMapping(next);
+    setPolicy(template.duplicate_policy);
+    notifySuccess(`"${template.name}" applied.`);
+  };
+
+  const handleSaveTemplate = async () => {
+    const name = templateName.trim();
+    if (!name || Object.keys(mapping).length === 0) return;
+    setSavingTemplate(true);
+    try {
+      const created = await saveMappingTemplate(slug, { name, mapping, duplicate_policy: policy });
+      setTemplates((prev) => [...prev, created]);
+      setTemplateName('');
+      notifySuccess('Mapping saved for reuse.', name);
+    } catch (error) {
+      notifyError(error, 'Could not save this mapping.');
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  const handleDeleteTemplate = async (template: ImportMappingTemplate) => {
+    try {
+      await deleteMappingTemplate(slug, template.id);
+      setTemplates((prev) => prev.filter((t) => t.id !== template.id));
+    } catch (error) {
+      notifyError(error, 'Could not delete this saved mapping.');
+    }
+  };
 
   const reset = useCallback(() => {
     setStep('upload');
@@ -325,6 +389,27 @@ export default function ImportWizard({ open, onClose, slug, onImported }: Import
               that should be imported.
             </p>
 
+            {templates.length > 0 && (
+              <div className="bd flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2">
+                <span className="txt-muted text-[12px] font-semibold">Saved mappings:</span>
+                {templates.map((template) => (
+                  <span key={template.id} className="ctl flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px]">
+                    <button type="button" onClick={() => applyTemplate(template)} className="txt font-medium">
+                      {template.name}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteTemplate(template)}
+                      aria-label={`Delete saved mapping ${template.name}`}
+                      className="txt-faint hover:opacity-70"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
             <div className="flex flex-col gap-2">
               {headers.filter(Boolean).map((header) => (
                 <div key={header} className="flex items-center gap-3">
@@ -346,12 +431,20 @@ export default function ImportWizard({ open, onClose, slug, onImported }: Import
                     className="ctl w-1/2 px-3 py-2 text-[13px]"
                   >
                     <option value="">Ignore this column</option>
-                    {entity.fields.map((field) => (
-                      <option key={field.name} value={field.name}>
-                        {field.name}
-                        {field.required ? ' (required)' : ''}
-                      </option>
-                    ))}
+                    {entity.fields
+                      // The raw `custom_fields` bag is a dict-shaped column, not
+                      // a mappable target — a CSV cell is always a plain string,
+                      // so choosing it can only fail validation on every row.
+                      // Individual tenant fields are offered as `custom:<name>`
+                      // instead, each validated like any other column.
+                      .filter((field) => field.name !== 'custom_fields')
+                      .map((field) => (
+                        <option key={field.name} value={field.name}>
+                          {fieldDisplayLabel(field)}
+                          {field.required ? ' (required)' : ''}
+                          {field.name.startsWith('custom:') ? ' — custom field' : ''}
+                        </option>
+                      ))}
                   </select>
                 </div>
               ))}
@@ -386,6 +479,25 @@ export default function ImportWizard({ open, onClose, slug, onImported }: Import
                   {POLICY_LABELS[option]}
                 </label>
               ))}
+            </div>
+
+            <div className="bd flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2">
+              <input
+                value={templateName}
+                onChange={(event) => setTemplateName(event.target.value)}
+                placeholder="Save this mapping as…"
+                maxLength={160}
+                className="ctl min-w-0 flex-1 px-3 py-1.5 text-[12.5px]"
+              />
+              <button
+                type="button"
+                onClick={() => void handleSaveTemplate()}
+                disabled={savingTemplate || !templateName.trim()}
+                className="ctl flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold transition hover:opacity-80 disabled:opacity-50"
+              >
+                {savingTemplate && <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" />}
+                Save mapping
+              </button>
             </div>
           </>
         )}

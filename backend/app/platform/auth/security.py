@@ -36,6 +36,11 @@ logger = structlog.get_logger(__name__)
 
 JWT_ALGORITHM: Final = "EdDSA"
 TOKEN_TYPE_ACCESS: Final = "access"  # noqa: S105 - a claim value, not a secret
+#: A mid-login artefact, never a bearer credential: `TokenIssuer.verify`
+#: rejects anything whose `typ` is not `TOKEN_TYPE_ACCESS`, so a challenge
+#: token can never be replayed against an endpoint that expects a real
+#: session even though both are signed with the same key.
+TOKEN_TYPE_MFA_CHALLENGE: Final = "mfa_challenge"  # noqa: S105
 
 
 class InvalidTokenError(AppError):
@@ -157,6 +162,23 @@ class AccessTokenClaims:
     expires_at: dt.datetime
 
 
+@dataclass(frozen=True, slots=True)
+class MfaChallengeClaims:
+    """The verified contents of an MFA challenge token.
+
+    ``organization_id`` is the one ``authenticate()`` already resolved before
+    issuing the challenge (default org, or the one the caller requested) —
+    carried through rather than re-resolved after the code is verified, so a
+    membership change mid-challenge cannot land the session in a different
+    organization than the one the password step actually authorized.
+    """
+
+    user_id: uuid.UUID
+    organization_id: uuid.UUID | None
+    issued_at: dt.datetime
+    expires_at: dt.datetime
+
+
 class TokenIssuer:
     """Signs and verifies Ed25519 access tokens.
 
@@ -250,6 +272,63 @@ class TokenIssuer:
             expires_at=dt.datetime.fromtimestamp(int(payload["exp"]), tz=dt.UTC),
         )
 
+    def issue_mfa_challenge(
+        self, *, user_id: uuid.UUID, organization_id: uuid.UUID | None, now: dt.datetime
+    ) -> tuple[str, dt.datetime]:
+        """Return ``(challenge_token, expires_at)``.
+
+        Issued once a password verifies but a second factor is still owed.
+        Signed with the same keypair as a real access token but a different
+        ``typ``, so :meth:`verify` — the check every authenticated route runs
+        through — refuses it outright; only :meth:`verify_mfa_challenge` will
+        accept it.
+        """
+        ttl = dt.timedelta(seconds=self._settings.mfa_challenge_ttl_seconds)
+        expires_at = now + ttl
+        claims: dict[str, Any] = {
+            "sub": str(user_id),
+            "org": str(organization_id) if organization_id else None,
+            "typ": TOKEN_TYPE_MFA_CHALLENGE,
+            "iss": self._issuer,
+            "aud": self._audience,
+            "iat": int(now.timestamp()),
+            "exp": int(expires_at.timestamp()),
+        }
+        token = jwt.encode(claims, self._private_key, algorithm=JWT_ALGORITHM)
+        return token, expires_at
+
+    def verify_mfa_challenge(self, token: str) -> MfaChallengeClaims:
+        """Validate an MFA challenge token. Same failure shape as :meth:`verify`."""
+        try:
+            payload: dict[str, Any] = jwt.decode(
+                token,
+                self._public_key,
+                algorithms=[JWT_ALGORITHM],
+                issuer=self._issuer,
+                audience=self._audience,
+                options={"require": ["exp", "iat", "sub", "iss", "aud"]},
+            )
+        except jwt.PyJWTError as exc:
+            logger.info("mfa_challenge_rejected", reason=type(exc).__name__)
+            raise InvalidTokenError from exc
+
+        if payload.get("typ") != TOKEN_TYPE_MFA_CHALLENGE:
+            raise InvalidTokenError
+
+        try:
+            user_id = uuid.UUID(str(payload["sub"]))
+            raw_org = payload.get("org")
+            organization_id = uuid.UUID(str(raw_org)) if raw_org else None
+        except (KeyError, ValueError) as exc:
+            raise InvalidTokenError from exc
+
+        return MfaChallengeClaims(
+            user_id=user_id,
+            organization_id=organization_id,
+            issued_at=dt.datetime.fromtimestamp(int(payload["iat"]), tz=dt.UTC),
+            expires_at=dt.datetime.fromtimestamp(int(payload["exp"]), tz=dt.UTC),
+        )
+
 
 def _generate_ephemeral_keypair() -> tuple[str, str]:
     """Generate a throwaway Ed25519 keypair in PEM form."""
@@ -273,6 +352,7 @@ def _generate_ephemeral_keypair() -> tuple[str, str]:
 __all__ = [
     "AccessTokenClaims",
     "InvalidTokenError",
+    "MfaChallengeClaims",
     "PasswordHasher",
     "RefreshToken",
     "RefreshTokenFactory",

@@ -16,12 +16,13 @@ Admin?" answerable (doc 09; `P1-W08-BE-03`).
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 import structlog
 from fastapi import status
 
-from app.core.exceptions import AppError, NotFoundError
+from app.core.exceptions import AppError, ConflictError, NotFoundError, ValidationFailedError
 from app.platform.audit.service import Action as AuditAction
 from app.platform.audit.service import AuditService
 from app.platform.authorization.catalog import (
@@ -31,6 +32,9 @@ from app.platform.authorization.catalog import (
 )
 from app.platform.authorization.models import PermissionAction, Role
 from app.platform.authorization.repository import AuthorizationRepository
+
+#: Matches the `roles.name` column (`String(64)`).
+MAX_ROLE_NAME_LENGTH = 64
 
 logger = structlog.get_logger(__name__)
 
@@ -109,6 +113,189 @@ class AuthorizationService:
             # would itself be a disclosure.
             raise NotFoundError("Role not found.")
         return role
+
+    async def create_role(
+        self,
+        *,
+        organization_id: uuid.UUID,
+        name: str,
+        description: str | None,
+        permission_codes: Sequence[str],
+        actor_id: uuid.UUID | None = None,
+    ) -> Role:
+        """Create a tenant's own role, scoped to its organization.
+
+        System templates (``organization_id IS NULL``) are seeded by
+        migration only — this always creates a tenant-owned, non-system row.
+        """
+        name = self._validate_role_name(name)
+        await self._ensure_name_available(organization_id, name)
+        permission_ids = await self._resolve_permission_ids(permission_codes)
+
+        role = await self._repository.add_role(
+            Role(
+                organization_id=organization_id,
+                name=name,
+                description=description,
+                is_system=False,
+            )
+        )
+        await self._repository.set_role_permissions(role.id, permission_ids)
+        role = await self._repository.refresh_role_permissions(role)
+        await self._audit_role_lifecycle(
+            action=AuditAction.CREATED,
+            role=role,
+            organization_id=organization_id,
+            actor_id=actor_id,
+        )
+        return role
+
+    async def update_role(
+        self,
+        role: Role,
+        *,
+        organization_id: uuid.UUID,
+        values: Mapping[str, Any],
+        actor_id: uuid.UUID | None = None,
+    ) -> Role:
+        """Patch a role the caller has already resolved and is allowed to see.
+
+        Refuses a system template outright — editing "Admin" out from under
+        every tenant that inherits it is not a per-organization decision to
+        make through this endpoint.
+        """
+        if role.is_system or role.organization_id is None:
+            raise ConflictError("System role templates cannot be edited.")
+
+        if "name" in values:
+            name = self._validate_role_name(values["name"])
+            if name != role.name:
+                await self._ensure_name_available(organization_id, name, excluding_role_id=role.id)
+            role.name = name
+
+        if "description" in values:
+            role.description = values["description"]
+
+        if "permissions" in values:
+            permission_ids = await self._resolve_permission_ids(values["permissions"] or [])
+            await self._repository.set_role_permissions(role.id, permission_ids)
+            role = await self._repository.refresh_role_permissions(role)
+
+        await self._repository.add_role(role)
+        await self._audit_role_lifecycle(
+            action=AuditAction.UPDATED,
+            role=role,
+            organization_id=organization_id,
+            actor_id=actor_id,
+        )
+        return role
+
+    async def delete_role(
+        self,
+        role: Role,
+        *,
+        organization_id: uuid.UUID,
+        actor_id: uuid.UUID | None = None,
+    ) -> None:
+        """Delete a tenant's own role.
+
+        Refused while any membership still holds it — deleting it out from
+        under an assigned member would silently strip their access rather
+        than making the administrator reassign them first, and refused for a
+        system template for the same reason ``update_role`` refuses one.
+        """
+        if role.is_system or role.organization_id is None:
+            raise ConflictError("System role templates cannot be deleted.")
+
+        assignment_count = await self._repository.count_role_assignments(role.id)
+        if assignment_count:
+            member_word = "member" if assignment_count == 1 else "members"
+            raise ConflictError(
+                f"'{role.name}' is still assigned to {assignment_count} {member_word}. "
+                "Reassign them before deleting this role."
+            )
+
+        await self._audit_role_lifecycle(
+            action=AuditAction.DELETED,
+            role=role,
+            organization_id=organization_id,
+            actor_id=actor_id,
+        )
+        await self._repository.delete_role(role.id)
+
+    def _validate_role_name(self, name: str) -> str:
+        name = name.strip()
+        if not name:
+            raise ValidationFailedError("A role needs a name.")
+        if len(name) > MAX_ROLE_NAME_LENGTH:
+            raise ValidationFailedError(
+                f"A role name cannot exceed {MAX_ROLE_NAME_LENGTH} characters."
+            )
+        return name
+
+    async def _ensure_name_available(
+        self,
+        organization_id: uuid.UUID,
+        name: str,
+        *,
+        excluding_role_id: uuid.UUID | None = None,
+    ) -> None:
+        """Refuse a name already used by a system template or a sibling role.
+
+        Checked against every role the organization can *see* (system
+        templates included), not just its own custom ones: a custom role
+        named "Admin" alongside the real system "Admin" would make
+        ``membership_ids_with_role_name`` (matched by name) and every admin
+        screen ambiguous about which one a person actually holds.
+        """
+        siblings = await self._repository.list_roles_visible_to(organization_id)
+        if any(
+            sibling.name == name and sibling.id != excluding_role_id for sibling in siblings
+        ):
+            raise ConflictError(f"A role called '{name}' already exists in your organization.")
+
+    async def _resolve_permission_ids(self, codes: Sequence[str]) -> list[uuid.UUID]:
+        """Resolve permission codes to ids, rejecting anything not in the catalogue.
+
+        Checked against the ``permissions`` table itself rather than the
+        theoretical module x action cross product: not every module has a
+        row for every action (a module adopts only the actions it needs when
+        its migration seeds them), so the table is the only ground truth for
+        which codes are real.
+        """
+        unique_codes = sorted(set(codes))
+        if not unique_codes:
+            return []
+        catalogue = await self._repository.list_permissions()
+        by_code = {permission.code: permission.id for permission in catalogue}
+        invalid = [code for code in unique_codes if code not in by_code]
+        if invalid:
+            raise ValidationFailedError(
+                f"Unknown permission code(s): {', '.join(invalid)}.",
+                details={"invalid_codes": invalid},
+            )
+        return [by_code[code] for code in unique_codes]
+
+    async def _audit_role_lifecycle(
+        self,
+        *,
+        action: AuditAction,
+        role: Role,
+        organization_id: uuid.UUID,
+        actor_id: uuid.UUID | None,
+    ) -> None:
+        if self._audit is None:
+            return
+        await self._audit.record(
+            organization_id=organization_id,
+            action=action,
+            module=ROLES_MODULE,
+            actor_id=actor_id,
+            entity_type="ROLE",
+            entity_id=role.id,
+            entity_label=role.name,
+            details={"permissions": sorted(permission.code for permission in role.permissions)},
+        )
 
     async def assign_role_to_membership(
         self,

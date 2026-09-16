@@ -4,15 +4,34 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import {
+  DndContext,
+  PointerSensor,
+  KeyboardSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  rectSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import {
   AlertTriangle,
   ArrowLeft,
+  CalendarRange,
   ChevronDown,
   ChevronUp,
+  GripVertical,
   LayoutGrid,
   Plus,
   RefreshCw,
   Settings2,
   Trash2,
+  X,
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -55,9 +74,19 @@ import { listSavedReports, type SavedReport } from '@/features/crm/reports/libra
    the full width regardless of its stored width — a third of a
    phone is not a chart, it is a smudge.
 
-   Reordering is by explicit up/down buttons rather than drag.
-   Drag-and-drop needs a pointer, and this is the one editing
-   affordance on the screen that has to work on a tablet.
+   Reordering (Checkpoint 5) is by drag *and* by explicit up/down
+   buttons — not one or the other. `@dnd-kit`'s sortable strategy
+   ships a keyboard sensor as well as a pointer one, so drag is
+   not the accessibility regression plain HTML5 drag-and-drop
+   would have been; the buttons stay anyway, as the one path that
+   needs no explanation on a touchscreen where a press-and-hold
+   is easy to trigger by accident. Both call the identical
+   `reorderComponents` — there is one source of truth for order,
+   not two competing ones.
+
+   A dashboard-wide date filter (Checkpoint 5) narrows every tile
+   whose report has a date dimension; see `DateFilterBar` and
+   `date_filter_applied` on each rendered tile.
    ============================================================ */
 
 /** Tailwind cannot see a computed class name, so the spans are spelled out. */
@@ -94,6 +123,11 @@ export default function DashboardDetailPage() {
   const [loading, setLoading] = useState(true);
   const [arranging, setArranging] = useState(false);
   const [reload, setReload] = useState(0);
+  // Checkpoint 5: a dashboard-wide date filter, applied per tile only where
+  // the tile's own report has a date dimension — see `DateFilterBar` and
+  // `DashboardComponentData.date_filter_applied`.
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   const [savedReports, setSavedReports] = useState<SavedReport[]>([]);
   const [addOpen, setAddOpen] = useState(false);
@@ -115,7 +149,7 @@ export default function DashboardDetailPage() {
       try {
         const [layout, rendered] = await Promise.all([
           getDashboard(dashboardId),
-          renderDashboard(dashboardId),
+          renderDashboard(dashboardId, { date_from: dateFrom || null, date_to: dateTo || null }),
         ]);
         if (cancelled) return;
         setDetail(layout);
@@ -132,7 +166,7 @@ export default function DashboardDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [dashboardId, reload]);
+  }, [dashboardId, reload, dateFrom, dateTo]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -199,18 +233,38 @@ export default function DashboardDetailPage() {
     }
   };
 
-  const move = async (index: number, direction: -1 | 1) => {
-    if (!detail) return;
-    const order = detail.components.map(component => component.id);
-    const target = index + direction;
-    if (target < 0 || target >= order.length) return;
-    [order[index], order[target]] = [order[target], order[index]];
+  const applyOrder = async (order: string[]) => {
     try {
       await reorderComponents(dashboardId, order);
       load();
     } catch (cause) {
       setError(describeApiError(cause, 'Unable to reorder the tiles.'));
     }
+  };
+
+  const move = async (index: number, direction: -1 | 1) => {
+    if (!detail) return;
+    const order = detail.components.map(component => component.id);
+    const target = index + direction;
+    if (target < 0 || target >= order.length) return;
+    [order[index], order[target]] = [order[target], order[index]];
+    await applyOrder(order);
+  };
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !detail) return;
+    const order = detail.components.map(component => component.id);
+    const from = order.indexOf(String(active.id));
+    const to = order.indexOf(String(over.id));
+    if (from === -1 || to === -1) return;
+    order.splice(to, 0, ...order.splice(from, 1));
+    void applyOrder(order);
   };
 
   const dropDashboard = async () => {
@@ -261,6 +315,14 @@ export default function DashboardDetailPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <DateFilterBar
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onChange={(from, to) => {
+              setDateFrom(from);
+              setDateTo(to);
+            }}
+          />
           <button
             type="button"
             onClick={() => load()}
@@ -312,94 +374,24 @@ export default function DashboardDetailPage() {
         />
       )}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-        {tiles.map((tile, index) => (
-          <div
-            key={tile.id}
-            className={cn(
-              'surface bd flex flex-col rounded-2xl border p-5',
-              SPAN_CLASS[tile.width] ?? SPAN_CLASS[6],
-            )}
-          >
-            <div className="mb-3 flex items-start justify-between gap-2">
-              <h2 className="txt font-display truncate text-[14px] font-bold">
-                {tile.title}
-              </h2>
-              {arranging && (
-                <div className="flex shrink-0 items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => void move(index, -1)}
-                    disabled={index === 0}
-                    aria-label={`Move ${tile.title} earlier`}
-                    className="txt-faint hover:txt disabled:opacity-30"
-                  >
-                    <ChevronUp className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void move(index, 1)}
-                    disabled={index === tiles.length - 1}
-                    aria-label={`Move ${tile.title} later`}
-                    className="txt-faint hover:txt disabled:opacity-30"
-                  >
-                    <ChevronDown className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void dropTile(tile.id, tile.title)}
-                    aria-label={`Remove ${tile.title}`}
-                    className="txt-faint hover:text-rose-500"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {arranging ? (
-              <div className="flex flex-wrap gap-2">
-                <label className="txt-faint text-[10.5px] font-bold uppercase tracking-wider">
-                  Show as
-                  <select
-                    value={tile.display}
-                    onChange={event =>
-                      void changeTile(tile.id, {
-                        display: event.target.value as ComponentDisplay,
-                      })
-                    }
-                    className="ctl txt mt-1 block px-2.5 py-1.5 text-[12.5px] font-normal normal-case tracking-normal"
-                  >
-                    {DISPLAY_CHOICES.map(choice => (
-                      <option key={choice.value} value={choice.value}>
-                        {choice.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="txt-faint text-[10.5px] font-bold uppercase tracking-wider">
-                  Width
-                  <select
-                    value={tile.width}
-                    onChange={event =>
-                      void changeTile(tile.id, { width: Number(event.target.value) })
-                    }
-                    className="ctl txt mt-1 block px-2.5 py-1.5 text-[12.5px] font-normal normal-case tracking-normal"
-                  >
-                    {WIDTH_CHOICES.map(choice => (
-                      <option key={choice.value} value={choice.value}>
-                        {choice.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            ) : (
-              <TileBody tile={tile} />
-            )}
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={tiles.map(tile => tile.id)} strategy={rectSortingStrategy}>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+            {tiles.map((tile, index) => (
+              <DashboardTile
+                key={tile.id}
+                tile={tile}
+                index={index}
+                total={tiles.length}
+                arranging={arranging}
+                onMove={move}
+                onRemove={dropTile}
+                onChange={changeTile}
+              />
+            ))}
           </div>
-        ))}
-      </div>
+        </SortableContext>
+      </DndContext>
 
       {data && tiles.length > 0 && (
         <p className="txt-faint text-[11.5px]">
@@ -508,6 +500,196 @@ export default function DashboardDetailPage() {
           )}
         </div>
       </SlideDrawer>
+    </div>
+  );
+}
+
+/**
+ * One tile, draggable while arranging (Checkpoint 5).
+ *
+ * The up/down buttons and the drag handle both exist at once and both call
+ * the same `onMove`/drag-end path into `reorderComponents` — see the page
+ * docstring for why neither is being deprecated in favour of the other.
+ */
+function DashboardTile({
+  tile,
+  index,
+  total,
+  arranging,
+  onMove,
+  onRemove,
+  onChange,
+}: {
+  tile: DashboardComponentData;
+  index: number;
+  total: number;
+  arranging: boolean;
+  onMove: (index: number, direction: -1 | 1) => void;
+  onRemove: (componentId: string, title: string) => void;
+  onChange: (componentId: string, patch: { display?: ComponentDisplay; width?: number }) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: tile.id,
+    disabled: !arranging,
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        'surface bd flex flex-col rounded-2xl border p-5',
+        SPAN_CLASS[tile.width] ?? SPAN_CLASS[6],
+        isDragging && 'z-10 opacity-60 shadow-xl',
+      )}
+    >
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1.5">
+          {arranging && (
+            <button
+              type="button"
+              {...attributes}
+              {...listeners}
+              aria-label={`Drag to reorder ${tile.title}`}
+              className="txt-faint hover:txt cursor-grab touch-none active:cursor-grabbing"
+            >
+              <GripVertical className="h-4 w-4" />
+            </button>
+          )}
+          <h2 className="txt font-display truncate text-[14px] font-bold">{tile.title}</h2>
+          {tile.date_filter_applied && (
+            <span
+              title="Narrowed by the dashboard's date filter"
+              className="txt-faint inline-flex shrink-0 items-center gap-0.5 rounded-full border border-[var(--border)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wider"
+            >
+              <CalendarRange className="h-2.5 w-2.5" /> Filtered
+            </span>
+          )}
+        </div>
+        {arranging && (
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={() => onMove(index, -1)}
+              disabled={index === 0}
+              aria-label={`Move ${tile.title} earlier`}
+              className="txt-faint hover:txt disabled:opacity-30"
+            >
+              <ChevronUp className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onMove(index, 1)}
+              disabled={index === total - 1}
+              aria-label={`Move ${tile.title} later`}
+              className="txt-faint hover:txt disabled:opacity-30"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onRemove(tile.id, tile.title)}
+              aria-label={`Remove ${tile.title}`}
+              className="txt-faint hover:text-rose-500"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {arranging ? (
+        <div className="flex flex-wrap gap-2">
+          <label className="txt-faint text-[10.5px] font-bold uppercase tracking-wider">
+            Show as
+            <select
+              value={tile.display}
+              onChange={event =>
+                onChange(tile.id, { display: event.target.value as ComponentDisplay })
+              }
+              className="ctl txt mt-1 block px-2.5 py-1.5 text-[12.5px] font-normal normal-case tracking-normal"
+            >
+              {DISPLAY_CHOICES.map(choice => (
+                <option key={choice.value} value={choice.value}>
+                  {choice.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="txt-faint text-[10.5px] font-bold uppercase tracking-wider">
+            Width
+            <select
+              value={tile.width}
+              onChange={event => onChange(tile.id, { width: Number(event.target.value) })}
+              className="ctl txt mt-1 block px-2.5 py-1.5 text-[12.5px] font-normal normal-case tracking-normal"
+            >
+              {WIDTH_CHOICES.map(choice => (
+                <option key={choice.value} value={choice.value}>
+                  {choice.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      ) : (
+        <TileBody tile={tile} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * A dashboard-wide date range (Checkpoint 5).
+ *
+ * Narrows every tile whose underlying report has a date dimension — a
+ * catalogue report with `accepts_date_range`, or any custom report, which
+ * always has one — for this render only; nothing here is persisted. A tile
+ * with no date dimension (most of the built-in catalogue) renders its usual
+ * numbers unaffected, and says so via the "Filtered" badge's absence.
+ */
+function DateFilterBar({
+  dateFrom,
+  dateTo,
+  onChange,
+}: {
+  dateFrom: string;
+  dateTo: string;
+  onChange: (dateFrom: string, dateTo: string) => void;
+}) {
+  const active = Boolean(dateFrom || dateTo);
+  return (
+    <div className="ctl bd flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[12px]">
+      <CalendarRange className="h-3.5 w-3.5 txt-faint" aria-hidden="true" />
+      <input
+        type="date"
+        aria-label="Dashboard filter: from date"
+        value={dateFrom}
+        onChange={event => onChange(event.target.value, dateTo)}
+        className="txt bg-transparent text-[12px] outline-none"
+      />
+      <span className="txt-faint">–</span>
+      <input
+        type="date"
+        aria-label="Dashboard filter: to date"
+        value={dateTo}
+        onChange={event => onChange(dateFrom, event.target.value)}
+        className="txt bg-transparent text-[12px] outline-none"
+      />
+      {active && (
+        <button
+          type="button"
+          onClick={() => onChange('', '')}
+          aria-label="Clear dashboard date filter"
+          className="txt-faint hover:text-rose-500"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      )}
     </div>
   );
 }

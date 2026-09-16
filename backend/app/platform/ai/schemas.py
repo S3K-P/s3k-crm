@@ -10,8 +10,12 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.core.config import AiConfigurationIssue, AiProvider
+from app.platform.ai.provider import AiConnectionState
 
 #: Upper bound on a published prompt. Generous — an administrator writing a
 #: detailed research brief needs room — but bounded, because the value is sent
@@ -21,11 +25,44 @@ MAX_PROMPT_LENGTH = 20_000
 
 
 class AiStatusResponse(BaseModel):
-    """Whether AI features can run at all, and under what model."""
+    """Whether AI features can run at all, and what is known about the link.
+
+    Answered without calling a model. ``state`` is ``AVAILABLE`` only when a
+    real call succeeded recently (``checked_at``); a key alone yields
+    ``CONFIGURED``. Provider and model are configuration, not credentials, and
+    are reported even when no key is set so the screen can say *which* key is
+    missing.
+    """
 
     configured: bool
-    #: Present only when configured. Identifies the model, never the key.
+    provider: AiProvider
+    #: The configured model id. Identifies the model, never the key.
     model: str | None = None
+    state: AiConnectionState
+    #: Why ``configured`` is false; ``None`` when it is true.
+    reason: AiConfigurationIssue | None = None
+    #: When the verdict in ``state`` was observed, for any state a real call produced.
+    checked_at: dt.datetime | None = None
+    #: What produced it: an administrator's test or a real feature call.
+    check_source: Literal["health_check", "feature_call"] | None = None
+    latency_ms: int | None = None
+    error_code: str | None = None
+
+
+class AiHealthResponse(BaseModel):
+    """The result of one real connection test (``POST /ai/health``)."""
+
+    provider: AiProvider
+    #: The configured model id.
+    model: str
+    state: AiConnectionState
+    checked_at: dt.datetime
+    latency_ms: int | None = None
+    #: A short fixed code such as ``credential_rejected`` or ``timeout``;
+    #: never the provider's own error text.
+    error_code: str | None = None
+    #: The model the provider reported answering with, when it answered.
+    responded_model: str | None = None
 
 
 class PromptVersionResponse(BaseModel):
@@ -71,6 +108,7 @@ class PromptPublishRequest(BaseModel):
 
 __all__ = [
     "MAX_PROMPT_LENGTH",
+    "AiHealthResponse",
     "AiStatusResponse",
     "PromptConfigResponse",
     "PromptPublishRequest",

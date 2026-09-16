@@ -641,6 +641,7 @@ class CustomFieldValueService:
         submitted: Mapping[str, Any] | None,
         existing: Mapping[str, Any] | None = None,
         creating: bool = False,
+        record_context: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Return the ``custom_fields`` document to store.
 
@@ -660,6 +661,12 @@ class CustomFieldValueService:
                 ``existing`` and would otherwise be mistaken for an update —
                 and the two differ in the one place that matters, which is how
                 much of the required-field rule applies.
+            record_context: the record's built-in column values (Checkpoint
+                4), so a published layout's conditional rules can be evaluated
+                against them. ``None`` — every caller that predates layouts —
+                means "skip rule evaluation entirely", which is also what
+                happens when the caller passes real values but no layout is
+                published: see :meth:`_layout_overrides`.
 
         Returns:
             The complete document to persist. Keys absent from ``submitted``
@@ -712,8 +719,95 @@ class CustomFieldValueService:
             else:
                 current[api_name] = value
 
-        self._require_present(definitions, current, touched=set(submitted), creating=creating)
+        overrides = await self._layout_overrides(
+            organization_id,
+            entity_type,
+            definitions=definitions,
+            record_context=record_context,
+            document=current,
+        )
+        self._require_present(
+            definitions, current, touched=set(submitted), creating=creating, overrides=overrides
+        )
         return current
+
+    async def _layout_overrides(
+        self,
+        organization_id: uuid.UUID,
+        entity_type: CrmEntityType,
+        *,
+        definitions: Sequence[CustomFieldDefinition],
+        record_context: Mapping[str, Any] | None,
+        document: Mapping[str, Any],
+    ) -> dict[str, bool] | None:
+        """Final required-ness for every custom field *placed on* a published layout.
+
+        Returns ``None`` — "no override, every field keeps its own definition's
+        ``is_required``" — when ``record_context`` was not supplied (a caller
+        that predates layouts), no layout is published for this entity type,
+        or the published layout places none of this entity's custom fields.
+        An organization that has never touched the form builder therefore sees
+        byte-for-byte the same validation behaviour Checkpoint 4 found.
+
+        For a field the published layout *does* place, the returned value is
+        authoritative — it already folds in the layout field's own
+        ``is_required_override`` and every matching rule, most-specific last,
+        with "hidden implies not required" applied unconditionally. See
+        :func:`app.products.crm.layouts.evaluate.effective_custom_field_states`
+        for the exact precedence.
+
+        This is a deliberately late, local import: ``custom_fields`` must not
+        import ``layouts`` at module scope, or the two would import each other
+        (``layouts.service`` reads custom field definitions to validate a
+        layout before publishing it). Importing inside the one method that
+        needs it, only when a layout is actually in play, keeps the module
+        graph acyclic without a third indirection registry.
+        """
+        if record_context is None:
+            return None
+
+        from app.products.crm.layouts.evaluate import effective_custom_field_states
+        from app.products.crm.layouts.repository import (
+            LayoutFieldRepository,
+            LayoutFieldRuleRepository,
+            RecordLayoutRepository,
+        )
+
+        session = self._picklists.session
+        layout = await RecordLayoutRepository(session).published_for(organization_id, entity_type)
+        if layout is None:
+            return None
+
+        layout_fields = await LayoutFieldRepository(session).for_layout(organization_id, layout.id)
+        by_definition = {definition.api_name: definition for definition in definitions}
+        base_required: dict[str, bool] = {}
+        base_visible: dict[str, bool] = {}
+        for field in layout_fields:
+            if not field.field_key.startswith("custom:"):
+                continue
+            api_name = field.field_key[len("custom:") :]
+            definition = by_definition.get(api_name)
+            if definition is None:
+                continue  # Not this write's entity type's *active* set — irrelevant here.
+            base_required[field.field_key] = (
+                field.is_required_override
+                if field.is_required_override is not None
+                else definition.is_required
+            )
+            base_visible[field.field_key] = field.is_visible
+        if not base_required:
+            return None
+
+        rules = await LayoutFieldRuleRepository(session).for_layout(organization_id, layout.id)
+        context = {**record_context, **document}
+        states = effective_custom_field_states(
+            list(rules), context, base_visible=base_visible, base_required=base_required
+        )
+        return {
+            key[len("custom:") :]: bool(state.required)
+            for key, state in states.items()
+            if key.startswith("custom:")
+        }
 
     async def defaults_for(
         self, *, organization_id: uuid.UUID, entity_type: CrmEntityType
@@ -781,6 +875,7 @@ class CustomFieldValueService:
         *,
         touched: set[str],
         creating: bool,
+        overrides: Mapping[str, bool] | None = None,
     ) -> None:
         """Enforce required fields, over the right set of fields.
 
@@ -788,12 +883,20 @@ class CustomFieldValueService:
         only the ones the caller actually touched — so a field made required
         today does not make yesterday's records uneditable, while clearing a
         required field in the request in front of you is still refused.
+
+        ``overrides`` (Checkpoint 4) replaces a field's own ``is_required``
+        with the published layout's own final answer for it — which already
+        accounts for the layout field's override and every conditional rule,
+        including "a hidden field is never required". Only fields the layout
+        actually places appear in it; every other field's requiredness is
+        exactly ``definition.is_required``, unchanged.
         """
+        overrides = overrides or {}
         missing = sorted(
             definition.api_name
             for definition in definitions
             if definition.is_active
-            and definition.is_required
+            and overrides.get(definition.api_name, definition.is_required)
             and (creating or definition.api_name in touched)
             and is_empty(document.get(definition.api_name))
         )

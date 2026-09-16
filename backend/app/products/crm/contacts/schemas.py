@@ -76,6 +76,13 @@ class ContactUpdate(BaseModel):
     custom_fields: CustomFieldValues | None = None
 
 
+class ContactBulkUpdate(BaseModel):
+    """Patch the same fields on many contacts at once (Checkpoint 4)."""
+
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    values: ContactUpdate
+
+
 class ContactResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -109,4 +116,4 @@ class ContactResponse(BaseModel):
     custom_fields: dict[str, Any] = Field(default_factory=dict)
 
 
-__all__ = ["ContactCreate", "ContactResponse", "ContactUpdate"]
+__all__ = ["ContactBulkUpdate", "ContactCreate", "ContactResponse", "ContactUpdate"]

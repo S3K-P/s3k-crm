@@ -66,6 +66,7 @@ from app.platform.products.policies import product_gate
 from app.platform.teams import router as teams_router
 from app.products.crm.accounts import router as accounts_router
 from app.products.crm.activities import router as activities_router
+from app.products.crm.ai_insights import router as ai_insights_router
 from app.products.crm.blueprints import router as blueprints_router
 from app.products.crm.calendar import router as calendar_router
 from app.products.crm.campaigns import router as campaigns_router
@@ -78,6 +79,7 @@ from app.products.crm.emails import router as emails_router
 from app.products.crm.emails.delivery import deliver_crm_email_event
 from app.products.crm.emails.events import CRM_EMAIL_SEND_REQUESTED
 from app.products.crm.imports import router as imports_router
+from app.products.crm.layouts import router as layouts_router
 from app.products.crm.leads import router as leads_router
 from app.products.crm.leads import source_router as lead_sources_router
 from app.products.crm.market_insights import router as market_insights_router
@@ -92,6 +94,10 @@ from app.products.crm.shared.provisioning import crm_provisioning_hook
 from app.products.crm.shared.reminders import crm_reminder_source
 from app.products.crm.tasks import router as tasks_router
 from app.products.crm.views import router as views_router
+from app.products.crm.workflows import router as workflows_router
+from app.products.crm.workflows.events import CRM_RECORD_EVENT_OCCURRED
+from app.products.crm.workflows.service import handle_record_event, scan_scheduled_workflows
+from app.worker import register_scheduled_workflow_scanner
 
 root_router = APIRouter()
 root_router.include_router(health.router)
@@ -196,6 +202,7 @@ def register_custom_fields() -> None:
         submitted: Mapping[str, Any] | None,
         existing: Mapping[str, Any] | None,
         creating: bool,
+        record_context: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         return await CustomFieldValueService(session).resolve(
             organization_id=organization_id,
@@ -203,6 +210,7 @@ def register_custom_fields() -> None:
             submitted=submitted,
             existing=existing,
             creating=creating,
+            record_context=record_context,
         )
 
     async def _defaults(
@@ -283,6 +291,23 @@ def register_event_handlers() -> None:
         tenant_scoped=True,
     )
 
+    # Workflow automation (Checkpoint 6): a CRM record (or task) being
+    # created, updated or moved through a guarded transition. Always belongs
+    # to an organization — see ``shared.service._enqueue_record_event``.
+    register_handler(
+        CRM_RECORD_EVENT_OCCURRED,
+        handle_record_event,
+        tenant_scoped=True,
+    )
+    # The periodic ``SCHEDULED``/``TASK_DUE`` scan. Registered here rather
+    # than named directly in ``app/worker.py``'s cron list: that file must
+    # not import ``app.products`` (see ``ScheduledWorkflowScanner``'s
+    # docstring), so it calls this composition root's function instead — the
+    # exact reason every handler above is also registered from here.
+    register_scheduled_workflow_scanner(
+        lambda session_factory, now: scan_scheduled_workflows(session_factory, now=now)
+    )
+
 
 register_event_handlers()
 
@@ -336,10 +361,25 @@ crm_router.include_router(
     prefix="/crm/picklists",
     tags=["crm:custom-fields"],
 )
+# The admin form/layout builder (Checkpoint 4): sections, field placement and
+# conditional rules over an entity type's built-in and custom fields. Reads
+# `custom_fields` for the fields it can place but is its own permission
+# module, for the reason `blueprints` is its own module beside them:
+# publishing a layout is a wider power than editing any single field.
+crm_router.include_router(layouts_router.router, prefix="/crm/layouts", tags=["crm:layouts"])
 crm_router.include_router(
     market_insights_router.router,
     prefix="/crm/market-insights",
     tags=["crm:market-insights"],
+)
+# Day-to-day AI features built on real CRM data (Checkpoint 7): summaries,
+# Account Intelligence, next-best-action, AI email drafts, meeting-to-CRM
+# extraction, natural-language queries and prioritization. Its own module
+# beside `market_insights` and `ai` — see `ai_insights/router.py`.
+crm_router.include_router(
+    ai_insights_router.router,
+    prefix="/crm/ai-insights",
+    tags=["crm:ai-insights"],
 )
 # Saved list views. A view names filters over a record type and holds no rows,
 # so `views.VIEW` reaches no record: running one goes through that record
@@ -348,9 +388,7 @@ crm_router.include_router(views_router.router, prefix="/crm/views", tags=["crm:v
 # The calendar names no permission of its own — it would either duplicate
 # `activities.VIEW` and `tasks.VIEW` or, worse, become a way to read records
 # around them. It decides per source inside the handler (calendar/policies.py).
-crm_router.include_router(
-    calendar_router.router, prefix="/crm/calendar", tags=["crm:calendar"]
-)
+crm_router.include_router(calendar_router.router, prefix="/crm/calendar", tags=["crm:calendar"])
 # Merge chooses its entity from a path parameter, so the permission it needs is
 # not known when the route is declared — the shape imports already use. It
 # authorizes against the named entity's module inside the handler, and demands
@@ -373,6 +411,9 @@ crm_router.include_router(search_router.router, prefix="/crm/search", tags=["crm
 # is not known when the route is declared. The route authorizes against the
 # named entity's own module inside the handler — see its router.
 crm_router.include_router(imports_router.router, prefix="/crm/imports", tags=["crm:imports"])
+# Workflow automation (Checkpoint 6): trigger -> conditions -> actions, built
+# on the outbox event registered in ``register_event_handlers`` below.
+crm_router.include_router(workflows_router.router, prefix="/crm/workflows", tags=["crm:workflows"])
 
 # Mounted last, so every CRM route above is already behind the gate.
 api_router.include_router(crm_router)

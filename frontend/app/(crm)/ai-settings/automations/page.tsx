@@ -2,11 +2,11 @@
 
 import { Zap } from 'lucide-react';
 
-import AiUnavailable from '@/components/crm/ai/AiUnavailable';
+import AiFeaturePending from '@/components/crm/ai/AiFeaturePending';
 
 export default function AIAutomationsPage() {
   return (
-    <AiUnavailable
+    <AiFeaturePending
       icon={Zap}
       title="Automations"
       subtitle="Triggered AI actions on CRM events."

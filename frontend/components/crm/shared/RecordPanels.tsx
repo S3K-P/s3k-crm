@@ -1,13 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, MessageSquare, Plus, Trash2 } from 'lucide-react';
+import { CalendarPlus, Loader2, MessageSquare, Plus, Trash2 } from 'lucide-react';
 
 import SectionHeader from '@/components/crm/shared/SectionHeader';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
 import { humanize, statusVariant } from '@/components/crm/shared/statusVariants';
 import { FormError } from '@/components/crm/shared/ListStates';
-import { FormTextarea } from '@/components/crm/forms/FormField';
+import { FormInput, FormTextarea } from '@/components/crm/forms/FormField';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess } from '@/components/crm/feedback/notify';
 import { usePermissions } from '@/context/AuthContext';
@@ -24,7 +24,7 @@ import {
   listNotes,
   type Note,
 } from '@/features/crm/notes';
-import type { CrmEntityType } from '@/features/crm/tasks';
+import { createTask, type CrmEntityType } from '@/features/crm/tasks';
 
 /* ============================================================
    RECORD PANELS
@@ -65,6 +65,7 @@ export function ActivityTimelinePanel({
   const { can } = usePermissions();
   const mayView = can('activities', 'VIEW');
   const mayCreate = can('activities', 'CREATE');
+  const mayCreateFollowUp = can('tasks', 'CREATE');
 
   const [items, setItems] = useState<Activity[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -100,6 +101,7 @@ export function ActivityTimelinePanel({
   const [logType, setLogType] = useState<ActivityType>('CALL');
   const [subject, setSubject] = useState('');
   const [outcome, setOutcome] = useState('');
+  const [durationMinutes, setDurationMinutes] = useState('');
   const { pending, error: saveError, clearError, run } = useMutation();
 
   const handleLog = async () => {
@@ -110,6 +112,9 @@ export function ActivityTimelinePanel({
         subject: subject.trim(),
         description: outcome.trim() || null,
         status: 'COMPLETED',
+        // Meaningful for a call; harmless and simply unused otherwise.
+        duration_minutes:
+          logType === 'CALL' && durationMinutes.trim() ? Number(durationMinutes) : null,
         related_entity_type: entityType,
         related_entity_id: entityId,
       }),
@@ -117,9 +122,44 @@ export function ActivityTimelinePanel({
     if (created === undefined) return;
     setSubject('');
     setOutcome('');
+    setDurationMinutes('');
     setComposing(false);
     notifySuccess('Activity logged', subject.trim());
     setReloadToken((n) => n + 1);
+  };
+
+  /* ---- Complete Call -> Create Follow-up ----
+     A completed call or meeting often needs a next step. Rather than a new
+     automation engine, this opens a one-field task form pre-titled from the
+     activity and writes through the same `POST /crm/tasks` every other task
+     creation uses, with the polymorphic link already filled in — so the
+     follow-up shows up on this record's Tasks views immediately, with no
+     re-entry of what it is about. */
+  const [followUpFor, setFollowUpFor] = useState<string | null>(null);
+  const [followUpTitle, setFollowUpTitle] = useState('');
+  const [followUpDue, setFollowUpDue] = useState('');
+  const followUp = useMutation();
+
+  const openFollowUp = (activity: Activity) => {
+    setFollowUpFor(activity.id);
+    setFollowUpTitle(`Follow up: ${activity.subject}`);
+    setFollowUpDue('');
+    followUp.clearError();
+  };
+
+  const handleCreateFollowUp = async () => {
+    if (!followUpTitle.trim()) return;
+    const saved = await followUp.run(() =>
+      createTask({
+        title: followUpTitle.trim(),
+        due_date: followUpDue ? new Date(followUpDue).toISOString() : null,
+        related_entity_type: entityType,
+        related_entity_id: entityId,
+      }),
+    );
+    if (saved === undefined) return;
+    setFollowUpFor(null);
+    notifySuccess('Follow-up task created', followUpTitle.trim());
   };
 
   if (!mayView) return null;
@@ -163,6 +203,18 @@ export function ActivityTimelinePanel({
             aria-label="Subject"
             className="ctl w-full px-3 py-2 text-[13px] outline-none"
           />
+          {logType === 'CALL' && (
+            <input
+              type="number"
+              min={0}
+              max={1440}
+              value={durationMinutes}
+              onChange={(event) => setDurationMinutes(event.target.value)}
+              placeholder="Duration in minutes (optional)"
+              aria-label="Call duration in minutes"
+              className="ctl w-full px-3 py-2 text-[13px] outline-none"
+            />
+          )}
           <FormTextarea
             value={outcome}
             onChange={(event) => setOutcome(event.target.value)}
@@ -205,32 +257,91 @@ export function ActivityTimelinePanel({
         </p>
       ) : (
         <ul className="space-y-3 pt-1">
-          {items.map((activity) => (
-            <li key={activity.id} className="flex items-start gap-3">
-              <span
-                className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
-                style={{ background: 'var(--accent)' }}
-                aria-hidden="true"
-              />
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="txt text-[13px] font-semibold">{activity.subject}</p>
-                  <StatusBadge
-                    label={humanize(activity.type)}
-                    variant={statusVariant(activity.status)}
-                  />
-                </div>
-                {activity.description && (
-                  <p className="txt-muted mt-0.5 text-[12.5px]">{activity.description}</p>
-                )}
-                <p className="txt-faint mt-0.5 text-[11.5px]">
-                  {formatWhen(
-                    activity.completed_at ?? activity.due_date ?? activity.created_at,
+          {items.map((activity) => {
+            const canFollowUp =
+              mayCreateFollowUp &&
+              activity.status === 'COMPLETED' &&
+              (activity.type === 'CALL' || activity.type === 'MEETING');
+            return (
+              <li key={activity.id} className="flex items-start gap-3">
+                <span
+                  className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ background: 'var(--accent)' }}
+                  aria-hidden="true"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="txt text-[13px] font-semibold">{activity.subject}</p>
+                    <StatusBadge
+                      label={humanize(activity.type)}
+                      variant={statusVariant(activity.status)}
+                    />
+                  </div>
+                  {activity.description && (
+                    <p className="txt-muted mt-0.5 text-[12.5px]">{activity.description}</p>
                   )}
-                </p>
-              </div>
-            </li>
-          ))}
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                    <p className="txt-faint text-[11.5px]">
+                      {formatWhen(
+                        activity.completed_at ?? activity.due_date ?? activity.created_at,
+                      )}
+                      {activity.duration_minutes !== null &&
+                        ` · ${activity.duration_minutes} min`}
+                    </p>
+                    {canFollowUp && followUpFor !== activity.id && (
+                      <button
+                        type="button"
+                        onClick={() => openFollowUp(activity)}
+                        className="txt-muted flex items-center gap-1 text-[11.5px] font-semibold transition hover:opacity-70"
+                        style={{ color: 'var(--accent)' }}
+                      >
+                        <CalendarPlus className="h-3 w-3" /> Create follow-up
+                      </button>
+                    )}
+                  </div>
+
+                  {followUpFor === activity.id && (
+                    <div className="bd mt-2 space-y-2 rounded-xl border p-2.5">
+                      <FormInput
+                        value={followUpTitle}
+                        onChange={(event) => setFollowUpTitle(event.target.value)}
+                        placeholder="Follow-up task"
+                        aria-label="Follow-up task title"
+                      />
+                      <FormInput
+                        type="datetime-local"
+                        value={followUpDue}
+                        onChange={(event) => setFollowUpDue(event.target.value)}
+                        aria-label="Follow-up due date"
+                      />
+                      <FormError message={followUp.error} />
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setFollowUpFor(null)}
+                          className="ctl bd rounded-lg border px-2.5 py-1 text-[11.5px] font-semibold"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleCreateFollowUp()}
+                          disabled={followUp.pending || !followUpTitle.trim()}
+                          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11.5px] font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                          style={{ background: 'var(--accent)' }}
+                        >
+                          {followUp.pending && (
+                            <Loader2 className="h-3 w-3 motion-safe:animate-spin" />
+                          )}
+                          {followUp.pending ? 'Creating…' : 'Create task'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

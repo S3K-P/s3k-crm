@@ -19,6 +19,28 @@ import NotConfigured from '@/components/crm/shared/NotConfigured';
    data in the application, which is why it is gone rather than
    merely greyed out.
 
+   Checkpoint 8: the page had drifted the other way — three
+   controls that *are* built (audit trail, password reset/email,
+   credential-stuffing rate limiting) were still listed as "not
+   implemented", left over from before those modules shipped.
+   Verified against the current backend (app/platform/audit/*,
+   app/platform/auth/throttle.py + core/rate_limit.py,
+   app/platform/auth/service.py's request_password_reset/
+   redeem_password_reset + app/platform/email/*) before moving
+   them, the same way AiConnectionNotice replaced a hardcoded "AI
+   is not connected" claim in Checkpoint 1 — a stale negative is
+   the same class of bug as a stale positive.
+
+   Multi-factor authentication (TOTP) shipped in this same
+   checkpoint — app/platform/auth/mfa.py, service.py's
+   begin_mfa_enrollment/confirm_mfa_enrollment/verify_mfa_challenge
+   — self-service at Account -> Security, same "configured vs
+   built" shape as email: needs MFA_ENCRYPTION_KEY set. SSO/SAML
+   remains a real gap, not attempted: it needs a specific external
+   identity provider to integrate against, which is a
+   deployment-specific project rather than a generic toggle to
+   ship.
+
    The items marked active below are enforced by the backend and
    covered by tests; the values match `app/core/config.py`
    defaults. A deployment that overrides them will differ, which
@@ -31,7 +53,7 @@ interface Control {
   active: boolean;
 }
 
-/** Enforced today, per the auth service and its default settings. */
+/** Enforced today, unconditionally, per the auth/platform services and their tests. */
 const IN_FORCE: Control[] = [
   {
     name: 'Password hashing (argon2)',
@@ -64,37 +86,62 @@ const IN_FORCE: Control[] = [
     active: true,
   },
   {
+    name: 'Credential-stuffing rate limiting',
+    detail:
+      'A second, independent control from account lockout: sign-in and sign-up are throttled per client address (Redis, fails open on a Redis outage rather than locking everyone out), so one password tried across many accounts is also rate-limited, not just one password retried on one account.',
+    active: true,
+  },
+  {
     name: 'Tenant isolation',
     detail: 'Row-level security in PostgreSQL, plus an organization filter on every query.',
     active: true,
+  },
+  {
+    name: 'Cross-origin restrictions (CORS)',
+    detail: 'The API only answers browser requests from the configured allow-list of origins.',
+    active: true,
+  },
+  {
+    name: 'Audit trail',
+    detail:
+      'Every sensitive action (records, permissions, settings, password resets) is written to an append-only audit log, secrets and PII masked before storage; a failed write is itself recorded out-of-band rather than silently dropped. Reviewable under Admin → Audit Logs.',
+    active: true,
+  },
+];
+
+/**
+ * Built and tested, but not switched on by default — the deployment has to
+ * configure a transport for it to actually leave the system, the same
+ * "configured vs not" distinction the AI pages already draw. An unconfigured
+ * deployment fails the send loudly and logs why, rather than pretending an
+ * email went out.
+ */
+const NEEDS_CONFIGURATION: Control[] = [
+  {
+    name: 'Password reset and email delivery',
+    detail:
+      'Self-service reset by emailed link (single-use, expiring token), invitations and reminders are fully built and tested. Ships with EMAIL_PROVIDER=null (no transport) until a deployment sets EMAIL_PROVIDER=smtp with real SMTP credentials — set it in backend/.env or the platform\'s environment variables.',
+    active: false,
+  },
+  {
+    name: 'Multi-factor authentication (TOTP)',
+    detail:
+      'Enrollment, a login challenge, and one-time recovery codes are fully built and tested — a person turns it on for their own account at Account → Security. A TOTP secret cannot be one-way hashed like a password, so it is encrypted at rest instead; that needs MFA_ENCRYPTION_KEY set, which this deployment ships without by default.',
+    active: false,
   },
 ];
 
 /** Not built. Listed so their absence is explicit rather than assumed. */
 const NOT_IN_FORCE: Control[] = [
   {
-    name: 'Multi-factor authentication',
-    detail: 'Not implemented. There is no enrolment, challenge or recovery flow.',
-    active: false,
-  },
-  {
-    name: 'Password reset and email verification',
-    detail: 'Not implemented. There is no email transport configured.',
-    active: false,
-  },
-  {
     name: 'Single sign-on (SAML / OIDC)',
-    detail: 'Not implemented.',
+    detail:
+      'Not implemented. Would need a specific identity provider to integrate against (metadata/certificates), so it is a deployment-specific project rather than a generic toggle to ship.',
     active: false,
   },
   {
-    name: 'API rate limiting',
-    detail: 'Not implemented. Only login lockout limits repeated requests.',
-    active: false,
-  },
-  {
-    name: 'Audit trail',
-    detail: 'Not implemented. Security events are not recorded anywhere.',
+    name: 'IP allow-lists',
+    detail: 'Not implemented. Network access is not restricted by tenant or by account.',
     active: false,
   },
 ];
@@ -145,12 +192,23 @@ export default function AdminSecurityPage() {
           </div>
         </div>
 
-        <div className="surface bd rounded-2xl border p-5">
-          <SectionHeader title="Not implemented" />
-          <div className="mt-4 space-y-2.5">
-            {NOT_IN_FORCE.map((control) => (
-              <ControlRow key={control.name} control={control} />
-            ))}
+        <div className="flex flex-col gap-6">
+          <div className="surface bd rounded-2xl border p-5">
+            <SectionHeader title="Built, needs deployment configuration" />
+            <div className="mt-4 space-y-2.5">
+              {NEEDS_CONFIGURATION.map((control) => (
+                <ControlRow key={control.name} control={control} />
+              ))}
+            </div>
+          </div>
+
+          <div className="surface bd rounded-2xl border p-5">
+            <SectionHeader title="Not implemented" />
+            <div className="mt-4 space-y-2.5">
+              {NOT_IN_FORCE.map((control) => (
+                <ControlRow key={control.name} control={control} />
+              ))}
+            </div>
           </div>
         </div>
       </div>

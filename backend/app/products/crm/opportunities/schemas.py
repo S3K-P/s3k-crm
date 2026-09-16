@@ -72,6 +72,28 @@ class OpportunityReopen(BaseModel):
     stage_id: uuid.UUID
 
 
+class OpportunityBulkUpdate(BaseModel):
+    """Patch the same fields on many deals at once (Checkpoint 4).
+
+    ``values`` is ``OpportunityUpdate`` — the exact schema the single-record
+    PATCH accepts, which already excludes ``stage_id``, so a bulk edit cannot
+    bypass the stage-transition endpoint's blueprint checks by construction.
+    """
+
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    values: OpportunityUpdate
+
+
+class OpportunityBulkStageChange(BaseModel):
+    """Move many deals to the same stage at once. Same rules, per deal."""
+
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=500)
+    stage_id: uuid.UUID
+    note: str | None = Field(default=None, max_length=512)
+    loss_reason: str | None = Field(default=None, max_length=255)
+    win_reason: str | None = Field(default=None, max_length=255)
+
+
 class OpportunityResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -128,6 +150,8 @@ class StageHistoryEntry(BaseModel):
 
 
 __all__ = [
+    "OpportunityBulkStageChange",
+    "OpportunityBulkUpdate",
     "OpportunityCreate",
     "OpportunityReopen",
     "OpportunityResponse",

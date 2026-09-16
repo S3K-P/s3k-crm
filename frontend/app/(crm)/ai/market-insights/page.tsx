@@ -17,7 +17,7 @@ import { toast } from 'sonner';
 
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
-import NotConfigured from '@/components/crm/shared/NotConfigured';
+import AiConnectionNotice from '@/components/crm/ai/AiConnectionNotice';
 import AiEmptyState from '@/components/crm/ai/shared/AiEmptyState';
 import CopyButton from '@/components/crm/ai/shared/CopyButton';
 import CompanyPicker, {
@@ -31,16 +31,15 @@ import DownloadReportMenu from '@/components/crm/ai/market-insights/DownloadRepo
 import HistoryList from '@/components/crm/ai/market-insights/HistoryList';
 import AddToCrmDrawer from '@/components/crm/ai/market-insights/AddToCrmDrawer';
 import { describeApiError } from '@/features/shared/hooks/useCollection';
+import { useAiStatus } from '@/features/ai/useAiStatus';
 import {
   archiveResearch,
   askFollowUp,
   formatHistoryTimestamp,
-  getAiStatus,
   getResearch,
   listResearch,
   renameResearch,
   startResearch,
-  type AiStatus,
   type ResearchSession,
   type ResearchSessionDetail,
 } from '@/features/ai/market-insights';
@@ -72,9 +71,8 @@ export default function MarketInsightsPage() {
 
   const [tab, setTab] = useState<Tab>('new');
 
-  /* --- Gateway status ------------------------------------------------ */
-  const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
-  const [statusError, setStatusError] = useState<string | null>(null);
+  /* --- Gateway status (shared across AI screens; never calls a model) -- */
+  const { status: aiStatus, error: statusError } = useAiStatus();
 
   /* --- Active session ------------------------------------------------ */
   const [session, setSession] = useState<ResearchSessionDetail | null>(null);
@@ -101,33 +99,6 @@ export default function MarketInsightsPage() {
   const canEdit = can('market_insights', 'EDIT');
   const canDelete = can('market_insights', 'DELETE');
   const canCreateAccounts = can('accounts', 'CREATE');
-
-  /* ------------------------------------------------------------------
-     Load the gateway status once the session is known.
-     ------------------------------------------------------------------ */
-  useEffect(() => {
-    if (authLoading || !isAuthenticated || !canView) return;
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        const status = await getAiStatus();
-        if (!cancelled) {
-          setAiStatus(status);
-          setStatusError(null);
-        }
-      } catch (caught) {
-        if (!cancelled) {
-          setAiStatus(null);
-          setStatusError(describeApiError(caught, 'Could not reach the AI service.'));
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [authLoading, isAuthenticated, canView, activeOrganizationId]);
 
   /* ------------------------------------------------------------------
      History, debounced on the search term.
@@ -352,22 +323,16 @@ export default function MarketInsightsPage() {
         </div>
       </div>
 
-      {/* The AI gateway not being connected is reported once, at the top,
-          rather than as a failure on every action the user tries. */}
-      {aiUnavailable && (
-        <NotConfigured
-          title="AI is not connected"
-          description="Market Insights researches companies through an AI provider, and none is configured for this deployment. History and past reports are unaffected; new research cannot run until an administrator adds a provider credential."
-          requires="AI provider credential (ADR-016)"
-        />
-      )}
-
-      {statusError && !aiUnavailable && (
-        <p className="txt-muted flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3.5 py-2.5 text-[12.5px]">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden="true" />
-          {statusError}
-        </p>
-      )}
+      {/* The AI connection's state is reported once, at the top, rather than
+          as a failure on every action the user tries. Only "not configured"
+          blocks new research; a rejected key or a failing provider is shown
+          but research can still be attempted, and its own error explains. */}
+      <AiConnectionNotice
+        status={aiStatus}
+        error={statusError}
+        consequence="History and past reports are unaffected."
+        hideWhenReady
+      />
 
       {/* ── New Research ── */}
       {tab === 'new' && (

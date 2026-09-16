@@ -2,11 +2,11 @@
 
 import { ShieldCheck } from 'lucide-react';
 
-import AiUnavailable from '@/components/crm/ai/AiUnavailable';
+import AiFeaturePending from '@/components/crm/ai/AiFeaturePending';
 
 export default function AISecurityAnalyticsPage() {
   return (
-    <AiUnavailable
+    <AiFeaturePending
       icon={ShieldCheck}
       title="Security & Analytics"
       subtitle="AI governance, data handling and usage analytics."

@@ -11,12 +11,13 @@ import { ListError } from '@/components/crm/shared/ListStates';
 import AttachmentsPanel from '@/components/crm/shared/AttachmentsPanel';
 import CustomFieldsPanel from '@/components/crm/shared/CustomFieldsPanel';
 import { ActivityTimelinePanel, NotesPanel } from '@/components/crm/shared/RecordPanels';
+import RecordTimeline from '@/components/crm/shared/RecordTimeline';
 import EmailsPanel from '@/components/crm/emails/EmailsPanel';
 import { ContactOpportunitiesPanel } from '@/components/crm/shared/RelatedLists';
 import { useRecord } from '@/components/crm/shared/useRecord';
 import { usePermissions } from '@/context/AuthContext';
 import { getAccount } from '@/features/crm/accounts';
-import { getContact, type Contact } from '@/features/crm/contacts';
+import { getContact, getContactTimeline, type Contact } from '@/features/crm/contacts';
 
 /* ============================================================
    CONTACT DETAIL
@@ -196,6 +197,17 @@ export default function ContactDetailPage() {
           <EmailsPanel entityType="CONTACT" entityId={contact.id} defaultTo={contact.email} />
           <NotesPanel entityType="CONTACT" entityId={contact.id} />
         <AttachmentsPanel entityType="CONTACT" entityId={contact.id} />
+        </div>
+      </div>
+
+      <div className="surface bd rounded-2xl border p-5">
+        <SectionHeader title="Timeline" />
+        <div className="pt-2">
+          <RecordTimeline
+            dependencyKey={contact.id}
+            fetchEntries={(limit) => getContactTimeline(contact.id, limit)}
+            emptyMessage="Nothing has happened on this contact yet. Activity, deals, tasks, email and notes will appear here as they are recorded."
+          />
         </div>
       </div>
     </div>

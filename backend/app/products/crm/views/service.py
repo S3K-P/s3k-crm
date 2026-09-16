@@ -22,10 +22,13 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
 from app.platform.auth.dependencies import Principal
 from app.platform.authorization.service import Action as PermissionAction
 from app.products.crm.common import CrmEntityType
+from app.products.crm.reports.conditions import ReportFilterGroup
+from app.products.crm.reports.custom import validate_builtin_filter_group
+from app.products.crm.reports.fields import REPORT_ENTITY_FOR_CRM_ENTITY_TYPE
 from app.products.crm.shared.service import TenantScopedService
 from app.products.crm.views.models import MAX_VIEWS_PER_ENTITY, SavedView, ViewVisibility
 from app.products.crm.views.repository import SavedViewRepository, readable_by
@@ -182,6 +185,25 @@ class SavedViewService(TenantScopedService[SavedView]):
         # `is_default`, change what their list screen opens with.
         payload.pop("entity_type", None)
         payload.pop("owner_id", None)
+
+        if "advanced_filter" in payload and payload["advanced_filter"] is not None:
+            # Re-parsed rather than trusted as a plain dict: `values` arrives
+            # from `SavedViewUpdate.model_dump()`, which has already flattened
+            # the nested `ReportFilterGroup` model — this is the first point
+            # `view.entity_type` (only known once the row is loaded) is
+            # available to validate a *changed* advanced filter against, per
+            # `SavedViewUpdate`'s own docstring. `ValidationFailedError` (not
+            # a plain `ValueError`) is right here: unlike the Pydantic
+            # validators in `views.schemas`, this runs as ordinary service
+            # code, where an `AppError` is what the global handler turns into
+            # a 422 — a bare `ValueError` here would surface as a 500.
+            group = ReportFilterGroup.model_validate(payload["advanced_filter"])
+            report_entity = REPORT_ENTITY_FOR_CRM_ENTITY_TYPE.get(view.entity_type)
+            if report_entity is None:
+                msg = f"Advanced filters are not available for {view.entity_type.value.title()}."
+                raise ValidationFailedError(msg)
+            validate_builtin_filter_group(report_entity, group)
+            payload["advanced_filter"] = group.model_dump(mode="json")
 
         new_name = payload.get("name")
         if new_name is not None:

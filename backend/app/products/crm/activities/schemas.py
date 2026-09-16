@@ -40,6 +40,11 @@ class ActivityBase(BaseModel):
     status: ActivityStatus = ActivityStatus.PLANNED
     due_date: dt.datetime | None = None
     outcome: str | None = None
+    #: How long a call ran, in minutes. Meaningful for ``CALL``; accepted for
+    #: any type on the same reasoning as ``outcome`` — the field describes
+    #: what happened, and the service layer does not police which activity
+    #: types may carry which descriptive fields.
+    duration_minutes: int | None = Field(default=None, ge=0, le=1440)
     owner_id: uuid.UUID | None = None
     related_entity_type: CrmEntityType | None = None
     related_entity_id: uuid.UUID | None = None
@@ -69,6 +74,7 @@ class ActivityUpdate(BaseModel):
     status: ActivityStatus | None = None
     due_date: dt.datetime | None = None
     outcome: str | None = None
+    duration_minutes: int | None = Field(default=None, ge=0, le=1440)
     owner_id: uuid.UUID | None = None
     related_entity_type: CrmEntityType | None = None
     related_entity_id: uuid.UUID | None = None
@@ -87,6 +93,7 @@ class ActivityResponse(BaseModel):
     due_date: dt.datetime | None
     completed_at: dt.datetime | None
     outcome: str | None
+    duration_minutes: int | None
     owner_id: uuid.UUID | None
     related_entity_type: CrmEntityType | None
     related_entity_id: uuid.UUID | None

@@ -66,6 +66,24 @@ export function toQuery(params: ListParams | undefined): string {
   return query ? `?${query}` : '';
 }
 
+/**
+ * What a bulk update/delete/status-change actually did, record by record
+ * (Checkpoint 4). Mirrors `app.products.crm.shared.schemas.BulkOperationResult`
+ * — shared here for the same reason `TimelineEntry` is: every bulk-capable
+ * entity (accounts, contacts, leads, opportunities) returns this identical
+ * shape, so one bulk-results toolbar/summary component can render any of
+ * them. Never all-or-nothing: an id is in exactly one of the two lists.
+ */
+export interface BulkOperationFailure {
+  id: string;
+  reason: string;
+}
+
+export interface BulkOperationResult {
+  succeeded: string[];
+  failed: BulkOperationFailure[];
+}
+
 /** An audit-column set every CRM record carries. */
 export interface RecordMeta {
   id: string;
@@ -74,4 +92,32 @@ export interface RecordMeta {
   updated_at: string;
   created_by_id: string | null;
   updated_by_id: string | null;
+}
+
+/**
+ * One event in a record's unified timeline (Checkpoint 3).
+ *
+ * Mirrors `app.products.crm.shared.timeline.TimelineEntry` / the wire shape
+ * `TimelineEntryResponse` — shared here because Account, Contact and
+ * Opportunity all expose the identical shape from their own `/timeline`
+ * endpoint, and a record type that gets a fifth source later only has to
+ * widen the kind union once.
+ */
+export type TimelineEntryKind =
+  | 'activity'
+  | 'deal_created'
+  | 'stage_changed'
+  | 'contact_created'
+  | 'task_created'
+  | 'task_completed'
+  | 'email_sent'
+  | 'note_added';
+
+export interface TimelineEntry {
+  kind: TimelineEntryKind;
+  occurred_at: string;
+  title: string;
+  detail: string | null;
+  entity_type: string;
+  entity_id: string;
 }

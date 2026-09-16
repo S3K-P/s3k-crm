@@ -63,6 +63,14 @@ interface SavedViewPickerProps {
    * somebody's saved preference over the filter the link was sent for.
    */
   hasExplicitFilters?: boolean;
+  /**
+   * The screen's current visible-column keys (Checkpoint 4) — included when
+   * saving a view and restored when one is chosen. Omit entirely on a screen
+   * that has no column chooser; `SavedView.columns` still round-trips, this
+   * just does not read or write it.
+   */
+  columns?: string[];
+  onColumnsChange?: (columns: string[]) => void;
   className?: string;
 }
 
@@ -71,6 +79,8 @@ export default function SavedViewPicker({
   current,
   onApply,
   hasExplicitFilters = false,
+  columns,
+  onColumnsChange,
   className,
 }: SavedViewPickerProps) {
   const confirm = useConfirm();
@@ -135,7 +145,10 @@ export default function SavedViewPicker({
       return;
     }
     const view = views?.find((item) => item.id === id);
-    if (view) onApply(viewToParams(view));
+    if (view) {
+      onApply(viewToParams(view));
+      if (view.columns.length > 0) onColumnsChange?.(view.columns);
+    }
   };
 
   const save = async () => {
@@ -162,6 +175,7 @@ export default function SavedViewPicker({
         sort_by: (current.sort_by as string | null) ?? null,
         sort_dir: (current.sort_dir as 'asc' | 'desc' | undefined) ?? null,
         visibility: (shared ? 'ORGANIZATION' : 'PRIVATE') as ViewVisibility,
+        columns: columns ?? [],
       });
       setSelected(created.id);
       setNaming(false);

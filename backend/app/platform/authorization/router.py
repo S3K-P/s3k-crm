@@ -10,7 +10,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.database import DbSession
 from app.platform.audit.service import audit_for_session
@@ -22,7 +22,7 @@ from app.platform.authorization.catalog import (
 )
 from app.platform.authorization.models import PermissionAction
 from app.platform.authorization.repository import AuthorizationRepository
-from app.platform.authorization.service import AuthorizationService
+from app.platform.authorization.service import MAX_ROLE_NAME_LENGTH, AuthorizationService
 from app.platform.organizations.repository import OrganizationRepository
 from app.platform.organizations.service import (
     OrganizationService,
@@ -59,6 +59,26 @@ class PermissionCatalogResponse(BaseModel):
 class RoleAssignmentRequest(BaseModel):
     membership_id: uuid.UUID
     role_id: uuid.UUID
+
+
+class RoleCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=MAX_ROLE_NAME_LENGTH)
+    description: str | None = None
+    #: Permission codes, e.g. ``"leads.CREATE"``. Anything not in the
+    #: catalogue is refused — see ``AuthorizationService._resolve_permission_ids``.
+    permissions: list[str] = Field(default_factory=list)
+
+
+class RoleUpdateRequest(BaseModel):
+    """Every field optional: only what the client sets is patched.
+
+    ``exclude_unset=True`` at the call site is what makes "omitted" mean
+    "leave alone" rather than "clear" — see ``AuthorizationService.update_role``.
+    """
+
+    name: str | None = Field(default=None, min_length=1, max_length=MAX_ROLE_NAME_LENGTH)
+    description: str | None = None
+    permissions: list[str] | None = None
 
 
 def get_service(session: DbSession) -> AuthorizationService:
@@ -110,6 +130,73 @@ async def get_role(
         is_system=role.is_system,
         permissions=sorted(permission.code for permission in role.permissions),
     )
+
+
+@router.post("", response_model=RoleDetailResponse, status_code=status.HTTP_201_CREATED)
+async def create_role(
+    payload: RoleCreateRequest,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.ADMIN))],
+    service: ServiceDep,
+) -> RoleDetailResponse:
+    """Create a custom role, scoped to the caller's own organization."""
+    role = await service.create_role(
+        organization_id=principal.organization_id,
+        name=payload.name,
+        description=payload.description,
+        permission_codes=payload.permissions,
+        actor_id=principal.user_id,
+    )
+    return RoleDetailResponse(
+        id=role.id,
+        organization_id=role.organization_id,
+        name=role.name,
+        description=role.description,
+        is_system=role.is_system,
+        permissions=sorted(permission.code for permission in role.permissions),
+    )
+
+
+@router.patch("/{role_id}", response_model=RoleDetailResponse)
+async def update_role(
+    role_id: uuid.UUID,
+    payload: RoleUpdateRequest,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.ADMIN))],
+    service: ServiceDep,
+) -> RoleDetailResponse:
+    """Patch a role the caller's organization owns. System templates refuse."""
+    role = await service.get_role(role_id, principal.organization_id)
+    role = await service.update_role(
+        role,
+        organization_id=principal.organization_id,
+        values=payload.model_dump(exclude_unset=True),
+        actor_id=principal.user_id,
+    )
+    return RoleDetailResponse(
+        id=role.id,
+        organization_id=role.organization_id,
+        name=role.name,
+        description=role.description,
+        is_system=role.is_system,
+        permissions=sorted(permission.code for permission in role.permissions),
+    )
+
+
+@router.delete("/{role_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_role(
+    role_id: uuid.UUID,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.ADMIN))],
+    service: ServiceDep,
+) -> Response:
+    """Delete a role the caller's organization owns.
+
+    Refused for a system template and refused while any membership still
+    holds the role — see ``AuthorizationService.delete_role``.
+    """
+    role = await service.get_role(role_id, principal.organization_id)
+    await service.delete_role(
+        role, organization_id=principal.organization_id, actor_id=principal.user_id
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/assignments", status_code=status.HTTP_204_NO_CONTENT)

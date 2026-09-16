@@ -2,11 +2,11 @@
 
 import { BrainCircuit } from 'lucide-react';
 
-import AiUnavailable from '@/components/crm/ai/AiUnavailable';
+import AiFeaturePending from '@/components/crm/ai/AiFeaturePending';
 
 export default function AIAgentsPage() {
   return (
-    <AiUnavailable
+    <AiFeaturePending
       icon={BrainCircuit}
       title="AI Agents"
       subtitle="Autonomous assistants working across the CRM."
