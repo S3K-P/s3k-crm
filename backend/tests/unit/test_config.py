@@ -162,3 +162,35 @@ def test_api_prefix_must_be_absolute(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(ValidationError, match="API_PREFIX"):
         Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_graph_email_settings_are_optional_and_boot_still_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for key, value in VALID_ENV.items():
+        monkeypatch.setenv(key, value)
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.microsoft_tenant_id is None
+    assert settings.graph_email_configured is False
+
+
+def test_graph_email_configured_only_when_all_four_variables_are_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for key, value in VALID_ENV.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("MICROSOFT_TENANT_ID", "tenant")
+    monkeypatch.setenv("MICROSOFT_CLIENT_ID", "client")
+    monkeypatch.setenv("MICROSOFT_CLIENT_SECRET", "secret")
+    # MICROSOFT_GRAPH_SENDER_EMAIL deliberately left unset.
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.graph_email_configured is False
+
+    monkeypatch.setenv("MICROSOFT_GRAPH_SENDER_EMAIL", "notifications@s3k.example.com")
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.graph_email_configured is True

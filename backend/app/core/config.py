@@ -69,6 +69,26 @@ class Settings(BaseSettings):
     log_level: LogLevel = "INFO"
     log_json: bool = True
 
+    # --- Email — Microsoft Graph (the only supported email transport) ------
+    # Optional at boot: a deployment that never sends email needn't set these,
+    # and startup does not fail without them. Any actual send attempt without
+    # all four configured fails fast with a clear error instead of silently
+    # doing nothing or falling back to another provider.
+    microsoft_tenant_id: str | None = Field(
+        default=None, description="Azure AD tenant ID for the Graph email app registration."
+    )
+    microsoft_client_id: str | None = Field(
+        default=None, description="Azure AD application (client) ID for Graph email."
+    )
+    microsoft_client_secret: str | None = Field(
+        default=None,
+        description="Azure AD client secret for Graph email. Never logged or exposed.",
+    )
+    microsoft_graph_sender_email: str | None = Field(
+        default=None,
+        description="Mailbox Microsoft Graph sends from, e.g. notifications@s3k.example.com.",
+    )
+
     @field_validator("database_url")
     @classmethod
     def _validate_database_url(cls, value: str) -> str:
@@ -112,6 +132,16 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @property
+    def graph_email_configured(self) -> bool:
+        """Whether all four Microsoft Graph email variables are set."""
+        return bool(
+            self.microsoft_tenant_id
+            and self.microsoft_client_id
+            and self.microsoft_client_secret
+            and self.microsoft_graph_sender_email
+        )
 
     @property
     def docs_url(self) -> str | None:
