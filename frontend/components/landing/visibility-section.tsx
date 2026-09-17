@@ -27,7 +27,7 @@ export function VisibilitySection() {
                     <DollarSign className="w-4 h-4" />
                     <span className="text-xs font-semibold">Pipeline Value</span>
                   </div>
-                  <div className="text-2xl font-bold text-navy-900">$4,250,000</div>
+                  <div className="text-2xl font-bold text-navy-900">₹42,50,000</div>
                 </div>
                 <div className="p-4 rounded-xl border border-gray-100 bg-brand-lavender/50">
                   <div className="flex items-center gap-2 text-brand-violet mb-2">

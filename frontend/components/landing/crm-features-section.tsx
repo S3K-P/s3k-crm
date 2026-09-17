@@ -21,7 +21,7 @@ export function CrmFeaturesSection() {
           <div className="flex gap-2">
             <div className="flex-1 h-12 rounded bg-gray-50 border border-gray-100 p-2">
               <div className="text-[8px] text-gray-400">Open Pipeline</div>
-              <div className="text-xs font-bold text-gray-900">$120k</div>
+              <div className="text-xs font-bold text-gray-900">₹1.2L</div>
             </div>
             <div className="flex-1 h-12 rounded bg-gray-50 border border-gray-100 p-2">
               <div className="text-[8px] text-gray-400">Owner</div>
@@ -58,7 +58,7 @@ export function CrmFeaturesSection() {
         <div className="h-full w-full bg-white flex flex-col p-4 gap-3 border-t border-x border-gray-100 rounded-t-lg shadow-sm">
           <div className="flex items-center justify-between">
             <div className="text-[10px] font-bold text-gray-900">Enterprise Expansion</div>
-            <div className="text-[10px] font-bold text-brand-violet">$45,000</div>
+            <div className="text-[10px] font-bold text-brand-violet">₹45,000</div>
           </div>
           <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
              <div className="h-full bg-brand-purple w-3/5" />
@@ -127,7 +127,7 @@ export function CrmFeaturesSection() {
         <div className="h-full w-full bg-white flex flex-col pt-4 px-4 gap-3 border-t border-x border-gray-100 rounded-t-lg shadow-sm">
            <div className="flex gap-2">
              <div className="flex-1 h-8 rounded bg-brand-violet/10 flex items-center justify-center">
-               <span className="text-[10px] font-bold text-brand-violet">$2.4M</span>
+               <span className="text-[10px] font-bold text-brand-violet">₹24L</span>
              </div>
              <div className="flex-1 h-8 rounded bg-green-50 flex items-center justify-center">
                <span className="text-[10px] font-bold text-green-600">48 Won</span>

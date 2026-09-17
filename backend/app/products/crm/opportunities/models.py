@@ -146,7 +146,7 @@ class Opportunity(Base, CrmEntityMixin):
     )
     deal_value: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     currency: Mapped[str] = mapped_column(
-        String(3), nullable=False, default="USD", server_default="USD"
+        String(3), nullable=False, default="INR", server_default="INR"
     )
     win_probability: Mapped[int | None] = mapped_column(Integer, nullable=True)
     expected_close_date: Mapped[dt.date | None] = mapped_column(nullable=True)

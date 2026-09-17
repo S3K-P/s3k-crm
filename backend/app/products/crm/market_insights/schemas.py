@@ -103,6 +103,11 @@ class MessageResponse(BaseModel):
     content: str
     truncated: bool
     search_count: int
+    #: Whether a web-search tool was available to this turn. ``False`` means the
+    #: answer came from model recollection with nothing to cite, which the
+    #: interface labels rather than leaving the reader to infer from an empty
+    #: source list.
+    grounded: bool
     author_id: uuid.UUID | None
     created_at: dt.datetime
 

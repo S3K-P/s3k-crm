@@ -28,13 +28,14 @@ import type {
   DashboardTask,
   PipelineStageSummary,
 } from '@/features/crm/dashboard/types';
+import { MONEY_LOCALE } from '@/lib/currency';
 
 /* ------------------------------------------------------------------
    Money
    ------------------------------------------------------------------ */
 
 /**
- * Compact money for a headline figure, e.g. `$1.74M`.
+ * Compact money for a headline figure, e.g. `₹1.74Cr`.
  *
  * `currency` is `null` when the open deals span several currencies; the figure
  * is then shown bare, because no symbol would be true of all of it.
@@ -54,10 +55,10 @@ export function formatMoney(value: string, currency: string | null): string {
   }
 
   try {
-    return new Intl.NumberFormat('en-US', options).format(amount);
+    return new Intl.NumberFormat(MONEY_LOCALE, options).format(amount);
   } catch {
     // An unknown ISO code must not blank the dashboard.
-    return new Intl.NumberFormat('en-US', { notation: 'compact' }).format(amount);
+    return new Intl.NumberFormat(MONEY_LOCALE, { notation: 'compact' }).format(amount);
   }
 }
 

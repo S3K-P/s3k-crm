@@ -30,13 +30,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.exceptions import AppError, NotFoundError
+from app.platform.ai.credentials import AiCredentialService
 from app.platform.ai.models import MARKET_INSIGHTS_PROMPT_KEY, AiPromptVersion
 from app.platform.ai.provider import (
     AiNotConfiguredError,
-    AnthropicResearchProvider,
     ResearchProvider,
     ResearchResult,
 )
+from app.platform.ai.registry import build_provider
 from app.platform.ai.repository import AiPromptRepository
 from app.platform.audit.service import Action as AuditAction
 from app.platform.audit.service import audit_for_session
@@ -244,16 +245,49 @@ class AiGatewayService:
         #: and most requests through this session never call a model.
         self._provider = provider
 
-    @property
-    def configured(self) -> bool:
-        return self._settings.ai_configured
+    async def is_configured(self, organization_id: uuid.UUID) -> bool:
+        """Whether *this organization* can run AI at all.
 
-    def _require_provider(self) -> ResearchProvider:
-        if self._provider is None:
-            if not self._settings.ai_configured:
-                raise AiNotConfiguredError
-            self._provider = AnthropicResearchProvider(self._settings)
-        return self._provider
+        Tenant-aware since the Providers screen exists: an organization with
+        its own stored credential is connected even on a deployment whose
+        environment has no key, and the reverse is also true. Callers that used
+        to read ``settings.ai_configured`` want this instead.
+        """
+        if self._provider is not None:
+            return True
+        return await self._credentials().resolve(organization_id) is not None
+
+    def _credentials(self) -> AiCredentialService:
+        return AiCredentialService(self._session, self._settings)
+
+    async def _require_provider(self, organization_id: uuid.UUID) -> ResearchProvider:
+        """Build a provider around whichever credential resolution finds.
+
+        Injected providers short-circuit this entirely, which is how the tests
+        exercise a turn without a network call or a key.
+
+        Raises:
+            AiNotConfiguredError: neither the organization nor the environment
+                has a usable credential.
+        """
+        if self._provider is not None:
+            return self._provider
+
+        resolved = await self._credentials().resolve(organization_id)
+        if resolved is None:
+            raise AiNotConfiguredError
+
+        # Not cached on the instance: the service is per-request, and caching
+        # a provider built from one organization's key on anything longer-lived
+        # is how a credential leaks across tenants.
+        #
+        # Which vendor to construct comes from the credential, never from a
+        # deployment default — an organization on Gemini must not have its key
+        # handed to the Anthropic client.
+        logger.info(
+            "ai_credential_resolved", source=resolved.source, provider=resolved.provider
+        )
+        return build_provider(resolved.provider, self._settings, resolved.secret)
 
     async def enforce_rate_limit(self, *, user_id: uuid.UUID) -> None:
         """Cap research turns per user per hour.
@@ -295,7 +329,7 @@ class AiGatewayService:
         model produced, and the audit trail is read by administrators who have
         no business seeing the contents of somebody's research session.
         """
-        provider = self._require_provider()
+        provider = await self._require_provider(organization_id)
         result = await provider.run(system=system, messages=messages, web_search=web_search)
 
         await audit_for_session(self._session).record(

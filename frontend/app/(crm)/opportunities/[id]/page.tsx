@@ -28,6 +28,7 @@ import {
   type PipelineStage,
   type StageHistoryEntry,
 } from '@/features/crm/opportunities';
+import { MONEY_LOCALE } from '@/lib/currency';
 
 /* ============================================================
    OPPORTUNITY DETAIL
@@ -285,7 +286,7 @@ export default function OpportunityDetailPage() {
           <h1 className="font-display txt text-[22px] font-extrabold">{opportunity.name}</h1>
           <p className="txt-muted mt-0.5 text-[13px]">
             {opportunity.deal_value
-              ? `${opportunity.currency} ${Number(opportunity.deal_value).toLocaleString()}`
+              ? `${opportunity.currency} ${Number(opportunity.deal_value).toLocaleString(MONEY_LOCALE)}`
               : 'No deal value recorded'}
           </p>
         </div>

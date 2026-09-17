@@ -32,6 +32,7 @@ import {
   type OpportunityInput,
   type PipelineStage,
 } from '@/features/crm/opportunities';
+import { MONEY_LOCALE } from '@/lib/currency';
 
 /* ============================================================
    OPPORTUNITIES
@@ -66,14 +67,14 @@ function formatMoney(value: string | null, currency: string): string {
   const amount = Number(value);
   if (Number.isNaN(amount)) return '—';
   try {
-    return new Intl.NumberFormat(undefined, {
+    return new Intl.NumberFormat(MONEY_LOCALE, {
       style: 'currency',
       currency,
       maximumFractionDigits: 0,
     }).format(amount);
   } catch {
     // An unknown ISO code must not blank the column.
-    return `${currency} ${amount.toLocaleString()}`;
+    return `${currency} ${amount.toLocaleString(MONEY_LOCALE)}`;
   }
 }
 

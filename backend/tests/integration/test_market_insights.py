@@ -49,6 +49,9 @@ class StubProvider:
     text: str = "## Company Overview\n\nA chemicals manufacturer.\n\n## Competitors\n\nSeveral."
     sources: tuple[ResearchSource, ...] = ()
     truncated: bool = False
+    #: Whether the turn had a search tool. False models a provider entitled to
+    #: generation but not to grounding — Google's free tier is exactly this.
+    grounded: bool = True
     #: When set, ``run`` raises it instead of answering.
     failure: AppError | None = None
     calls: list[dict[str, Any]] = field(default_factory=list)
@@ -72,6 +75,7 @@ class StubProvider:
             stop_reason="end_turn",
             search_count=len(self.sources),
             truncated=self.truncated,
+            grounded=self.grounded,
         )
 
     @property
@@ -205,6 +209,54 @@ def test_the_report_is_stored_as_the_first_assistant_message(
     roles = [message["role"] for message in body["messages"]]
     assert roles == ["USER", "ASSISTANT"]
     assert "## Company Overview" in body["messages"][1]["content"]
+
+
+def test_a_grounded_report_is_recorded_as_researched(
+    alpha_member: ApiSession,
+) -> None:
+    body = start(alpha_member, "Apcotex Industries")
+
+    assert body["messages"][1]["grounded"] is True
+
+
+def test_an_ungrounded_report_is_recorded_as_recollection(
+    alpha_member: ApiSession, provider: StubProvider
+) -> None:
+    """The property the whole ungrounded mode rests on.
+
+    A provider entitled to generation but not to search produces an answer from
+    training data with nothing to cite. That has to reach the interface as a
+    fact about the report — inferring it from an empty source list would be
+    wrong, because a *grounded* turn may legitimately decide it needs no
+    search, and the two must not be confused.
+    """
+    provider.grounded = False
+    provider.sources = ()
+
+    body = start(alpha_member, "Apcotex Industries")
+
+    report = body["messages"][1]
+    assert report["grounded"] is False
+    assert report["search_count"] == 0
+    # The report itself is still produced and stored — labelled, not suppressed.
+    assert body["status"] == "READY"
+    assert "## Company Overview" in report["content"]
+
+
+def test_an_ungrounded_follow_up_is_labelled_too(
+    alpha_member: ApiSession, provider: StubProvider
+) -> None:
+    """A grounded report followed by an ungrounded answer must not inherit the
+    report's provenance — the flag is per turn."""
+    body = start(alpha_member, "Apcotex Industries")
+    provider.grounded = False
+
+    answered = alpha_member.post(
+        f"/crm/market-insights/{body['id']}/messages", json={"question": "And revenue?"}
+    ).json()
+
+    assert answered["messages"][1]["grounded"] is True
+    assert answered["messages"][3]["grounded"] is False
 
 
 def test_a_crm_account_supplies_context_to_the_research(

@@ -433,6 +433,31 @@ export default function MarketInsightsPage() {
                 reportMarkdown={report.content}
               />
 
+              {/* Provenance first, and deliberately louder than the
+                  truncation notice below it. "Partial" still means researched;
+                  ungrounded means the model never looked anything up, and a
+                  reader who misses that could carry an unsourced claim into a
+                  pipeline review as if it were evidence. */}
+              {report.grounded === false && (
+                <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-3">
+                  <AlertTriangle
+                    className="mt-0.5 h-4 w-4 shrink-0 text-amber-500"
+                    aria-hidden="true"
+                  />
+                  <div>
+                    <p className="txt text-[13px] font-semibold">
+                      Not researched — written from model memory
+                    </p>
+                    <p className="txt-muted mt-0.5 text-[12.5px]">
+                      Web search was unavailable for this turn, so nothing below
+                      was looked up and there are no sources to check it against.
+                      Facts may be out of date or wrong. Verify anything you act
+                      on.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {report.truncated && (
                 <p className="txt-muted flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3.5 py-2.5 text-[12.5px]">
                   <AlertTriangle

@@ -26,6 +26,7 @@ import {
   qualificationStage,
   type Lead,
 } from '@/features/crm/qualification';
+import { DEFAULT_CURRENCY, MONEY_LOCALE } from '@/lib/currency';
 
 /* ============================================================
    QUALIFICATION REVIEW
@@ -244,9 +245,9 @@ export default function QualificationDetailPage() {
               label="Expected deal size"
               value={
                 lead.expected_deal_size
-                  ? Number(lead.expected_deal_size).toLocaleString(undefined, {
+                  ? Number(lead.expected_deal_size).toLocaleString(MONEY_LOCALE, {
                       style: 'currency',
-                      currency: 'USD',
+                      currency: DEFAULT_CURRENCY,
                       maximumFractionDigits: 0,
                     })
                   : null

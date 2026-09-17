@@ -203,6 +203,15 @@ class MarketInsightMessage(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixi
     search_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    #: Whether a web-search tool was available to this turn at all.
+    #:
+    #: Distinct from ``search_count`` being zero: a grounded turn may decide it
+    #: needs no search, whereas an ungrounded one *could not* have searched and
+    #: is answering from training data. Only the second is recollection, and
+    #: only the second gets labelled as such.
+    grounded: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
     #: The user who spoke, or who asked for the assistant turn.
     author_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
 

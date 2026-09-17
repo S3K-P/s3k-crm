@@ -129,6 +129,14 @@ class ResearchResult:
     #: True when the answer stopped at ``max_tokens`` or ran out of
     #: continuations, so the caller can label it partial rather than final.
     truncated: bool = False
+    #: Whether a web-search tool was actually available to this turn.
+    #:
+    #: Not the same question as ``sources`` being empty: a grounded turn may
+    #: legitimately decide it needs no search, whereas an **ungrounded** turn
+    #: could not have searched at all and is answering from training data. Only
+    #: the second must be labelled as recollection rather than research, so the
+    #: distinction is recorded rather than inferred from an empty list.
+    grounded: bool = True
     performed_at: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.UTC))
 
 
@@ -153,14 +161,21 @@ class ResearchProvider(Protocol):
 class AnthropicResearchProvider:
     """A :class:`ResearchProvider` backed by the Claude Messages API."""
 
-    def __init__(self, settings: Settings) -> None:
-        if not settings.ai_configured:
-            raise AiNotConfiguredError
-        key = settings.anthropic_api_key
-        if key is None:  # pragma: no cover - narrowed by ai_configured above
+    def __init__(self, settings: Settings, api_key: str) -> None:
+        """Build a provider around one credential.
+
+        The key is passed in rather than read from ``settings``, because since
+        the Providers screen exists it may equally have come from the
+        organization's own stored credential. ``settings`` still supplies the
+        model and the tuning values, which are deployment-wide.
+
+        Raises:
+            AiNotConfiguredError: ``api_key`` is empty.
+        """
+        if not api_key or not api_key.strip():
             raise AiNotConfiguredError
         self._client = anthropic.AsyncAnthropic(
-            api_key=key.get_secret_value(),
+            api_key=api_key.strip(),
             timeout=settings.ai_request_timeout_seconds,
             # The SDK already retries 429/5xx/connection errors; two is its
             # default and enough here, because a research turn is expensive and
@@ -279,6 +294,9 @@ class AnthropicResearchProvider:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             truncated=truncated,
+            # Anthropic web search needs no separate quota, so a turn that
+            # asked for the tool got it.
+            grounded=web_search,
         )
 
     async def _send(
@@ -323,6 +341,86 @@ class AnthropicResearchProvider:
         except anthropic.APIStatusError as exc:
             logger.warning("ai_provider_error", status_code=exc.status_code)
             raise AiProviderError from exc
+
+
+@dataclass(frozen=True, slots=True)
+class CredentialCheck:
+    """What one connectivity test concluded.
+
+    Never carries the provider's raw error text. A vendor error string can echo
+    request material back, and this value is written to a database column that
+    an administrator reads — so the failure is mapped to one of a small set of
+    sentences the application chose.
+    """
+
+    ok: bool
+    #: Present only on failure, and safe to display.
+    error: str | None = None
+    #: The model the credential is entitled to use, when the check succeeded.
+    model: str | None = None
+
+
+async def verify_anthropic_credential(
+    *, api_key: str, model: str, timeout_seconds: float = 15.0
+) -> CredentialCheck:
+    """Ask Anthropic whether a key works, without spending tokens on it.
+
+    Uses ``models.retrieve`` rather than a one-token message: it authenticates
+    the key and confirms the deployment's pinned model is actually reachable
+    under it, while costing nothing and having no side effects. A key that can
+    authenticate but cannot see the configured model is a real and otherwise
+    invisible failure — the first research turn would be the thing that
+    discovered it.
+
+    Never raises for an authentication failure. A rejected key is an ordinary,
+    expected answer to this question, and the caller records it against the
+    credential rather than handling an exception.
+
+    A short timeout on purpose: this runs while an administrator watches a
+    button spin, unlike a research turn which legitimately takes minutes.
+    """
+    if not api_key or not api_key.strip():
+        return CredentialCheck(ok=False, error="No API key was provided.")
+
+    client = anthropic.AsyncAnthropic(
+        api_key=api_key.strip(), timeout=timeout_seconds, max_retries=1
+    )
+    try:
+        await client.models.retrieve(model)
+        return CredentialCheck(ok=True, model=model)
+    except anthropic.AuthenticationError:
+        logger.info("ai_credential_check_rejected")
+        return CredentialCheck(ok=False, error="The provider rejected this API key.")
+    except anthropic.PermissionDeniedError:
+        logger.info("ai_credential_check_forbidden")
+        return CredentialCheck(
+            ok=False,
+            error="This key is valid but not permitted to use the configured model.",
+        )
+    except anthropic.NotFoundError:
+        logger.warning("ai_credential_check_model_missing", model=model)
+        return CredentialCheck(
+            ok=False,
+            error=f"The configured model ({model}) is not available to this key.",
+        )
+    except (
+        anthropic.RateLimitError,
+        anthropic.APITimeoutError,
+        anthropic.InternalServerError,
+        anthropic.APIConnectionError,
+    ) as exc:
+        # Not the key's fault, so the caller must not mark it INVALID on this.
+        logger.warning("ai_credential_check_unreachable", error=type(exc).__name__)
+        return CredentialCheck(
+            ok=False, error="Could not reach the provider. Try again in a moment."
+        )
+    except anthropic.APIStatusError as exc:
+        logger.warning("ai_credential_check_failed", status_code=exc.status_code)
+        return CredentialCheck(
+            ok=False, error="The provider returned an unexpected error."
+        )
+    finally:
+        await client.close()
 
 
 def harvest_blocks(
@@ -394,8 +492,10 @@ __all__ = [
     "AiRefusedError",
     "AiTemporarilyUnavailableError",
     "AnthropicResearchProvider",
+    "CredentialCheck",
     "ResearchProvider",
     "ResearchResult",
     "ResearchSource",
     "harvest_blocks",
+    "verify_anthropic_credential",
 ]

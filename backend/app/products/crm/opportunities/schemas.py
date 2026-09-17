@@ -16,7 +16,7 @@ class OpportunityCreate(BaseModel):
     primary_contact_id: uuid.UUID | None = None
     owner_id: uuid.UUID | None = None
     deal_value: Decimal | None = Field(default=None, ge=0)
-    currency: str = Field(default="USD", min_length=3, max_length=3)
+    currency: str = Field(default="INR", min_length=3, max_length=3)
     win_probability: int | None = Field(default=None, ge=0, le=100)
     expected_close_date: dt.date | None = None
     forecast_category: str | None = Field(default=None, max_length=64)

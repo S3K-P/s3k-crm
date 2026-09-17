@@ -44,6 +44,8 @@ export interface ResearchMessage {
   content: string;
   truncated: boolean;
   search_count: number;
+  /** False means the turn could not search — model recollection, no sources. */
+  grounded: boolean;
   author_id: string | null;
   created_at: string;
 }

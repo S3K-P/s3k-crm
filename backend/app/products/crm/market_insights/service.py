@@ -278,6 +278,7 @@ class MarketInsightService(TenantScopedService[MarketInsightSession]):
             content=result.text,
             actor_id=principal.user_id,
             truncated=result.truncated,
+            grounded=result.grounded,
             search_count=result.search_count,
         )
         await self._store_sources(session, message=message, result=result)
@@ -343,6 +344,7 @@ class MarketInsightService(TenantScopedService[MarketInsightSession]):
             content=result.text,
             actor_id=principal.user_id,
             truncated=result.truncated,
+            grounded=result.grounded,
             search_count=result.search_count,
         )
         await self._store_sources(session, message=message, result=result)
@@ -551,6 +553,7 @@ class MarketInsightService(TenantScopedService[MarketInsightSession]):
         actor_id: uuid.UUID | None,
         truncated: bool = False,
         search_count: int = 0,
+        grounded: bool = True,
     ) -> MarketInsightMessage:
         sequence = await self._conversation.next_sequence(
             session.id, session.organization_id
@@ -563,6 +566,7 @@ class MarketInsightService(TenantScopedService[MarketInsightSession]):
             content=content,
             truncated=truncated,
             search_count=search_count,
+            grounded=grounded,
             author_id=actor_id,
         )
         self._conversation.add(message)

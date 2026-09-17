@@ -155,9 +155,42 @@ class Settings(BaseSettings):
         default=None,
         description="Anthropic API key. Unset disables AI features rather than faking them.",
     )
+    #: Deployment-wide Gemini key, the exact counterpart of
+    #: ``anthropic_api_key`` above. Both exist so a deployment can run AI before
+    #: any organization has configured anything; per-organization credentials
+    #: stored from Settings take precedence over either.
+    #:
+    #: Read from ``GEMINI_API_KEY``, which is the name anyone would reach for.
+    gemini_api_key: SecretStr | None = Field(
+        default=None,
+        description="Gemini API key. Unset disables the fallback rather than faking it.",
+    )
     #: Pinned rather than 'latest': a model change alters what every stored
     #: research session would say if re-run, so it is a deliberate act.
     ai_model: str = "claude-opus-5"
+    #: Whether this deployment's Gemini key may use Google Search grounding.
+    #:
+    #: **Set this false only knowing what it costs.** Grounding is what makes
+    #: Market Insights *research* rather than recollection: without it the model
+    #: answers from training data, with no retrieved pages and nothing to cite.
+    #: Google's free tier does not include grounding — a request carrying the
+    #: search tool comes back ``429 RESOURCE_EXHAUSTED`` while plain generation
+    #: succeeds — so a free-tier deployment must either enable billing or turn
+    #: this off and accept ungrounded answers.
+    #:
+    #: Turning it off does **not** hide the consequence. Every turn records
+    #: whether it was grounded, and the interface labels an ungrounded report as
+    #: model recollection rather than researched fact. That is the whole reason
+    #: this is a visible switch and not a silent retry on 429: a report that is
+    #: sometimes sourced and sometimes not, with no way to tell which, is worse
+    #: than one that is honestly never sourced.
+    ai_gemini_grounding: bool = True
+    #: The Gemini equivalent. A separate setting because each vendor names its
+    #: own models — there is no single identifier both would accept, and using
+    #: one against the other fails at the first call with a confusing
+    #: "model not found". ``flash`` is the free tier's workhorse and supports
+    #: Google Search grounding, which Market Insights requires for citations.
+    ai_gemini_model: str = "gemini-2.5-flash"
     #: Streaming is used for every call, so this can be generous without
     #: risking an HTTP timeout mid-report.
     ai_max_output_tokens: int = Field(default=64_000, ge=1_024, le=128_000)
@@ -169,6 +202,23 @@ class Settings(BaseSettings):
     ai_max_continuations: int = Field(default=4, ge=0, le=10)
     #: Research turns started per user per hour. Applied in Redis.
     ai_rate_limit_per_hour: int = Field(default=40, ge=1, le=1000)
+    #: Fernet key encrypting provider credentials at rest, so an organization
+    #: can configure AI from Settings instead of this file.
+    #:
+    #: Unset is supported and safe: the Providers screen reports that credential
+    #: storage is unavailable, and ``anthropic_api_key`` above keeps working as
+    #: the deployment-wide fallback. What is *not* supported is generating one
+    #: per process — credentials saved under an ephemeral key would silently
+    #: stop decrypting on the next restart. See :mod:`app.core.secrets`.
+    #:
+    #: Generate with::
+    #:
+    #:     python -c "from cryptography.fernet import Fernet; \
+    #:         print(Fernet.generate_key().decode())"
+    ai_credential_encryption_key: SecretStr | None = Field(
+        default=None,
+        description="Fernet key for provider credentials at rest. Unset disables UI configuration.",
+    )
 
     # --- Observability (ADR-018) -------------------------------------------
     log_level: LogLevel = "INFO"
@@ -176,13 +226,33 @@ class Settings(BaseSettings):
 
     @property
     def ai_configured(self) -> bool:
-        """Whether the AI gateway has a credential to call a model with.
+        """Whether a **deployment-wide** credential is present in the environment.
+
+        Since credentials can also be stored per organization, this is no
+        longer the whole answer to "can this caller run AI" — it is the
+        fallback half of it. Ask
+        :meth:`app.platform.ai.credentials.AiCredentialService.resolve` for the
+        tenant-aware answer; this property remains the bootstrapping path and
+        the one used before any tenant context exists.
 
         False is a first-class state, not an error: AI routes answer 503 with
         ``ai_not_configured`` and the frontend renders its existing
         "AI is not connected" surface. Nothing degrades to canned output.
         """
-        key = self.anthropic_api_key
+        return any(
+            key and key.get_secret_value().strip()
+            for key in (self.anthropic_api_key, self.gemini_api_key)
+        )
+
+    @property
+    def ai_credential_storage_configured(self) -> bool:
+        """Whether provider credentials can be *stored* by an administrator.
+
+        Separate from :attr:`ai_configured`: a deployment can have a working
+        environment key and still be unable to save new ones, and the Providers
+        screen has to tell those two apart to explain itself.
+        """
+        key = self.ai_credential_encryption_key
         return bool(key and key.get_secret_value().strip())
 
     @property

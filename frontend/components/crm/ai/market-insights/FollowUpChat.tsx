@@ -81,6 +81,7 @@ function MessageBubble({ message }: { message: ResearchMessage }) {
               ? `${message.search_count} web search${message.search_count === 1 ? '' : 'es'}`
               : 'Answered from this conversation'}
             {message.truncated && ' · answer was cut short'}
+            {message.grounded === false && ' · not researched, from model memory'}
           </span>
           <CopyButton value={message.content} label="Answer" />
         </div>

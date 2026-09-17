@@ -25,6 +25,7 @@ dependencies = [
     "boto3>=1.35.0",
     # ADR-016: the Shared AI Gateway calls Claude through the official SDK.
     "anthropic>=0.69.0",
+    "google-genai>=2.20.0",
 ]
 
 [dependency-groups]

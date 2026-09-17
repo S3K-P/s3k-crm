@@ -167,13 +167,50 @@
 
 ---
 
-## ADR-016: AI Platform — Shared Gateway (Deferred)
+## ADR-016: AI Platform — Shared Gateway
 
 | Field | Value |
 |-------|-------|
-| **Status** | Proposed |
-| **Decision** | Build Shared AI Gateway in Phase 5; CRM AI settings UI deferred |
-| **Evidence** | AI settings pages exist but are static mock |
+| **Status** | Accepted — implemented |
+| **Decision** | `app/platform/ai` owns every model call; products consume it and never a vendor SDK |
+| **Rule** | No credential outside the gateway; no AI output that is not a real model response |
+
+**What shipped, and when.** The gateway was built ahead of the Phase 5 schedule
+this ADR originally recorded, because S3K CRM Market Insights needed it: a
+product feature calling Anthropic directly would have put a vendor SDK and an
+API credential inside `app/products/`, which ADR-003 forbids and which no later
+refactor recovers cheaply. The deferral was a sequencing assumption, not a
+design one, and the design is unchanged.
+
+**Shape.** `AnthropicResearchProvider` implements a `ResearchProvider`
+Protocol, so the service layer is testable without a network call and a second
+vendor is a new class rather than a change to any caller. `AiGatewayService`
+owns provider construction, rate limiting and the audit record, so no feature
+has to remember any of the three. `AiPromptService` holds an append-only prompt
+library: publishing appends a version, so research pinned to an earlier one
+stays reproducible.
+
+**Credentials (revised).** Originally environment-only. Since
+`20260831_0300` an organization's administrator can store a credential from
+AI Settings → Providers; `platform.ai_provider_credentials` holds it as Fernet
+ciphertext, tenant-scoped and RLS-FORCEd, with the encryption key supplied by
+the environment and never stored beside the data it protects. Resolution
+prefers the organization's own credential and falls back to `ANTHROPIC_API_KEY`,
+which remains the bootstrapping path — a deployment still runs AI before anyone
+has configured anything. This is the one reversibly-encrypted secret in the
+schema; everything else remains hashed, and `app/core/secrets.py` records why
+that asymmetry is unavoidable here.
+
+**The AI settings UI is no longer deferred in full.** Prompts and Providers are
+implemented against real endpoints. The remaining AI Settings screens (Agents,
+Automations, Copilot, Knowledge, Features, Security Analytics) still render
+`AiUnavailable` and are honest about having no backend — the mock datasets they
+once displayed are retained under `frontend/features/ai/` as specifications,
+imported by nothing.
+
+**What has not changed.** An unset credential is a first-class state answered
+with `503 ai_not_configured`, and nothing anywhere substitutes canned output for
+a model call.
 
 ---
 

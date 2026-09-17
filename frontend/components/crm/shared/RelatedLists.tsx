@@ -17,6 +17,7 @@ import {
   type Opportunity,
   type PipelineStage,
 } from '@/features/crm/opportunities';
+import { DEFAULT_CURRENCY, MONEY_LOCALE } from '@/lib/currency';
 
 /* ============================================================
    RELATED LISTS
@@ -209,9 +210,9 @@ export function AccountOpportunitiesPanel({ accountId }: { accountId: string }) 
             <p className="txt-muted mb-2 text-[12px]">
               Open pipeline on this page:{' '}
               <span className="txt font-semibold tabular-nums">
-                {openValue.toLocaleString(undefined, {
+                {openValue.toLocaleString(MONEY_LOCALE, {
                   style: 'currency',
-                  currency: items[0]?.currency ?? 'USD',
+                  currency: items[0]?.currency ?? DEFAULT_CURRENCY,
                   maximumFractionDigits: 0,
                 })}
               </span>
@@ -242,7 +243,7 @@ export function AccountOpportunitiesPanel({ accountId }: { accountId: string }) 
                   </div>
                   <span className="txt shrink-0 text-[12.5px] font-semibold tabular-nums">
                     {opportunity.deal_value
-                      ? Number(opportunity.deal_value).toLocaleString(undefined, {
+                      ? Number(opportunity.deal_value).toLocaleString(MONEY_LOCALE, {
                           style: 'currency',
                           currency: opportunity.currency,
                           maximumFractionDigits: 0,
@@ -347,7 +348,7 @@ export function ContactOpportunitiesPanel({ contactId }: { contactId: string }) 
                 </div>
                 <span className="txt shrink-0 text-[12.5px] font-semibold tabular-nums">
                   {opportunity.deal_value
-                    ? Number(opportunity.deal_value).toLocaleString(undefined, {
+                    ? Number(opportunity.deal_value).toLocaleString(MONEY_LOCALE, {
                         style: 'currency',
                         currency: opportunity.currency,
                         maximumFractionDigits: 0,

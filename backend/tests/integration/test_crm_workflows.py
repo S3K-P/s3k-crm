@@ -344,6 +344,22 @@ def opportunity_id(as_alpha_admin: ApiSession) -> uuid.UUID:
     return uuid.UUID(response.json()["id"])
 
 
+def test_an_opportunity_created_without_a_currency_is_in_rupees(
+    as_alpha_admin: ApiSession, opportunity_id: uuid.UUID
+) -> None:
+    """The default is a business decision, so it is pinned by a test.
+
+    S3K sells in India and the fixture above posts no ``currency`` at all.
+    Nothing else asserts the default — it lived only as a string in the model
+    and in the column default, which is how it stayed ``USD`` for as long as it
+    did. A deal may still be entered in any ISO code; this is only what an
+    unspecified one becomes.
+    """
+    opportunity = as_alpha_admin.get(f"/crm/opportunities/{opportunity_id}").json()
+
+    assert opportunity["currency"] == "INR"
+
+
 def test_a_stage_change_updates_probability_and_records_history(
     as_alpha_admin: ApiSession, opportunity_id: uuid.UUID
 ) -> None:

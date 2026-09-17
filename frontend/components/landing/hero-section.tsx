@@ -84,7 +84,7 @@ export function HeroSection() {
               <div className="grid grid-cols-3 gap-4">
                 <div className="bg-white/5 rounded-xl border border-white/5 p-4">
                   <div className="text-gray-400 text-xs mb-1">Total Pipeline Value</div>
-                  <div className="text-2xl font-bold text-white">$2.4M</div>
+                  <div className="text-2xl font-bold text-white">₹24L</div>
                   <div className="text-[10px] text-green-400 mt-1 flex items-center gap-1">
                     ↑ 12% vs last month
                   </div>
@@ -156,7 +156,7 @@ export function HeroSection() {
             </div>
             <div>
               <div className="text-sm font-semibold text-white">Deal Closed</div>
-              <div className="text-xs text-gray-400">NexaData ($120k)</div>
+              <div className="text-xs text-gray-400">NexaData (₹1.2L)</div>
             </div>
           </motion.div>
 
