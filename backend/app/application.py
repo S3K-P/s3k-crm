@@ -72,6 +72,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         environment=settings.environment,
         api_prefix=settings.api_prefix,
     )
+    # What the AI gateway will call, stated once at boot so a deployment log
+    # answers "why does the app say AI is not connected" without a debugger.
+    # Names and flags only — the credential itself never reaches a log line.
+    # A key set for the provider AI_PROVIDER did *not* select is the common
+    # misconfiguration, so it is raised to a warning.
+    ai_issue = settings.ai_configuration_issue
+    (logger.warning if ai_issue == "credential_for_other_provider" else logger.info)(
+        "ai_gateway_configuration",
+        provider=settings.ai_provider,
+        model=settings.ai_active_model,
+        configured=settings.ai_configured,
+        issue=ai_issue,
+    )
 
     # A deployment whose role bypasses RLS has no tenant isolation at all.
     # Fatal outside development, where it is only a warning.

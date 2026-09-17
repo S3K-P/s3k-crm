@@ -28,6 +28,11 @@ class SearchEntityType(enum.StrEnum):
     CONTACT = "CONTACT"
     LEAD = "LEAD"
     OPPORTUNITY = "OPPORTUNITY"
+    #: Checkpoint 5. Distinct from ``CrmEntityType`` (``common.py``), which an
+    #: activity's own ``related_entity_type`` uses and which has no ACTIVITY
+    #: member of its own — an activity cannot be the *target* of the
+    #: polymorphic link it carries, but it is very much a searchable record.
+    ACTIVITY = "ACTIVITY"
 
 
 class SearchHit(BaseModel):

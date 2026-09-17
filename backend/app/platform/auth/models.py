@@ -1,6 +1,6 @@
 """SQLAlchemy models for the auth module (doc 04 "Core Models").
 
-Four tables, all in the ``platform`` schema:
+Six tables, all in the ``platform`` schema:
 
 ``users``          global identity. **Deliberately not tenant-scoped**: one
                    person may belong to several organizations, so the row
@@ -15,6 +15,11 @@ Four tables, all in the ``platform`` schema:
                    above it is untenanted, because a password belongs to the
                    identity and not to any organization the identity happens
                    to be a member of.
+``mfa_credentials``, ``mfa_recovery_codes`` (Checkpoint 8)
+                   a user's own TOTP enrollment and its one-time-use recovery
+                   codes — untenanted for the same reason: the second factor
+                   belongs to the identity, not to any one organization it
+                   signs into.
 """
 
 from __future__ import annotations
@@ -271,9 +276,76 @@ class EmailVerificationToken(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         return self.used_at is None and self.expires_at > now
 
 
+class MfaCredential(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """A user's own TOTP enrollment — one row per user, active or pending.
+
+    ``enabled_at IS NULL`` marks a *pending* enrollment: the secret and
+    recovery codes exist (generated at ``POST /auth/mfa/enroll``) but a
+    correct code has not yet been presented back to prove the person can
+    actually generate them, so login is not yet gated on it. Re-enrolling
+    while pending overwrites the row rather than accumulating orphans.
+
+    Untenanted, no RLS — same reasoning as ``User``: the second factor
+    belongs to the identity, and a member of several organizations does not
+    get a separate one per tenant.
+    """
+
+    __tablename__ = "mfa_credentials"
+    __table_args__ = (
+        Index("uq_mfa_credentials_user_id", "user_id", unique=True),
+        {"schema": PLATFORM_SCHEMA},
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(f"{PLATFORM_SCHEMA}.users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    #: Fernet-encrypted TOTP secret — see ``auth.mfa.MfaSecretCipher``. Never
+    #: stored, logged or returned in plaintext outside the enrollment
+    #: response that shows it once.
+    encrypted_secret: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    recovery_codes: Mapped[list[MfaRecoveryCode]] = relationship(
+        cascade="all, delete-orphan", lazy="selectin"
+    )
+
+    @property
+    def is_active(self) -> bool:
+        return self.enabled_at is not None
+
+
+class MfaRecoveryCode(Base, UUIDPrimaryKeyMixin, TimestampMixin):
+    """One single-use fallback code for when the authenticator device is lost.
+
+    ``code_hash`` is an argon2 digest — the same primitive as a password,
+    because like a password a recovery code is only ever *compared*, never
+    recomputed the way a TOTP code is. ``used_at`` rather than deleting a
+    spent row, for the same audit-trail reason ``PasswordResetToken`` keeps
+    its own spent tokens.
+    """
+
+    __tablename__ = "mfa_recovery_codes"
+    __table_args__ = (
+        Index("ix_mfa_recovery_codes_credential_id", "credential_id"),
+        {"schema": PLATFORM_SCHEMA},
+    )
+
+    credential_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(f"{PLATFORM_SCHEMA}.mfa_credentials.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    code_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    used_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 __all__ = [
     "PLATFORM_SCHEMA",
     "EmailVerificationToken",
+    "MfaCredential",
+    "MfaRecoveryCode",
     "PasswordResetToken",
     "Session",
     "User",

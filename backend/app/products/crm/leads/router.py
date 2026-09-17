@@ -16,6 +16,8 @@ from app.products.crm.leads.models import Lead, LeadStatus
 from app.products.crm.leads.schemas import (
     ConversionMatchAccount,
     ConversionMatchContact,
+    LeadBulkStatusChange,
+    LeadBulkUpdate,
     LeadConversionResponse,
     LeadConversionSuggestions,
     LeadConvertRequest,
@@ -27,8 +29,12 @@ from app.products.crm.leads.schemas import (
     LeadUpdate,
 )
 from app.products.crm.leads.service import LeadService
+from app.products.crm.reports.custom import build_advanced_filter_predicate
+from app.products.crm.reports.fields import ReportEntity
+from app.products.crm.shared.advanced_filter_query import AdvancedFilterDep
 from app.products.crm.shared.csv_export import collect_rows, csv_response
 from app.products.crm.shared.pagination import Page, PageParams, page_params
+from app.products.crm.shared.schemas import BulkIdsRequest, BulkOperationResult
 from app.products.crm.shared.visibility import RecordVisibility
 
 router = APIRouter()
@@ -58,8 +64,10 @@ def visible_to(principal: Principal) -> RecordVisibility:
 async def list_leads(
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
     service: ServiceDep,
+    session: DbSession,
     params: PageParamsDep,
     custom: CustomFieldQueryDep,
+    advanced: AdvancedFilterDep,
     search: Annotated[str | None, Query(max_length=255)] = None,
     lead_status: Annotated[LeadStatus | None, Query(alias="status")] = None,
     owner_id: Annotated[uuid.UUID | None, Query()] = None,
@@ -72,6 +80,14 @@ async def list_leads(
     orders by one. Names are resolved against this organization's own
     definitions before any SQL is built (``custom_fields/query.py``), so an
     unrecognised one is a 422 rather than a filter on nothing.
+
+    ``?advanced_filter=`` (Checkpoint 5) adds a multi-condition AND/OR filter
+    on top of the four named parameters above and any ``cf_*`` ones — the
+    same ``reports.conditions.ReportFilterGroup`` document a saved view's own
+    ``advanced_filter`` column stores, resolved through the identical
+    ``reports.custom.build_advanced_filter_predicate`` the custom-report
+    builder uses, so a condition means the same thing whether it narrows a
+    report or this list.
     """
     filters = service.build_filters(
         search=search, status=lead_status, owner_id=owner_id, lead_source_id=lead_source_id
@@ -82,6 +98,12 @@ async def list_leads(
         entity_type=CrmEntityType.LEAD,
     )
     filters = [*filters, *custom_filters]
+    if advanced is not None:
+        predicate = await build_advanced_filter_predicate(
+            session, principal.organization_id, ReportEntity.LEAD, advanced
+        )
+        if predicate is not None:
+            filters.append(predicate)
     items, total = await service.list_leads(
         principal.organization_id,
         params=params,
@@ -147,6 +169,63 @@ async def lead_status_counts(
 ) -> LeadStatusCounts:
     """Per-status totals backing the kanban column headers."""
     return LeadStatusCounts(counts=await service.counts_by_status(principal.organization_id))
+
+
+@router.post("/bulk-update", response_model=BulkOperationResult)
+async def bulk_update_leads(
+    payload: LeadBulkUpdate,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.EDIT))],
+    service: ServiceDep,
+) -> BulkOperationResult:
+    """Patch the same fields on many leads. ``status`` is not among them.
+
+    ``LeadBulkUpdate.values`` is a ``LeadUpdate`` — the exact schema the
+    single-record PATCH accepts, which already excludes ``status`` — so a
+    bulk edit cannot bypass the transition endpoint's blueprint checks by
+    construction. See :meth:`~app.products.crm.shared.service.TenantScopedService.bulk_update`.
+    """
+    values = payload.values.model_dump(exclude_unset=True)
+    if values.get("email") is not None:
+        values["email"] = str(values["email"])
+    return await service.bulk_update(
+        payload.ids,
+        principal.organization_id,
+        actor_id=principal.user_id,
+        values=values,
+        visibility=visible_to(principal),
+    )
+
+
+@router.post("/bulk-delete", response_model=BulkOperationResult)
+async def bulk_delete_leads(
+    payload: BulkIdsRequest,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.DELETE))],
+    service: ServiceDep,
+) -> BulkOperationResult:
+    return await service.bulk_delete(
+        payload.ids,
+        principal.organization_id,
+        actor_id=principal.user_id,
+        visibility=visible_to(principal),
+    )
+
+
+@router.post("/bulk-status", response_model=BulkOperationResult)
+async def bulk_change_lead_status(
+    payload: LeadBulkStatusChange,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.EDIT))],
+    service: ServiceDep,
+) -> BulkOperationResult:
+    """Move many leads through the pipeline — the same rules as one drag."""
+    return await service.bulk_change_status(
+        payload.ids,
+        principal.organization_id,
+        new_status=payload.status,
+        actor_id=principal.user_id,
+        lost_reason=payload.lost_reason,
+        principal=principal,
+        visibility=visible_to(principal),
+    )
 
 
 @router.post("", response_model=LeadResponse, status_code=status.HTTP_201_CREATED)

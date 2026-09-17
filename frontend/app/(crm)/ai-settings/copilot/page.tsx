@@ -2,11 +2,11 @@
 
 import { Bot } from 'lucide-react';
 
-import AiUnavailable from '@/components/crm/ai/AiUnavailable';
+import AiFeaturePending from '@/components/crm/ai/AiFeaturePending';
 
 export default function AICopilotPage() {
   return (
-    <AiUnavailable
+    <AiFeaturePending
       icon={Bot}
       title="AI Copilot"
       subtitle="The conversational assistant available across the CRM."

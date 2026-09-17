@@ -19,6 +19,12 @@ export interface DashboardKpis {
   tasks_due: number;
   tasks_due_high_priority: number;
   opportunities_closing_soon: number;
+  /** Checkpoint 5. Open pipeline weighted by each deal's own win_probability. */
+  weighted_pipeline_value: string;
+  /** Checkpoint 5. Won revenue in the trailing 30 days (matches `new_leads`'s window). */
+  won_revenue: string;
+  /** Checkpoint 5. Share of live leads converted, 0-100, all-time. */
+  lead_conversion_rate: number;
 }
 
 export interface PipelineStageSummary {
@@ -60,6 +66,27 @@ export interface DashboardActivity {
   occurred_at: string;
 }
 
+/** Checkpoint 5. One point of the won-revenue trend. */
+export interface RevenueMonth {
+  month: string;
+  value: string;
+}
+
+/** Checkpoint 5. One owner's open pipeline. */
+export interface OwnerPipelineSummary {
+  owner: string;
+  count: number;
+  value: string;
+}
+
+/** Checkpoint 5. Mirrors a row of the "Lead conversion by source" report. */
+export interface LeadSourcePerformance {
+  source: string;
+  leads: number;
+  converted: number;
+  conversion_rate: number;
+}
+
 export interface DashboardSummary {
   kpis: DashboardKpis;
   pipeline: PipelineStageSummary[];
@@ -69,4 +96,10 @@ export interface DashboardSummary {
   tasks: DashboardTask[];
   meetings: DashboardMeeting[];
   activities: DashboardActivity[];
+  /** Checkpoint 5. Trailing 6 calendar months, oldest first, zero-filled. */
+  revenue_trend: RevenueMonth[];
+  /** Checkpoint 5. Open pipeline per owner, busiest first, capped at 10. */
+  pipeline_by_owner: OwnerPipelineSummary[];
+  /** Checkpoint 5. Capped at 8 — the full breakdown is the report itself. */
+  lead_source_performance: LeadSourcePerformance[];
 }

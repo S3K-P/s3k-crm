@@ -64,6 +64,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from app.products.crm.accounts.models import Account
+from app.products.crm.activities.models import Activity
 from app.products.crm.contacts.models import Contact
 from app.products.crm.leads.models import Lead
 from app.products.crm.opportunities.models import Opportunity, PipelineStage
@@ -106,6 +107,8 @@ def _display_name(entity: SearchEntityType) -> ColumnElement[str]:
             return sa.cast(Lead.first_name, text) + " " + sa.cast(Lead.last_name, text)
         case SearchEntityType.OPPORTUNITY:
             return sa.cast(Opportunity.name, text)
+        case SearchEntityType.ACTIVITY:
+            return sa.cast(Activity.subject, text)
 
 
 def _subtitle(entity: SearchEntityType) -> InstrumentedAttribute[Any]:
@@ -128,6 +131,12 @@ def _subtitle(entity: SearchEntityType) -> InstrumentedAttribute[Any]:
             return Lead.company
         case SearchEntityType.OPPORTUNITY:
             return PipelineStage.name
+        case SearchEntityType.ACTIVITY:
+            # Always set (`type` is NOT NULL), unlike `outcome`, which is
+            # empty for most of an activity's life — planned work has no
+            # outcome yet, and a subtitle that is blank half the time is
+            # worse than one that is merely less specific.
+            return Activity.type
 
 
 class SearchRepository:
@@ -265,6 +274,7 @@ _MODEL: dict[SearchEntityType, Any] = {
     SearchEntityType.CONTACT: Contact,
     SearchEntityType.LEAD: Lead,
     SearchEntityType.OPPORTUNITY: Opportunity,
+    SearchEntityType.ACTIVITY: Activity,
 }
 
 

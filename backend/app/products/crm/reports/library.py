@@ -32,13 +32,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import AppError, ConflictError, NotFoundError
 from app.platform.auth.dependencies import Principal
 from app.products.crm.reports.catalog import REPORTS
+from app.products.crm.reports.custom import CustomReportEngine, validate_definition
 from app.products.crm.reports.models import (
     ReportFolder,
     ReportPeriod,
     SavedReport,
     ShareScope,
 )
-from app.products.crm.reports.schemas import ReportResult
+from app.products.crm.reports.schemas import CustomReportDefinition, ReportResult
 from app.products.crm.reports.service import ReportService
 from app.products.crm.shared.pagination import PageParams
 from app.products.crm.shared.repository import TenantScopedRepository
@@ -83,6 +84,24 @@ class UnknownReportError(AppError):
     status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
     code = "unknown_report"
     message = "That report does not exist in the report catalogue."
+
+
+class CannotChangeReportKindError(AppError):
+    """A PATCH tried to turn a catalogue report into a custom one, or back.
+
+    Refused rather than allowed: a saved report's identity as "a run of
+    catalogue entry X" or "this user-authored shape" is closer to its type
+    than to one of its fields, and every dashboard tile pointing at it
+    assumes that type does not change under it. Deleting and re-creating is
+    the honest way to actually change kind.
+    """
+
+    status_code = status.HTTP_409_CONFLICT
+    code = "cannot_change_report_kind"
+    message = (
+        "A saved report's kind (catalogue or custom) cannot be changed. "
+        "Create a new one instead."
+    )
 
 
 class FolderNotEmptyError(AppError):
@@ -280,6 +299,7 @@ class SavedReportService(TenantScopedService[SavedReport]):
         super().__init__(TenantScopedRepository(session, SavedReport), SavedReport)
         self._session = session
         self._reports = ReportService(session)
+        self._custom = CustomReportEngine(session)
 
     @property
     def audit_module(self) -> str:
@@ -354,28 +374,54 @@ class SavedReportService(TenantScopedService[SavedReport]):
         principal: Principal,
         *,
         today: dt.date | None = None,
+        date_override: tuple[dt.date | None, dt.date | None] | None = None,
     ) -> ReportResult:
         """Execute a saved report **as the caller**.
 
-        Delegates to the same :class:`ReportService` the ad-hoc route uses, so
-        the permission check on the base module and the record-visibility
-        narrowing are not re-implemented here and cannot drift from it. The
-        only thing this method adds is resolving the stored period into dates.
+        Delegates to :class:`ReportService` for a catalogue report and to
+        :class:`~reports.custom.CustomReportEngine` for a custom one, so the
+        permission check on the report's own module and the record-visibility
+        narrowing are made in exactly one place for each kind and cannot drift
+        from what the ad-hoc routes (``/{key}/run``, ``/custom/preview``) do.
+        This method's own job is resolving the stored period into dates.
+
+        ``date_override`` replaces the stored period's resolved window rather
+        than being combined with it — used by a dashboard tile rendered under
+        a dashboard-wide date filter (see ``dashboard.library.render``), which
+        must show the *requested* window, not the tile's own saved one.
 
         Raises:
             UnknownReportError: the catalogue no longer has this key.
-            PermissionDeniedError: the caller may not read the base module.
+            PermissionDeniedError: the caller may not read the report's module.
         """
+        resolved = today or dt.datetime.now(dt.UTC).date()
+        if date_override is not None:
+            date_from, date_to = date_override
+        else:
+            date_from, date_to = resolve_period(
+                saved.period,
+                date_from=saved.date_from,
+                date_to=saved.date_to,
+                today=resolved,
+            )
+
+        if saved.custom_definition is not None:
+            definition = CustomReportDefinition.model_validate(saved.custom_definition)
+            result = await self._custom.run(
+                definition, principal, date_from=date_from, date_to=date_to, today=resolved
+            )
+            # A saved custom report's own name/description are what the
+            # library gave it; the engine knows only the shape, not the name.
+            return result.model_copy(
+                update={
+                    "key": str(saved.id),
+                    "name": saved.name,
+                    "description": saved.description or "",
+                }
+            )
+
         if saved.base_report_key not in REPORTS:
             raise UnknownReportError
-
-        resolved = today or dt.datetime.now(dt.UTC).date()
-        date_from, date_to = resolve_period(
-            saved.period,
-            date_from=saved.date_from,
-            date_to=saved.date_to,
-            today=resolved,
-        )
         return await self._reports.run(
             saved.base_report_key,
             principal,
@@ -393,16 +439,24 @@ class SavedReportService(TenantScopedService[SavedReport]):
         actor_id: uuid.UUID | None,
         values: dict[str, Any],
     ) -> SavedReport:
-        """Save a report definition.
+        """Save a report definition — catalogue-backed or custom.
 
-        The catalogue key and the folder are both validated against the
-        caller's own organization before anything is written — a folder id
-        belonging to another tenant is a 404, not a foreign-key error.
+        The catalogue key, or the custom definition's every field/filter/
+        aggregation, and the folder are all validated against the caller's
+        own organization before anything is written — a folder id belonging
+        to another tenant is a 404, not a foreign-key error, and a custom
+        definition naming a field that does not exist is a 422, not a report
+        that 500s the first time somebody opens it.
         """
         payload = dict(values)
-        key = payload.get("base_report_key")
-        if key not in REPORTS:
-            raise UnknownReportError
+        if payload.get("custom_definition") is not None:
+            definition = CustomReportDefinition.model_validate(payload["custom_definition"])
+            validate_definition(definition)
+            payload["custom_definition"] = definition.model_dump(mode="json")
+        else:
+            key = payload.get("base_report_key")
+            if key not in REPORTS:
+                raise UnknownReportError
         await self._require_free_name(organization_id, payload.get("name"))
         await self._require_own_folder(organization_id, payload.get("folder_id"))
         payload["owner_id"] = actor_id
@@ -415,12 +469,27 @@ class SavedReportService(TenantScopedService[SavedReport]):
         actor_id: uuid.UUID | None,
         values: dict[str, Any],
     ) -> SavedReport:
-        """Edit a saved report. Owners only — see :meth:`require_owner`."""
+        """Edit a saved report. Owners only — see :meth:`require_owner`.
+
+        Raises:
+            CannotChangeReportKindError: the payload names ``base_report_key``
+                on a custom report, or ``custom_definition`` on a catalogue
+                one — see that error's own docstring for why.
+        """
         payload = drop_explicit_nulls(
             dict(values), {"name", "base_report_key", "period", "visibility"}
         )
-        if "base_report_key" in payload and payload["base_report_key"] not in REPORTS:
-            raise UnknownReportError
+        if "base_report_key" in payload:
+            if saved.custom_definition is not None:
+                raise CannotChangeReportKindError
+            if payload["base_report_key"] not in REPORTS:
+                raise UnknownReportError
+        if "custom_definition" in payload and payload["custom_definition"] is not None:
+            if saved.base_report_key is not None:
+                raise CannotChangeReportKindError
+            definition = CustomReportDefinition.model_validate(payload["custom_definition"])
+            validate_definition(definition)
+            payload["custom_definition"] = definition.model_dump(mode="json")
         name = payload.get("name")
         if name is not None and name != saved.name:
             await self._require_free_name(saved.organization_id, name)
@@ -498,6 +567,7 @@ class SavedReportService(TenantScopedService[SavedReport]):
 
 __all__ = [
     "REPORTS_MODULE",
+    "CannotChangeReportKindError",
     "FolderNotEmptyError",
     "NotOwnerError",
     "ReportFolderService",

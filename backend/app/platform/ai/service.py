@@ -11,7 +11,11 @@ Two services, deliberately separate:
     One model turn. Owns provider construction, per-user rate limiting and the
     audit record, so no feature has to remember any of the three.
 
-Neither knows what a company is. Composing a *research* prompt is the CRM
+:class:`AiConnectionService`
+    What is known about the connection itself: the cheap status every AI
+    screen reads, and the administrator's explicit, real connection test.
+
+None of them knows what a company is. Composing a *research* prompt is the CRM
 feature's job — Platform must not import a product
 (ARCHITECTURE-BOUNDARIES.md rule 1), and "what is worth researching about a
 business" is product vocabulary, not platform vocabulary.
@@ -19,24 +23,30 @@ business" is product vocabulary, not platform vocabulary.
 
 from __future__ import annotations
 
+import datetime as dt
+import hashlib
+import json
 import uuid
 from collections.abc import Sequence
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 import structlog
 from fastapi import status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import Settings
+from app.core.config import AiConfigurationIssue, AiProvider, Settings
 from app.core.exceptions import AppError, NotFoundError
 from app.platform.ai.models import MARKET_INSIGHTS_PROMPT_KEY, AiPromptVersion
 from app.platform.ai.provider import (
-    AiNotConfiguredError,
-    AnthropicResearchProvider,
-    GeminiResearchProvider,
+    AiAuthenticationError,
+    AiConnectionState,
+    ConnectionCheck,
+    ConnectionCheckProvider,
     ResearchProvider,
     ResearchResult,
+    build_provider,
 )
 from app.platform.ai.repository import AiPromptRepository
 from app.platform.audit.service import Action as AuditAction
@@ -335,12 +345,7 @@ class AiGatewayService:
         ``ai_not_configured`` rather than at the model call.
         """
         if self._provider is None:
-            if not self._settings.ai_configured:
-                raise AiNotConfiguredError
-            if self._settings.ai_provider == "gemini":
-                self._provider = GeminiResearchProvider(self._settings)
-            else:
-                self._provider = AnthropicResearchProvider(self._settings)
+            self._provider = build_provider(self._settings)
         return self._provider
 
     async def enforce_rate_limit(self, *, user_id: uuid.UUID) -> None:
@@ -384,7 +389,30 @@ class AiGatewayService:
         no business seeing the contents of somebody's research session.
         """
         provider = self._require_provider()
-        result = await provider.run(system=system, messages=messages, web_search=web_search)
+        try:
+            result = await provider.run(system=system, messages=messages, web_search=web_search)
+        except AiAuthenticationError:
+            # A real call just proved the key is refused. Recorded so the status
+            # every AI screen reads says so, instead of "configured" until an
+            # administrator happens to run the connection test.
+            await record_connection_verdict(
+                self._redis,
+                self._settings,
+                ConnectionCheck(
+                    state=AiConnectionState.AUTHENTICATION_ERROR,
+                    error_code="credential_rejected",
+                ),
+                source="feature_call",
+            )
+            raise
+        # A completed turn is the strongest evidence of a working connection
+        # there is — a model answered a real request.
+        await record_connection_verdict(
+            self._redis,
+            self._settings,
+            ConnectionCheck(state=AiConnectionState.AVAILABLE, model=result.model or None),
+            source="feature_call",
+        )
 
         await audit_for_session(self._session).record(
             organization_id=organization_id,
@@ -405,10 +433,219 @@ class AiGatewayService:
         return result
 
 
+# ---------------------------------------------------------------------------
+# Connection status and the connection test
+# ---------------------------------------------------------------------------
+
+#: How long a verdict from a real call stands before the status falls back to
+#: plain ``CONFIGURED``. Long enough that every screen a person opens after a
+#: test agrees with it; short enough that "available" cannot outlive a key
+#: revoked this morning by more than a quarter of an hour.
+CONNECTION_VERDICT_TTL_SECONDS = 15 * 60
+
+CheckSource = Literal["health_check", "feature_call"]
+
+
+def credential_fingerprint(settings: Settings) -> str:
+    """A short, non-reversible tag for the selected credential.
+
+    Part of the verdict's cache key, so replacing the key — the usual fix for
+    ``AUTHENTICATION_ERROR`` — makes the old verdict unreachable at once rather
+    than after its TTL. A truncated SHA-256 of a random API key reveals nothing
+    usable, and it is never logged or returned; it only names a Redis key.
+    """
+    key = settings.ai_credential
+    raw = key.get_secret_value().strip() if key is not None else ""
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _verdict_key(settings: Settings) -> str:
+    return (
+        f"ai:connection:{settings.ai_provider}:{settings.ai_active_model}:"
+        f"{credential_fingerprint(settings)}"
+    )
+
+
+async def record_connection_verdict(
+    redis: Redis | None,
+    settings: Settings,
+    check: ConnectionCheck,
+    *,
+    source: CheckSource,
+) -> None:
+    """Remember what a real call found, for every replica's status endpoint.
+
+    Kept in Redis rather than in process memory because a deployment runs more
+    than one API process, and an administrator's test on one must be what the
+    next request — served by another — reports. Fails open: losing a verdict
+    only means the status says ``CONFIGURED`` again, which is true.
+    """
+    if redis is None or not settings.ai_configured:
+        return
+    payload = {
+        "state": check.state.value,
+        "model": check.model,
+        "latency_ms": check.latency_ms,
+        "error_code": check.error_code,
+        "checked_at": check.checked_at.isoformat(),
+        "source": source,
+    }
+    try:
+        await redis.set(
+            _verdict_key(settings), json.dumps(payload), ex=CONNECTION_VERDICT_TTL_SECONDS
+        )
+    except Exception:
+        logger.warning("ai_connection_verdict_unavailable", operation="write", exc_info=True)
+
+
+@dataclass(frozen=True, slots=True)
+class ConnectionStatus:
+    """Everything the status endpoint reports. Holds no credential."""
+
+    configured: bool
+    provider: AiProvider
+    model: str
+    state: AiConnectionState
+    issue: AiConfigurationIssue | None = None
+    checked_at: dt.datetime | None = None
+    check_source: CheckSource | None = None
+    latency_ms: int | None = None
+    error_code: str | None = None
+
+
+class AiConnectionService:
+    """The AI connection's status, and the administrator's real test of it."""
+
+    def __init__(
+        self,
+        *,
+        settings: Settings,
+        redis: Redis | None,
+        session: AsyncSession | None = None,
+        provider: ConnectionCheckProvider | None = None,
+    ) -> None:
+        self._settings = settings
+        self._redis = redis
+        self._session = session
+        #: Injectable so tests exercise the check without a network call.
+        self._provider = provider
+
+    async def status(self) -> ConnectionStatus:
+        """What is known right now, without calling a model.
+
+        Cheap by design — every AI screen reads it on load. ``AVAILABLE`` and
+        the error states appear only when a real call produced them within the
+        verdict TTL; otherwise a configured deployment reports ``CONFIGURED``,
+        which claims a key exists and nothing more.
+        """
+        settings = self._settings
+        base = ConnectionStatus(
+            configured=settings.ai_configured,
+            provider=settings.ai_provider,
+            model=settings.ai_active_model,
+            state=AiConnectionState.NOT_CONFIGURED,
+            issue=settings.ai_configuration_issue,
+        )
+        if not settings.ai_configured:
+            return base
+
+        verdict = await self._read_verdict()
+        if verdict is None:
+            return ConnectionStatus(
+                configured=True,
+                provider=base.provider,
+                model=base.model,
+                state=AiConnectionState.CONFIGURED,
+            )
+        return verdict
+
+    async def check(
+        self, *, organization_id: uuid.UUID, actor_id: uuid.UUID | None
+    ) -> ConnectionCheck:
+        """Send one minimal real request to the configured provider and model.
+
+        Never answers ``AVAILABLE`` without a model's response behind it. An
+        unconfigured deployment is reported as such without any network call —
+        there is nothing to send and no key to send it with.
+        """
+        settings = self._settings
+        if not settings.ai_configured:
+            check = ConnectionCheck(
+                state=AiConnectionState.NOT_CONFIGURED,
+                error_code=settings.ai_configuration_issue,
+            )
+        else:
+            provider = self._provider if self._provider is not None else build_provider(settings)
+            check = await provider.check(timeout_seconds=settings.ai_health_check_timeout_seconds)
+            await record_connection_verdict(self._redis, settings, check, source="health_check")
+
+        log = logger.info if check.state is AiConnectionState.AVAILABLE else logger.warning
+        log(
+            "ai_connection_checked",
+            provider=settings.ai_provider,
+            model=settings.ai_active_model,
+            state=check.state.value,
+            latency_ms=check.latency_ms,
+            error_code=check.error_code,
+        )
+
+        if self._session is not None:
+            await audit_for_session(self._session).record(
+                organization_id=organization_id,
+                action="AI_CONNECTION_CHECKED",
+                module="ai",
+                entity_type="AI_CONNECTION",
+                actor_id=actor_id,
+                details={
+                    "provider": settings.ai_provider,
+                    "model": settings.ai_active_model,
+                    "state": check.state.value,
+                    "latency_ms": check.latency_ms,
+                    "error_code": check.error_code,
+                },
+            )
+        return check
+
+    async def _read_verdict(self) -> ConnectionStatus | None:
+        if self._redis is None:
+            return None
+        try:
+            raw = await self._redis.get(_verdict_key(self._settings))
+        except Exception:
+            logger.warning("ai_connection_verdict_unavailable", operation="read", exc_info=True)
+            return None
+        if raw is None:
+            return None
+        try:
+            data = json.loads(raw)
+            source: CheckSource = (
+                "health_check" if data.get("source") == "health_check" else "feature_call"
+            )
+            return ConnectionStatus(
+                configured=True,
+                provider=self._settings.ai_provider,
+                model=self._settings.ai_active_model,
+                state=AiConnectionState(data["state"]),
+                checked_at=dt.datetime.fromisoformat(data["checked_at"]),
+                check_source=source,
+                latency_ms=data.get("latency_ms"),
+                error_code=data.get("error_code"),
+            )
+        except (ValueError, KeyError, TypeError):
+            # A malformed entry is no evidence at all; fall back to CONFIGURED.
+            logger.warning("ai_connection_verdict_malformed")
+            return None
+
+
 __all__ = [
+    "CONNECTION_VERDICT_TTL_SECONDS",
     "DEFAULT_MARKET_INSIGHTS_PROMPT",
+    "AiConnectionService",
     "AiGatewayService",
     "AiPromptService",
     "AiRateLimitedError",
+    "ConnectionStatus",
     "PromptEmptyError",
+    "credential_fingerprint",
+    "record_connection_verdict",
 ]

@@ -635,7 +635,17 @@ def test_ai_status_is_readable_by_any_member(alpha_member: ApiSession) -> None:
     response = alpha_member.get("/ai/status")
 
     assert response.status_code == 200
-    assert set(response.json()) == {"configured", "model"}
+    assert set(response.json()) == {
+        "configured",
+        "provider",
+        "model",
+        "state",
+        "reason",
+        "checked_at",
+        "check_source",
+        "latency_ms",
+        "error_code",
+    }
 
 
 def test_ai_status_never_reveals_the_credential(alpha_admin: ApiSession) -> None:

@@ -23,7 +23,7 @@ from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import provisioning_scope
-from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
+from app.core.exceptions import AppError, ConflictError, NotFoundError, ValidationFailedError
 from app.platform.audit.service import Action as AuditAction
 from app.platform.auth.dependencies import Principal
 from app.products.crm.blueprints.enforcement import BlueprintGuard
@@ -38,7 +38,18 @@ from app.products.crm.opportunities.models import (
 from app.products.crm.shared.pagination import PageParams
 from app.products.crm.shared.record_notifications import OPPORTUNITY_WON, notify_record_event
 from app.products.crm.shared.repository import TenantScopedRepository
+from app.products.crm.shared.schemas import BulkOperationFailure, BulkOperationResult
 from app.products.crm.shared.service import TenantScopedService
+from app.products.crm.shared.timeline import (
+    TimelineEntry,
+    activity_entries,
+    deal_created_entries,
+    email_entries,
+    merge_timeline_entries,
+    note_entries,
+    stage_changed_entries,
+    task_entries,
+)
 from app.products.crm.shared.visibility import RecordVisibility
 
 logger = structlog.get_logger(__name__)
@@ -258,6 +269,18 @@ class OpportunityService(TenantScopedService[Opportunity]):
         if stage.is_lost and not (loss_reason or "").strip():
             raise LossReasonRequiredError
 
+        # For the workflow event's ``STAGE_CHANGED`` trigger, which matches by
+        # stage *name* (human-configured) rather than id — see
+        # ``workflows.conditions.rule_matches_trigger``. Stages have no delete
+        # endpoint today, so this should always resolve; caught defensively
+        # rather than letting a data-integrity edge case block a stage move.
+        try:
+            previous_stage_name: str | None = (
+                await self.get_stage(opportunity.stage_id, opportunity.organization_id)
+            ).name
+        except NotFoundError:
+            previous_stage_name = None
+
         previous_stage_id = opportunity.stage_id
 
         # The tenant's own process, applied *after* the built-in rules above
@@ -353,7 +376,59 @@ class OpportunityService(TenantScopedService[Opportunity]):
                 entity_id=opportunity.id,
                 record_path=f"/opportunities/{opportunity.id}",
             )
+        self._enqueue_record_event(
+            opportunity,
+            organization_id=opportunity.organization_id,
+            trigger="stage_changed",
+            changed_fields={
+                "stage_id": {"before": str(previous_stage_id), "after": str(stage.id)},
+                "stage_name": {"before": previous_stage_name, "after": stage.name},
+            },
+        )
         return opportunity
+
+    async def bulk_change_stage(
+        self,
+        ids: Sequence[uuid.UUID],
+        organization_id: uuid.UUID,
+        *,
+        stage_id: uuid.UUID,
+        actor_id: uuid.UUID | None,
+        note: str | None,
+        loss_reason: str | None,
+        win_reason: str | None,
+        principal: Principal | None,
+        visibility: RecordVisibility | None = None,
+    ) -> BulkOperationResult:
+        """Move many deals to the same stage at once (Checkpoint 4).
+
+        Each id runs through the identical :meth:`change_stage` a single drag
+        on the Kanban board calls — closed-deal refusal, the missing-reason
+        check, blueprint validation, stage history — independently. A deal
+        already closed, or one the organization's blueprint refuses this move
+        for, is reported as a per-id failure; the rest of the batch is
+        unaffected.
+        """
+        succeeded: list[uuid.UUID] = []
+        failed: list[BulkOperationFailure] = []
+        for opportunity_id in ids:
+            try:
+                opportunity = await self.get_or_404(
+                    opportunity_id, organization_id, visibility=visibility
+                )
+                await self.change_stage(
+                    opportunity,
+                    stage_id=stage_id,
+                    actor_id=actor_id,
+                    note=note,
+                    loss_reason=loss_reason,
+                    win_reason=win_reason,
+                    principal=principal,
+                )
+                succeeded.append(opportunity_id)
+            except AppError as exc:
+                failed.append(BulkOperationFailure(id=opportunity_id, reason=exc.message))
+        return BulkOperationResult(succeeded=succeeded, failed=failed)
 
     async def reopen(
         self, opportunity: Opportunity, *, stage_id: uuid.UUID, actor_id: uuid.UUID | None
@@ -429,6 +504,75 @@ class OpportunityService(TenantScopedService[Opportunity]):
         # bypass history recording and the win/loss rules.
         values.pop("stage_id", None)
         return await self.update(opportunity, actor_id=actor_id, values=values)
+
+    async def _bulk_update_one(
+        self, entity: Opportunity, *, actor_id: uuid.UUID | None, values: dict[str, object]
+    ) -> Opportunity:
+        """Route bulk updates (Checkpoint 4) through the same closed-deal rule."""
+        return await self.update_open(entity, actor_id=actor_id, values=values)
+
+    async def timeline(
+        self, opportunity: Opportunity, principal: Principal, *, limit: int = 50
+    ) -> list[TimelineEntry]:
+        """Every event this caller may see against this deal, newest first.
+
+        Its own creation and its own stage moves are included alongside
+        activities, tasks, sent email and notes — the same merged shape
+        Account and Contact expose — by reusing ``deal_created_entries`` and
+        ``stage_changed_entries`` with a filter that matches only this
+        opportunity, rather than a hand-written duplicate of either query.
+        """
+        organization_id = opportunity.organization_id
+        # This is the opportunity's own record: the caller already holds
+        # ``opportunities.VIEW`` on it (the route depends on it), so the
+        # unrestricted visibility is correct here and is not widened for any
+        # other opportunity — the filter matches exactly one id.
+        unrestricted = RecordVisibility.unrestricted()
+        tasks_visibility = RecordVisibility.for_module(principal, "tasks")
+        self_filter = Opportunity.id == opportunity.id
+
+        activities = await activity_entries(
+            self._session,
+            organization_id=organization_id,
+            entity_type=CrmEntityType.OPPORTUNITY,
+            entity_id=opportunity.id,
+        )
+        created = await deal_created_entries(
+            self._session,
+            organization_id=organization_id,
+            opportunity_filter=self_filter,
+            visibility=unrestricted,
+        )
+        stage_changes = await stage_changed_entries(
+            self._session,
+            organization_id=organization_id,
+            opportunity_filter=self_filter,
+            visibility=unrestricted,
+        )
+        tasks = await task_entries(
+            self._session,
+            organization_id=organization_id,
+            entity_type=CrmEntityType.OPPORTUNITY,
+            entity_id=opportunity.id,
+            visibility=tasks_visibility,
+        )
+        emails = await email_entries(
+            self._session,
+            organization_id=organization_id,
+            entity_type=CrmEntityType.OPPORTUNITY,
+            entity_id=opportunity.id,
+            viewer_id=principal.user_id,
+        )
+        notes = await note_entries(
+            self._session,
+            organization_id=organization_id,
+            entity_type=CrmEntityType.OPPORTUNITY,
+            entity_id=opportunity.id,
+            viewer_id=principal.user_id,
+        )
+        return merge_timeline_entries(
+            activities, created, stage_changes, tasks, emails, notes, limit=limit
+        )
 
     async def stage_history(self, opportunity: Opportunity) -> Sequence[OpportunityStageHistory]:
         result = await self._session.execute(

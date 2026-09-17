@@ -20,8 +20,10 @@ from __future__ import annotations
 import datetime as dt
 import enum
 import uuid
+from typing import Any
 
-from sqlalchemy import Date, Enum, ForeignKey, Index, String, Text, Uuid
+from sqlalchemy import CheckConstraint, Date, Enum, ForeignKey, Index, String, Text, Uuid
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -103,7 +105,22 @@ class ReportFolder(Base, CrmEntityMixin):
 
 
 class SavedReport(Base, CrmEntityMixin):
-    """A named, parameterised run of one built-in report."""
+    """A named, parameterised run of one built-in report — or a custom one.
+
+    ``base_report_key`` and ``custom_definition`` are mutually exclusive, both
+    at the schema layer (``schemas.SavedReportCreate._exactly_one_definition``)
+    and here, in a CHECK constraint that holds even for a row written outside
+    the API. A saved report is one question, asked one way — never both a
+    catalogue lookup and a user-authored shape at once.
+
+    ``custom_definition`` stores the *validated* shape of
+    ``reports.schemas.CustomReportDefinition`` as plain JSON — entity, field
+    keys, a filter tree, grouping and aggregation — never SQL and never a
+    result. The same "a saved report stores the question, not the answer"
+    rule the module docstring states for ``base_report_key`` holds here
+    unchanged: :meth:`reports.custom.CustomReportEngine.run` re-validates and
+    re-executes it, under the viewer's own ``RecordVisibility``, on every run.
+    """
 
     __tablename__ = "saved_reports"
     __table_args__ = (
@@ -115,6 +132,10 @@ class SavedReport(Base, CrmEntityMixin):
             postgresql_where="deleted_at IS NULL",
         ),
         Index("ix_saved_reports_organization_id_folder_id", "organization_id", "folder_id"),
+        CheckConstraint(
+            "(base_report_key IS NOT NULL) != (custom_definition IS NOT NULL)",
+            name="ck_saved_reports_exactly_one_definition",
+        ),
         {"schema": CRM_SCHEMA},
     )
 
@@ -122,8 +143,12 @@ class SavedReport(Base, CrmEntityMixin):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     #: Key into ``reports.catalog.REPORTS``. See the module docstring for why
-    #: this is not a foreign key.
-    base_report_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: this is not a foreign key. Null exactly when ``custom_definition`` is set.
+    base_report_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    #: A ``reports.schemas.CustomReportDefinition``, stored as JSON. Null
+    #: exactly when ``base_report_key`` is set.
+    custom_definition: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
 
     #: ``SET NULL`` rather than cascade: deleting a folder must never delete
     #: the work filed in it. The service refuses to delete a non-empty folder

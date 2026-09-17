@@ -42,12 +42,16 @@ from app.platform.auth.dependencies import (
     require_permission,
 )
 from app.platform.authorization.service import Action as PermissionAction
+from app.products.crm.reports.custom import CustomReportEngine
+from app.products.crm.reports.fields import ReportEntity
 from app.products.crm.reports.library import (
     REPORTS_MODULE,
     ReportFolderService,
     SavedReportService,
 )
 from app.products.crm.reports.schemas import (
+    AvailableFieldInfo,
+    CustomReportPreviewRequest,
     ReportFolderCreate,
     ReportFolderResponse,
     ReportFolderUpdate,
@@ -79,9 +83,14 @@ def get_saved(session: DbSession) -> SavedReportService:
     return SavedReportService(session)
 
 
+def get_custom(session: DbSession) -> CustomReportEngine:
+    return CustomReportEngine(session)
+
+
 ServiceDep = Annotated[ReportService, Depends(get_service)]
 FolderDep = Annotated[ReportFolderService, Depends(get_folders)]
 SavedDep = Annotated[SavedReportService, Depends(get_saved)]
+CustomDep = Annotated[CustomReportEngine, Depends(get_custom)]
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +109,48 @@ async def list_reports(
     person there is something there to see.
     """
     return service.catalogue(principal)
+
+
+# ---------------------------------------------------------------------------
+# Custom (ad-hoc) reports — the report builder
+# ---------------------------------------------------------------------------
+#
+# Declared before ``/{key}/run`` and ``/saved``/``/folders`` for the same
+# routing reason those two are declared in the order they are: ``custom`` must
+# never be captured by ``/{key}/run``'s path parameter.
+
+
+@router.get("/custom/fields", response_model=list[AvailableFieldInfo])
+async def list_custom_fields(
+    entity: Annotated[ReportEntity, Query()],
+    principal: PermissionedPrincipal,
+    service: CustomDep,
+) -> list[AvailableFieldInfo]:
+    """Fields a custom report over ``entity`` may select, filter or group by.
+
+    Not permission-gated on its own — the same "which reports exist is the
+    answer, not a precondition" reasoning ``GET /crm/reports`` documents.
+    Discovering the field list discloses nothing about any record; running a
+    report over it is where ``<entity's module>.VIEW`` is required.
+    """
+    return await service.available_fields(principal.organization_id, entity)
+
+
+@router.post("/custom/preview", response_model=ReportResult)
+async def preview_custom_report(
+    payload: CustomReportPreviewRequest,
+    principal: PermissionedPrincipal,
+    service: CustomDep,
+) -> ReportResult:
+    """Run a definition that has not been saved — the builder's preview step.
+
+    Authorization and record-visibility narrowing happen inside
+    ``CustomReportEngine.run`` itself, exactly as they do for the saved and
+    ad-hoc catalogue routes below.
+    """
+    return await service.run(
+        payload.definition, principal, date_from=payload.date_from, date_to=payload.date_to
+    )
 
 
 # ---------------------------------------------------------------------------

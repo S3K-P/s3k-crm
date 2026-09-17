@@ -24,6 +24,19 @@ def as_alpha_manager(api: ApiSession, alpha: Tenant) -> ApiSession:
     return api
 
 
+@pytest.fixture
+def other(client: TestClient, integration_settings: Settings) -> ApiSession:
+    """A **second**, independent signed-in session.
+
+    The shared ``api`` fixture is the same object ``as_alpha_admin`` hands
+    back, so logging in through it would silently replace the
+    administrator's own token. A cross-tenant test needs two people signed
+    in at once and so needs its own session — see
+    ``test_user_management.py``'s identical fixture of the same name.
+    """
+    return ApiSession(client, integration_settings.api_prefix)
+
+
 def _create_account(session: ApiSession, name: str = "Target Ltd") -> uuid.UUID:
     response = session.post("/crm/accounts", json={"name": name})
     assert response.status_code == 201, response.text
@@ -185,6 +198,203 @@ def test_the_admin_role_grants_the_whole_catalogue(
 
 
 # --- Authentication vs authorization ----------------------------------------
+
+
+def _member_id(session: ApiSession, *, email: str) -> uuid.UUID:
+    response = session.get("/organizations/current/members")
+    assert response.status_code == 200, response.text
+    for row in response.json()["data"]:
+        if row["email"] == email:
+            return uuid.UUID(row["id"])
+    raise AssertionError(f"{email} is not a member")
+
+
+def _system_role_id(session: ApiSession, name: str) -> uuid.UUID:
+    response = session.get("/roles")
+    assert response.status_code == 200, response.text
+    for role in response.json():
+        if role["name"] == name:
+            return uuid.UUID(role["id"])
+    raise AssertionError(f"system role {name!r} is missing")
+
+
+def _create_role(
+    session: ApiSession,
+    *,
+    name: str,
+    permissions: list[str] | None = None,
+    description: str | None = None,
+) -> dict[str, object]:
+    response = session.post(
+        "/roles",
+        json={"name": name, "description": description, "permissions": permissions or []},
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+# --- Role management (create / update / delete) -----------------------------
+
+
+def test_an_admin_can_create_a_custom_role(as_alpha_admin: ApiSession) -> None:
+    role = _create_role(
+        as_alpha_admin,
+        name="Sales Lead",
+        description="A team lead with export rights.",
+        permissions=["leads.VIEW", "leads.CREATE", "leads.EXPORT"],
+    )
+
+    assert role["is_system"] is False
+    assert role["description"] == "A team lead with export rights."
+    assert sorted(role["permissions"]) == ["leads.CREATE", "leads.EXPORT", "leads.VIEW"]
+
+    # Persisted, not just echoed back.
+    fetched = as_alpha_admin.get(f"/roles/{role['id']}").json()
+    assert sorted(fetched["permissions"]) == ["leads.CREATE", "leads.EXPORT", "leads.VIEW"]
+
+
+@pytest.mark.parametrize("login_as", ["manager", "member"])
+def test_only_an_admin_may_create_a_role(api: ApiSession, alpha: Tenant, login_as: str) -> None:
+    api.login(getattr(alpha, login_as).email, organization_id=alpha.organization_id)
+
+    response = api.post("/roles", json={"name": "Should Not Exist", "permissions": []})
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "permission_denied"
+
+
+def test_creating_a_role_with_an_unknown_permission_code_is_refused(
+    as_alpha_admin: ApiSession,
+) -> None:
+    response = as_alpha_admin.post(
+        "/roles", json={"name": "Bogus", "permissions": ["not_a_module.NOT_AN_ACTION"]}
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+    assert "not_a_module.NOT_AN_ACTION" in response.json()["error"]["details"]["invalid_codes"]
+
+
+def test_creating_a_role_with_a_name_already_in_use_is_a_conflict(
+    as_alpha_admin: ApiSession,
+) -> None:
+    """Colliding with a system template name is refused, not just a sibling custom role."""
+    response = as_alpha_admin.post("/roles", json={"name": "Admin", "permissions": []})
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "conflict"
+
+
+def test_an_admin_can_rename_a_custom_role_and_change_its_permissions(
+    as_alpha_admin: ApiSession,
+) -> None:
+    role = _create_role(as_alpha_admin, name="Draft Role", permissions=["leads.VIEW"])
+
+    response = as_alpha_admin.patch(
+        f"/roles/{role['id']}",
+        json={"name": "Renamed Role", "permissions": ["contacts.VIEW", "contacts.CREATE"]},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["name"] == "Renamed Role"
+    # The old permission is gone, not merely supplemented.
+    assert sorted(body["permissions"]) == ["contacts.CREATE", "contacts.VIEW"]
+
+
+def test_updating_a_role_omitting_a_field_leaves_it_unchanged(as_alpha_admin: ApiSession) -> None:
+    role = _create_role(
+        as_alpha_admin, name="Partial Patch", description="Original", permissions=["leads.VIEW"]
+    )
+
+    response = as_alpha_admin.patch(f"/roles/{role['id']}", json={"name": "Partial Patch Renamed"})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["name"] == "Partial Patch Renamed"
+    assert body["description"] == "Original"
+    assert body["permissions"] == ["leads.VIEW"]
+
+
+def test_a_system_role_template_cannot_be_edited(as_alpha_admin: ApiSession) -> None:
+    admin_role_id = _system_role_id(as_alpha_admin, "Admin")
+
+    response = as_alpha_admin.patch(f"/roles/{admin_role_id}", json={"name": "Hijacked"})
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "conflict"
+
+
+def test_a_system_role_template_cannot_be_deleted(as_alpha_admin: ApiSession) -> None:
+    admin_role_id = _system_role_id(as_alpha_admin, "Admin")
+
+    response = as_alpha_admin.delete(f"/roles/{admin_role_id}")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "conflict"
+
+
+def test_an_admin_can_delete_an_unassigned_custom_role(as_alpha_admin: ApiSession) -> None:
+    role = _create_role(as_alpha_admin, name="Disposable Role", permissions=[])
+
+    response = as_alpha_admin.delete(f"/roles/{role['id']}")
+    assert response.status_code == 204
+
+    assert as_alpha_admin.get(f"/roles/{role['id']}").status_code == 404
+
+
+def test_deleting_a_role_still_assigned_to_a_member_is_refused(
+    as_alpha_admin: ApiSession, alpha: Tenant
+) -> None:
+    role = _create_role(as_alpha_admin, name="In Use Role", permissions=["leads.VIEW"])
+    membership_id = _member_id(as_alpha_admin, email=alpha.member.email)
+
+    assigned = as_alpha_admin.post(
+        "/roles/assignments", json={"membership_id": str(membership_id), "role_id": role["id"]}
+    )
+    assert assigned.status_code == 204, assigned.text
+
+    response = as_alpha_admin.delete(f"/roles/{role['id']}")
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "conflict"
+
+    # Unassign, then the same delete succeeds.
+    revoked = as_alpha_admin.post(
+        "/roles/assignments/revoke",
+        json={"membership_id": str(membership_id), "role_id": role["id"]},
+    )
+    assert revoked.status_code == 204, revoked.text
+    assert as_alpha_admin.delete(f"/roles/{role['id']}").status_code == 204
+
+
+def test_a_role_from_another_organization_cannot_be_updated_or_deleted(
+    as_alpha_admin: ApiSession, other: ApiSession, beta: Tenant
+) -> None:
+    # `other` rather than the shared `api` fixture: `as_alpha_admin` *is* that
+    # same object post-login, so signing `api` in as beta would silently swap
+    # out the administrator's own token too (see the `other` fixture's docstring
+    # in test_user_management.py) and the final assertion below would then be
+    # reading the API back as beta, not alpha — passing for the wrong reason.
+    role = _create_role(as_alpha_admin, name="Alpha-Only Role", permissions=["leads.VIEW"])
+
+    other.login(beta.admin.email, organization_id=beta.organization_id)
+    assert other.patch(f"/roles/{role['id']}", json={"name": "Stolen"}).status_code == 404
+    assert other.delete(f"/roles/{role['id']}").status_code == 404
+
+    # Untouched from the owning tenant's point of view.
+    assert as_alpha_admin.get(f"/roles/{role['id']}").json()["name"] == "Alpha-Only Role"
+
+
+def test_role_lifecycle_is_audited(as_alpha_admin: ApiSession) -> None:
+    role = _create_role(as_alpha_admin, name="Audited Role", permissions=["leads.VIEW"])
+    as_alpha_admin.patch(f"/roles/{role['id']}", json={"description": "now described"})
+    as_alpha_admin.delete(f"/roles/{role['id']}")
+
+    entries = as_alpha_admin.get("/audit-logs", params={"module": "roles"}).json()["data"]
+    actions_for_role = {
+        entry["action"] for entry in entries if entry["entity_id"] == role["id"]
+    }
+    assert {"CREATED", "UPDATED", "DELETED"} <= actions_for_role
 
 
 def test_an_unauthenticated_request_is_401_not_403(

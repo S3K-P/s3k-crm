@@ -25,18 +25,23 @@ from typing import Any
 import structlog
 from fastapi import status as http_status
 from pydantic import ValidationError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppError, ConflictError
 from app.platform.audit.service import Action as AuditAction
 from app.platform.audit.service import audit_for_session
-from app.products.crm.imports.catalog import ImportableEntity
+from app.products.crm.imports.catalog import ImportableEntity, is_custom_field_target
+from app.products.crm.imports.models import MAX_TEMPLATES_PER_ENTITY, ImportMappingTemplate
 from app.products.crm.imports.schemas import (
     DuplicatePolicy,
     ImportResult,
     ImportRowIssue,
     ImportSummary,
 )
+from app.products.crm.layouts.catalog import custom_field_api_name
+from app.products.crm.shared.repository import TenantScopedRepository
+from app.products.crm.shared.service import TenantScopedService
 
 logger = structlog.get_logger(__name__)
 
@@ -237,14 +242,29 @@ class ImportService:
         Only mapped headers are read. Nothing here can set ``id`` or
         ``organization_id``: neither is on any ``*Create`` schema, and the
         shared service strips them regardless.
+
+        A target of ``custom:<api_name>`` (Checkpoint 4) is nested under
+        ``custom_fields`` instead of set as a top-level key, so it reaches the
+        entity schema's own ``custom_fields: CustomFieldValues | None`` field
+        and, from there, the same
+        :class:`~app.products.crm.custom_fields.service.CustomFieldValueService`
+        every other write already goes through — coercion, required-ness,
+        picklist membership, all of it, with no second validation engine.
         """
         values: dict[str, Any] = {}
+        custom_values: dict[str, Any] = {}
         for header, field in mapping.items():
             raw = row.get(header)
             if raw is None:
                 continue
             trimmed = raw.strip()
-            values[field] = trimmed if trimmed else None
+            if is_custom_field_target(field):
+                if trimmed:
+                    custom_values[custom_field_api_name(field)] = trimmed
+            else:
+                values[field] = trimmed if trimmed else None
+        if custom_values:
+            values["custom_fields"] = custom_values
         return values
 
     @staticmethod
@@ -346,11 +366,77 @@ class ImportService:
         )
 
 
+# ---------------------------------------------------------------------------
+# Saved mapping templates (Checkpoint 4)
+# ---------------------------------------------------------------------------
+
+
+class DuplicateTemplateNameError(ConflictError):
+    code = "duplicate_import_template"
+    message = "A mapping template with that name already exists for this entity."
+
+
+class TemplateLimitReachedError(ConflictError):
+    code = "import_template_limit_reached"
+    message = f"An entity may have at most {MAX_TEMPLATES_PER_ENTITY} saved mapping templates."
+
+
+class ImportMappingTemplateService(TenantScopedService[ImportMappingTemplate]):
+    """Saved ``{csv header -> field}`` mappings, one entity's worth at a time."""
+
+    entity_name = "Import mapping template"
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._repository = TenantScopedRepository(session, ImportMappingTemplate)
+        super().__init__(self._repository, ImportMappingTemplate)
+        self._session = session
+
+    @property
+    def audit_module(self) -> str:
+        return "imports"
+
+    async def for_entity(
+        self, organization_id: uuid.UUID, entity_slug: str
+    ) -> Sequence[ImportMappingTemplate]:
+        result = await self._session.execute(
+            select(ImportMappingTemplate)
+            .where(
+                ImportMappingTemplate.organization_id == organization_id,
+                ImportMappingTemplate.deleted_at.is_(None),
+                ImportMappingTemplate.entity_slug == entity_slug,
+            )
+            .order_by(ImportMappingTemplate.name.asc())
+        )
+        return result.scalars().all()
+
+    async def create_template(
+        self,
+        *,
+        organization_id: uuid.UUID,
+        actor_id: uuid.UUID | None,
+        entity_slug: str,
+        values: dict[str, Any],
+    ) -> ImportMappingTemplate:
+        existing = await self.for_entity(organization_id, entity_slug)
+        if any(template.name == values["name"] for template in existing):
+            raise DuplicateTemplateNameError
+        if len(existing) >= MAX_TEMPLATES_PER_ENTITY:
+            raise TemplateLimitReachedError
+        return await self.create(
+            organization_id=organization_id,
+            actor_id=actor_id,
+            values={**values, "entity_slug": entity_slug},
+        )
+
+
 __all__ = [
     "MAX_IMPORT_BYTES",
     "MAX_IMPORT_ROWS",
+    "DuplicateTemplateNameError",
     "ImportFileError",
+    "ImportMappingTemplateService",
     "ImportService",
     "ImportTooLargeError",
+    "TemplateLimitReachedError",
     "parse_csv",
 ]

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  ArrowRight, Building2, Contact2, Loader2, Search, Target, TrendingUp, X,
+  ArrowRight, Building2, CalendarClock, Contact2, Loader2, Search, Target, TrendingUp, X,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -37,13 +37,23 @@ const ENTITY_ICONS: Record<SearchEntityType, LucideIcon> = {
   CONTACT: Contact2,
   LEAD: Target,
   OPPORTUNITY: TrendingUp,
+  ACTIVITY: CalendarClock,
 };
 
 /** Long enough that a fast typist sends one request, not eight. */
 const DEBOUNCE_MS = 180;
 
 type Row =
-  | { kind: 'record'; key: string; label: string; sub: string | null; icon: LucideIcon; href: string }
+  | {
+      kind: 'record';
+      key: string;
+      label: string;
+      sub: string | null;
+      icon: LucideIcon;
+      // `null` for a hit with no detail page (activities — see
+      // `features/crm/search`'s `hitHref`). Found and shown, not opened.
+      href: string | null;
+    }
   | { kind: 'page'; key: string; label: string; sub: null; icon: LucideIcon; href: string };
 
 interface Section {
@@ -162,7 +172,8 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
   const activeIndex = flat.length === 0 ? -1 : Math.min(active, flat.length - 1);
 
   const select = useCallback(
-    (href: string) => {
+    (href: string | null) => {
+      if (!href) return;
       router.push(href);
       onClose();
     },
@@ -272,15 +283,18 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
                 index += 1;
                 const isActive = index === activeIndex;
                 const position = index;
+                const navigable = row.href !== null;
                 return (
                   <button
                     key={row.key}
                     data-active={isActive}
                     onMouseEnter={() => setActive(position)}
                     onClick={() => select(row.href)}
+                    aria-disabled={!navigable}
+                    title={navigable ? undefined : 'No detail page for this record yet'}
                     className={`flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-left transition-colors ${
                       isActive ? 'surface-2' : 'hover:surface-2'
-                    }`}
+                    } ${navigable ? '' : 'cursor-default opacity-70'}`}
                   >
                     <div className="surface-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px]">
                       <row.icon className="h-4 w-4" style={{ color: 'var(--accent)' }} />
@@ -291,7 +305,7 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
                         <span className="txt-faint block truncate text-[11.5px]">{row.sub}</span>
                       )}
                     </span>
-                    <ArrowRight className="txt-faint h-3.5 w-3.5 shrink-0" />
+                    {navigable && <ArrowRight className="txt-faint h-3.5 w-3.5 shrink-0" />}
                   </button>
                 );
               })}

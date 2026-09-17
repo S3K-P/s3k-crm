@@ -1,4 +1,4 @@
-import { apiRequest } from '@/lib/api-client';
+import { api, apiRequest } from '@/lib/api-client';
 
 /* ============================================================
    CSV IMPORT
@@ -51,6 +51,43 @@ export interface ImportResult {
 
 export const listImportableEntities = () =>
   apiRequest<ImportEntityInfo[]>('/crm/imports/entities', { method: 'GET' });
+
+/**
+ * A tenant-defined field's mapping target, `custom:<api_name>` (Checkpoint
+ * 4) — offered by `/crm/imports/entities` alongside built-in columns,
+ * resolved and validated the same way a layout field's `field_key` is (see
+ * `features/crm/layouts`). Shown with its plain label rather than the raw
+ * target string; the value submitted in `mapping` is still the real one.
+ */
+export function fieldDisplayLabel(field: ImportField): string {
+  if (!field.name.startsWith('custom:')) return field.name;
+  return field.name.slice('custom:'.length).replace(/_/g, ' ');
+}
+
+/* ------------------------------------------------------------------
+   Saved mapping templates (Checkpoint 4)
+   ------------------------------------------------------------------ */
+
+export interface ImportMappingTemplate {
+  id: string;
+  entity_slug: string;
+  name: string;
+  mapping: Record<string, string>;
+  duplicate_policy: DuplicatePolicy;
+  created_at: string;
+  updated_at: string;
+}
+
+export const listMappingTemplates = (slug: ImportEntitySlug) =>
+  api.get<ImportMappingTemplate[]>(`/crm/imports/${slug}/mapping-templates`);
+
+export const saveMappingTemplate = (
+  slug: ImportEntitySlug,
+  body: { name: string; mapping: Record<string, string>; duplicate_policy: DuplicatePolicy },
+) => api.post<ImportMappingTemplate>(`/crm/imports/${slug}/mapping-templates`, body);
+
+export const deleteMappingTemplate = (slug: ImportEntitySlug, id: string) =>
+  api.delete<void>(`/crm/imports/${slug}/mapping-templates/${id}`);
 
 /**
  * Run an import, or a dry run of one.
@@ -154,7 +191,9 @@ export function suggestMapping(
   fields: ImportField[],
 ): Record<string, string> {
   const normalise = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const byNormalised = new Map(fields.map((field) => [normalise(field.name), field.name]));
+  const byNormalised = new Map(
+    fields.filter((field) => field.name !== 'custom_fields').map((field) => [normalise(field.name), field.name]),
+  );
 
   const mapping: Record<string, string> = {};
   for (const header of headers) {
@@ -182,7 +221,13 @@ function csvField(value: string): string {
  * but confirm. Which columns are required is shown by the wizard itself.
  */
 export function buildImportTemplateCsv(entity: ImportEntityInfo): string {
-  const header = entity.fields.map((field) => csvField(field.name)).join(',');
+  // `custom_fields` itself is a dict-shaped column, not a mappable target —
+  // see `fieldDisplayLabel`'s docstring. Individual tenant fields each get
+  // their own `custom:<name>` column instead.
+  const header = entity.fields
+    .filter((field) => field.name !== 'custom_fields')
+    .map((field) => csvField(field.name))
+    .join(',');
   // Leading BOM so Excel opens it as UTF-8; `readCsvHeaders` strips it back off.
   return `﻿${header}\r\n`;
 }

@@ -36,6 +36,8 @@ export interface Activity extends RecordMeta {
   due_date: string | null;
   completed_at: string | null;
   outcome: string | null;
+  /** How long a call ran, in minutes. Meaningful for `type === 'CALL'`. */
+  duration_minutes: number | null;
   owner_id: string | null;
   related_entity_type: CrmEntityType | null;
   related_entity_id: string | null;
@@ -49,6 +51,7 @@ export interface ActivityInput {
   status?: ActivityStatus;
   due_date?: string | null;
   outcome?: string | null;
+  duration_minutes?: number | null;
   related_entity_type?: CrmEntityType | null;
   related_entity_id?: string | null;
   meeting?: Partial<MeetingDetail> & { start_time: string };

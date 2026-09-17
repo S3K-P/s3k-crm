@@ -21,6 +21,13 @@ So the agreements are pinned here rather than left to review:
 
 These are string comparisons over generated SQL, which is exactly what
 PostgreSQL compares when deciding whether an index applies.
+
+**Two migrations, not one (Checkpoint 5).** The original four entities'
+vectors were built by ``20260826_0100``; ``activities`` (the fifth) was added
+later, by ``20260917_0300``, once the table already existed — a
+``search_vector`` cannot be part of a table's *creation* migration for a table
+that predates the feature. Each entity is therefore checked against its own
+migration via :data:`MIGRATION_FOR_ENTITY`, not a single shared one.
 """
 
 from __future__ import annotations
@@ -36,12 +43,7 @@ from sqlalchemy.dialects import postgresql
 from app.products.crm.search.repository import _display_name
 from app.products.crm.search.schemas import SearchEntityType
 
-MIGRATION = (
-    Path(__file__).resolve().parents[2]
-    / "migrations"
-    / "versions"
-    / "20260826_0100_crm_search_vectors_and_indexes.py"
-)
+_VERSIONS = Path(__file__).resolve().parents[2] / "migrations" / "versions"
 
 #: Entity type -> the table its rows live in.
 TABLES: dict[SearchEntityType, str] = {
@@ -49,11 +51,21 @@ TABLES: dict[SearchEntityType, str] = {
     SearchEntityType.CONTACT: "contacts",
     SearchEntityType.LEAD: "leads",
     SearchEntityType.OPPORTUNITY: "opportunities",
+    SearchEntityType.ACTIVITY: "activities",
+}
+
+#: Entity type -> the migration file that added its search_vector/indexes.
+MIGRATION_FOR_ENTITY: dict[SearchEntityType, Path] = {
+    SearchEntityType.ACCOUNT: _VERSIONS / "20260826_0100_crm_search_vectors_and_indexes.py",
+    SearchEntityType.CONTACT: _VERSIONS / "20260826_0100_crm_search_vectors_and_indexes.py",
+    SearchEntityType.LEAD: _VERSIONS / "20260826_0100_crm_search_vectors_and_indexes.py",
+    SearchEntityType.OPPORTUNITY: _VERSIONS / "20260826_0100_crm_search_vectors_and_indexes.py",
+    SearchEntityType.ACTIVITY: _VERSIONS / "20260917_0300_activity_search_vector.py",
 }
 
 
-def _load_migration() -> Any:
-    spec = importlib.util.spec_from_file_location("search_migration", MIGRATION)
+def _load_migration(path: Path) -> Any:
+    spec = importlib.util.spec_from_file_location(path.stem, path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -66,42 +78,60 @@ def _normalise(sql: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def migration() -> Any:
-    return _load_migration()
+def migrations() -> dict[Path, Any]:
+    """Every distinct migration file :data:`MIGRATION_FOR_ENTITY` names, loaded once."""
+    return {path: _load_migration(path) for path in set(MIGRATION_FOR_ENTITY.values())}
+
+
+def _vectors(migration: Any) -> dict[str, str]:
+    """``20260826_0100`` keys its expression dict ``_VECTORS``; the single-table
+    ``20260917_0300`` has no dict at all — just its own module-level constant.
+    Normalised to the same shape here so every other test in this file can
+    stay agnostic to which migration shape it is reading.
+    """
+    if hasattr(migration, "_VECTORS"):
+        return dict(migration._VECTORS)
+    return {migration.TABLE: migration._VECTOR_EXPRESSION}
+
+
+def _display_names(migration: Any) -> dict[str, str]:
+    if hasattr(migration, "_DISPLAY_NAMES"):
+        return dict(migration._DISPLAY_NAMES)
+    return {migration.TABLE: migration._DISPLAY_NAME}
 
 
 @pytest.mark.parametrize("entity", list(SearchEntityType))
 def test_the_model_vector_matches_the_migration_that_built_it(
-    entity: SearchEntityType, migration: Any
+    entity: SearchEntityType, migrations: dict[Path, Any]
 ) -> None:
     from app.products.crm.search.policies import MODEL_FOR_TYPE
 
     model = MODEL_FOR_TYPE[entity]
     computed = model.__table__.c.search_vector.computed
+    migration = migrations[MIGRATION_FOR_ENTITY[entity]]
 
     assert computed is not None, f"{entity} has no generated search_vector"
     assert computed.persisted is True, "the vector must be STORED, not VIRTUAL"
-    assert _normalise(str(computed.sqltext)) == _normalise(
-        migration._VECTORS[TABLES[entity]]
-    )
+    assert _normalise(str(computed.sqltext)) == _normalise(_vectors(migration)[TABLES[entity]])
 
 
 @pytest.mark.parametrize("entity", list(SearchEntityType))
 def test_the_fuzzy_query_matches_its_trigram_index_expression(
-    entity: SearchEntityType, migration: Any
+    entity: SearchEntityType, migrations: dict[Path, Any]
 ) -> None:
     """The regression that made the trigram index dead weight.
 
     Compared after stripping the schema-qualified table prefix, which the
     query carries and ``CREATE INDEX`` does not.
     """
+    migration = migrations[MIGRATION_FOR_ENTITY[entity]]
     rendered = str(
         _display_name(entity).compile(
             dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
         )
     )
     query_expression = _normalise(re.sub(r"\bcrm\.\w+\.", "", rendered))
-    index_expression = _normalise(migration._DISPLAY_NAMES[TABLES[entity]])
+    index_expression = _normalise(_display_names(migration)[TABLES[entity]])
 
     # The index form wraps the whole expression in parentheses and writes the
     # cast as ``name::text``; the query renders ``CAST(name AS TEXT)``. Compare
@@ -120,14 +150,17 @@ def _canonical(expression: str) -> str:
     return expression.replace("(", "").replace(")", "").replace(" ", "").lower()
 
 
-def test_every_searchable_entity_is_covered(migration: Any) -> None:
-    """A fifth entity added to the enum without a vector must fail here."""
+def test_every_searchable_entity_is_covered(migrations: dict[Path, Any]) -> None:
+    """A sixth entity added to the enum without a vector must fail here."""
     assert set(TABLES) == set(SearchEntityType)
-    assert set(migration._VECTORS) == set(TABLES.values())
-    assert set(migration._DISPLAY_NAMES) == set(TABLES.values())
+    assert set(MIGRATION_FOR_ENTITY) == set(SearchEntityType)
+    for entity, path in MIGRATION_FOR_ENTITY.items():
+        migration = migrations[path]
+        assert TABLES[entity] in _vectors(migration)
+        assert TABLES[entity] in _display_names(migration)
 
 
-def test_every_vector_pins_the_text_search_configuration(migration: Any) -> None:
+def test_every_vector_pins_the_text_search_configuration(migrations: dict[Path, Any]) -> None:
     """``to_tsvector(body)`` is only STABLE and cannot build a stored column.
 
     More importantly, it would stem according to whoever's session wrote the
@@ -136,9 +169,10 @@ def test_every_vector_pins_the_text_search_configuration(migration: Any) -> None
     """
     from app.products.crm.search.repository import TS_CONFIG
 
-    for table, expression in migration._VECTORS.items():
-        assert "to_tsvector('english'::regconfig" in expression, table
-        assert expression.count("to_tsvector(") == expression.count(
-            "to_tsvector('english'::regconfig"
-        ), f"{table} has a to_tsvector call with no explicit configuration"
+    for migration in migrations.values():
+        for table, expression in _vectors(migration).items():
+            assert "to_tsvector('english'::regconfig" in expression, table
+            assert expression.count("to_tsvector(") == expression.count(
+                "to_tsvector('english'::regconfig"
+            ), f"{table} has a to_tsvector call with no explicit configuration"
     assert TS_CONFIG == "english"

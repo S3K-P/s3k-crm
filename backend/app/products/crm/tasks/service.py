@@ -31,6 +31,7 @@ from app.products.crm.shared.repository import TenantScopedRepository
 from app.products.crm.shared.service import TenantScopedService
 from app.products.crm.shared.visibility import RecordVisibility
 from app.products.crm.tasks.models import Task, TaskStatus
+from app.products.crm.workflows.models import WorkflowEntityType
 
 #: Statuses that mean the task is off someone's plate.
 CLOSED_STATUSES: frozenset[TaskStatus] = frozenset(
@@ -40,6 +41,13 @@ CLOSED_STATUSES: frozenset[TaskStatus] = frozenset(
 
 class TaskService(TenantScopedService[Task]):
     entity_name = "Task"
+    #: Tasks carry no tenant-defined fields, but a due date arriving is still
+    #: a workflow trigger (``WorkflowTriggerType.TASK_DUE`` — see
+    #: ``workflows.service.scan_scheduled_workflows``) and a task being
+    #: created/reassigned is a plain ``RECORD_CREATED``/``OWNER_CHANGED``
+    #: one, so this opts into the same generic hook the five
+    #: ``crm_entity_type`` entities get automatically.
+    _workflow_entity_type = WorkflowEntityType.TASK
 
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(TenantScopedRepository(session, Task), Task)
@@ -57,6 +65,8 @@ class TaskService(TenantScopedService[Task]):
         related_entity_type: CrmEntityType | None = None,
         related_entity_id: uuid.UUID | None = None,
         open_only: bool = False,
+        due_before: dt.datetime | None = None,
+        due_after: dt.datetime | None = None,
     ) -> list[ColumnElement[bool]]:
         filters: list[ColumnElement[bool]] = []
         if search:
@@ -79,6 +89,17 @@ class TaskService(TenantScopedService[Task]):
             filters.append(Task.related_entity_id == related_entity_id)
         if open_only:
             filters.append(Task.status.not_in(tuple(CLOSED_STATUSES)))
+        # ``due_before``/``due_after`` power the Tasks page's "Overdue" and
+        # "Upcoming" quick views. A task with no due date matches neither —
+        # it is not scheduled, so it cannot be "overdue" or "upcoming" any
+        # more than an unscheduled meeting could be, and including it would
+        # make those counts overstate what is actually on a deadline.
+        if due_before is not None:
+            filters.append(Task.due_date.is_not(None))
+            filters.append(Task.due_date < due_before)
+        if due_after is not None:
+            filters.append(Task.due_date.is_not(None))
+            filters.append(Task.due_date >= due_after)
         return filters
 
     async def list_tasks(

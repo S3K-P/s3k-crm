@@ -114,6 +114,44 @@ PERMISSION_MODULES: Final[tuple[str, ...]] = (
     #: endpoint's own, so a blueprint can only ever narrow who may make a move
     #: — never grant somebody one they could not otherwise make.
     "blueprints",
+    #: Trigger -> conditions -> actions automation over CRM records and tasks
+    #: (Checkpoint 6). Same reasoning as ``blueprints``, restated for the same
+    #: kind of module: a workflow decides what happens to *every* matching
+    #: record in the organization — updating fields, creating tasks, sending
+    #: mail — which is administration in the strongest sense the product has.
+    #: ``VIEW`` goes to every role for the same reason ``blueprints.VIEW``
+    #: does: whoever's record a workflow touched has to be able to see which
+    #: rule did it and what it did, in the execution history. It grants sight
+    #: of no record beyond what the run history itself already names.
+    "workflows",
+    #: The admin form/layout builder (Checkpoint 4): sections, field placement
+    #: and conditional rules for one entity type's create/edit form.
+    #:
+    #: Same shape as ``blueprints`` and for the same reason: publishing a
+    #: layout changes what every rep's form looks like and, through a rule's
+    #: ``effect_required``, what is demanded of them — a wider power than
+    #: editing any single record. ``VIEW`` goes to every role because a rep's
+    #: own form has to fetch the published layout to render against, and a
+    #: rule that hid a field has to be visible to whoever is filling in the
+    #: rest of the form.
+    "record_layouts",
+    #: AI intelligence built on real CRM data (Checkpoint 7): account/deal/lead
+    #: summaries, account intelligence, next-best-action, AI email drafting,
+    #: meeting-to-CRM extraction, natural-language queries and prioritization
+    #: explanations. Gates *requesting* an AI feature — not the underlying
+    #: data it reads or the records a confirmed action writes, both of which
+    #: stay behind their own module's permission and record-level visibility
+    #: exactly as they do for a human doing the same thing by hand (the
+    #: context builder checks ``accounts.VIEW``/``opportunities.VIEW``/etc.
+    #: per section, and a meeting-extraction action a user confirms is
+    #: created through that entity's own service, e.g. ``TaskService``, which
+    #: enforces its own permission independently). Same reasoning as
+    #: ``market_insights`` for why this is its own module rather than reusing
+    #: ``ai`` (ADR-016's ``ai.ADMIN`` governs the gateway itself, not a
+    #: product feature built on it) — a distinct module keeps "may this
+    #: caller ask the AI for X" separate from "may this caller configure the
+    #: AI provider".
+    "ai_insights",
 )
 
 #: Actions available on every module (doc 04 ``PermissionAction``).
@@ -160,6 +198,11 @@ _CRM_MODULES: Final[tuple[str, ...]] = (
     "dashboard",
     "reports",
     "market_insights",
+    #: Day-to-day AI features (Checkpoint 7). Same tier as ``market_insights``:
+    #: a rep may ask for a summary or a next-best-action on a record they can
+    #: already see; deleting one's AI history follows the manager/user split
+    #: every other CRM module uses.
+    "ai_insights",
     "emails",
     #: Every role may keep its own views. Sharing one is a decision made per
     #: view through its ``visibility``, not a permission an administrator
@@ -201,6 +244,8 @@ def _manager_permissions() -> tuple[str, ...]:
     codes.append(permission_code("teams", PermissionAction.VIEW))
     codes.append(permission_code("custom_fields", PermissionAction.VIEW))
     codes.append(permission_code("blueprints", PermissionAction.VIEW))
+    codes.append(permission_code("record_layouts", PermissionAction.VIEW))
+    codes.append(permission_code("workflows", PermissionAction.VIEW))
     return tuple(codes)
 
 
@@ -213,6 +258,8 @@ def _user_permissions() -> tuple[str, ...]:
     #: their own administrator added.
     codes.append(permission_code("custom_fields", PermissionAction.VIEW))
     codes.append(permission_code("blueprints", PermissionAction.VIEW))
+    codes.append(permission_code("record_layouts", PermissionAction.VIEW))
+    codes.append(permission_code("workflows", PermissionAction.VIEW))
     #: A rep deletes their own saved views. ``views.DELETE`` reads alarming
     #: beside the CRM modules, where it retires customer records — here it
     #: removes a saved question and touches no record at all, and the service

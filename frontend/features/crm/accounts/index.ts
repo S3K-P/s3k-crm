@@ -7,7 +7,16 @@
 
 import { api } from '@/lib/api-client';
 import { downloadAndSave } from '@/lib/save-file';
-import { toQuery, withoutPaging, type ListParams, type Page, type RecordMeta } from '@/features/shared/types/api';
+import {
+  toQuery,
+  withoutPaging,
+  type BulkOperationResult,
+  type ListParams,
+  type Page,
+  type RecordMeta,
+  type TimelineEntry,
+  type TimelineEntryKind,
+} from '@/features/shared/types/api';
 import type { CustomFieldValues } from '@/features/crm/custom-fields';
 
 export type AccountStatus = 'ACTIVE' | 'ONBOARDING' | 'AT_RISK' | 'CHURNED';
@@ -23,6 +32,7 @@ export interface Account extends RecordMeta {
   name: string;
   industry: string | null;
   website: string | null;
+  phone: string | null;
   company_size: string | null;
   annual_revenue: string | null;
   status: AccountStatus;
@@ -48,6 +58,7 @@ export interface AccountInput {
   name: string;
   industry?: string | null;
   website?: string | null;
+  phone?: string | null;
   company_size?: string | null;
   annual_revenue?: string | null;
   status?: AccountStatus;
@@ -101,3 +112,43 @@ export const updateAccount = (id: string, body: Partial<AccountInput>) =>
   api.patch<Account>(`/crm/accounts/${id}`, body);
 
 export const archiveAccount = (id: string) => api.delete<void>(`/crm/accounts/${id}`);
+
+/** Each id is validated and saved independently — see `features/crm/leads`. */
+export const bulkUpdateAccounts = (ids: string[], values: Partial<AccountInput>) =>
+  api.post<BulkOperationResult>('/crm/accounts/bulk-update', { ids, values });
+
+export const bulkDeleteAccounts = (ids: string[]) =>
+  api.post<BulkOperationResult>('/crm/accounts/bulk-delete', { ids });
+
+/* ------------------------------------------------------------------
+   Account 360: the summary header and the unified timeline
+   ------------------------------------------------------------------ */
+
+export interface AccountOverview {
+  contacts_count: number;
+  open_deals_count: number;
+  open_pipeline_value: string;
+  /** Set only when every open deal shares one currency. */
+  open_pipeline_currency: string | null;
+  won_deals_count: number;
+  won_revenue: string;
+  won_revenue_currency: string | null;
+  open_tasks_count: number;
+  last_activity_at: string | null;
+  next_meeting_id: string | null;
+  next_meeting_title: string | null;
+  next_meeting_at: string | null;
+  owner_name: string | null;
+  primary_contact_name: string | null;
+  primary_contact_title: string | null;
+}
+
+export const getAccountOverview = (id: string) =>
+  api.get<AccountOverview>(`/crm/accounts/${id}/overview`);
+
+/** See `backend/app/products/crm/shared/timeline.py` for the full vocabulary. */
+export type AccountTimelineEntryKind = TimelineEntryKind;
+export type AccountTimelineEntry = TimelineEntry;
+
+export const getAccountTimeline = (id: string, limit = 50) =>
+  api.get<AccountTimelineEntry[]>(`/crm/accounts/${id}/timeline?limit=${limit}`);

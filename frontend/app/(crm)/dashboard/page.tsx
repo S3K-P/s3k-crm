@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   UserPlus, CalendarDays, Target, Building2,
   Users, CheckCircle2, DollarSign, ClipboardList,
-  ArrowRight, AlertTriangle, RefreshCw,
+  ArrowRight, AlertTriangle, RefreshCw, Scale, Trophy, Percent,
 } from 'lucide-react';
 import SectionHeader from '@/components/crm/shared/SectionHeader';
 import KpiCard from '@/components/crm/cards/KpiCard';
@@ -14,6 +14,7 @@ import MeetingCard from '@/components/crm/cards/MeetingCard';
 import PipelineStageCard from '@/components/crm/cards/PipelineStageCard';
 import ActivityItem from '@/components/crm/cards/ActivityItem';
 import QuickActionButton from '@/components/crm/cards/QuickActionButton';
+import { BarChart, LineChart } from '@/components/crm/charts/MiniCharts';
 import {
   formatMoney,
   toActivityEntry,
@@ -228,6 +229,24 @@ export default function DashboardPage() {
               delta={`${kpis.tasks_due_high_priority} high priority`}
               icon={ClipboardList} iconGradient="from-violet-500 to-purple-600"
             />
+            {/* Checkpoint 5 */}
+            <KpiCard
+              href="/opportunities" label="Weighted Pipeline"
+              value={formatMoney(kpis.weighted_pipeline_value, data.pipeline_currency)}
+              delta="By win probability"
+              icon={Scale} iconGradient="from-cyan-500 to-teal-600"
+            />
+            <KpiCard
+              href="/opportunities" label="Won Revenue"
+              value={formatMoney(kpis.won_revenue, data.pipeline_currency)}
+              delta="Last 30 days"
+              icon={Trophy} iconGradient="from-yellow-500 to-amber-600"
+            />
+            <KpiCard
+              href="/leads" label="Lead Conversion" value={`${kpis.lead_conversion_rate}%`}
+              delta="All-time"
+              icon={Percent} iconGradient="from-rose-500 to-red-600"
+            />
           </div>
 
           {/* ── Middle Row: Tasks + Meetings ── */}
@@ -335,6 +354,67 @@ export default function DashboardPage() {
                     />
                   ))}
               </div>
+            </Panel>
+          </div>
+
+          {/* ── Checkpoint 5: Revenue trend + Pipeline by owner + Lead source ── */}
+          <div className="grid gap-[18px] lg:grid-cols-3">
+            <Panel>
+              <SectionHeader title="Revenue Trend" />
+              {data.revenue_trend.every((point) => Number(point.value) === 0) ? (
+                <EmptyNote>No won deals in the last 6 months.</EmptyNote>
+              ) : (
+                <LineChart
+                  data={data.revenue_trend.map((point) => ({
+                    label: new Date(`${point.month}T00:00:00Z`).toLocaleDateString('en-US', {
+                      month: 'short',
+                    }),
+                    value: Number(point.value),
+                  }))}
+                  formatValue={(value) => formatMoney(String(value), data.pipeline_currency)}
+                  caption="Won revenue by month, last 6 months"
+                  primaryLabel="Won revenue"
+                />
+              )}
+            </Panel>
+
+            <Panel>
+              <SectionHeader title="Pipeline by Owner" />
+              {data.pipeline_by_owner.length === 0 ? (
+                <EmptyNote>No open pipeline yet.</EmptyNote>
+              ) : (
+                <BarChart
+                  data={data.pipeline_by_owner.slice(0, 6).map((entry) => ({
+                    label: entry.owner,
+                    value: Number(entry.value),
+                  }))}
+                  formatValue={(value) => formatMoney(String(value), data.pipeline_currency)}
+                  caption="Open pipeline value by owner"
+                />
+              )}
+            </Panel>
+
+            <Panel>
+              <SectionHeader
+                title="Lead Source Performance"
+                action={
+                  <Link href="/leads" className="text-[12.5px] font-semibold hover:opacity-80" style={{ color: 'var(--accent)' }}>
+                    View leads →
+                  </Link>
+                }
+              />
+              {data.lead_source_performance.length === 0 ? (
+                <EmptyNote>No leads recorded yet.</EmptyNote>
+              ) : (
+                <BarChart
+                  data={data.lead_source_performance.slice(0, 6).map((entry) => ({
+                    label: entry.source,
+                    value: entry.leads,
+                  }))}
+                  formatValue={(value) => value.toLocaleString('en-US')}
+                  caption="Leads by source"
+                />
+              )}
             </Panel>
           </div>
         </>

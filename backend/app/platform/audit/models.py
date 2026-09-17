@@ -90,6 +90,12 @@ class AuditAction(enum.StrEnum):
     #: The account holder proved control of their address through an emailed
     #: link, or by redeeming an invitation sent to it.
     EMAIL_VERIFIED = "EMAIL_VERIFIED"
+    #: Checkpoint 8. Enrollment *starting* is not recorded — a secret was
+    #: generated but grants nothing until confirmed — only the moment MFA
+    #: actually becomes a gate on the account, and the moment it stops being
+    #: one.
+    MFA_ENABLED = "MFA_ENABLED"
+    MFA_DISABLED = "MFA_DISABLED"
 
     # --- Record lifecycle --------------------------------------------------
     CREATED = "CREATED"

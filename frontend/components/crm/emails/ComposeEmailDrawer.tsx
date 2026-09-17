@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Loader2, Paperclip, Send, Save } from 'lucide-react';
+import { Loader2, Paperclip, Send, Save, Sparkles } from 'lucide-react';
 
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
 import { FormInput, FormTextarea } from '@/components/crm/forms/FormField';
@@ -18,6 +18,16 @@ import {
   type EmailTemplate,
 } from '@/features/crm/emails';
 import type { CrmEntityType } from '@/features/crm/tasks';
+import { draftEmail, type EmailDraftContent, type EmailDraftTone } from '@/features/ai/ai-insights';
+import { describeApiError } from '@/features/shared/hooks/useCollection';
+
+/** The only entity kinds `POST /crm/ai-insights/email-draft` reads context for. */
+const AI_DRAFT_SUBJECT_KEY: Partial<Record<CrmEntityType, 'account_id' | 'contact_id' | 'opportunity_id' | 'lead_id'>> = {
+  ACCOUNT: 'account_id',
+  CONTACT: 'contact_id',
+  OPPORTUNITY: 'opportunity_id',
+  LEAD: 'lead_id',
+};
 
 /* ============================================================
    COMPOSE EMAIL
@@ -98,6 +108,13 @@ function ComposeForm({
   const [unresolved, setUnresolved] = useState<string[]>([]);
   const [applying, setApplying] = useState(false);
 
+  const [showAiDraft, setShowAiDraft] = useState(false);
+  const [aiInstruction, setAiInstruction] = useState('');
+  const [aiTone, setAiTone] = useState<EmailDraftTone>('PROFESSIONAL');
+  const [aiDrafting, setAiDrafting] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const aiDraftSubjectKey = entityType ? AI_DRAFT_SUBJECT_KEY[entityType] : undefined;
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -139,6 +156,31 @@ function ComposeForm({
     },
     [entityType, entityId],
   );
+
+  const generateAiDraft = useCallback(async () => {
+    if (!aiDraftSubjectKey || !entityId || !aiInstruction.trim()) return;
+    setAiDrafting(true);
+    setAiError(null);
+    try {
+      const generation = await draftEmail({
+        [aiDraftSubjectKey]: entityId,
+        tone: aiTone,
+        instruction: aiInstruction.trim(),
+        previous_draft: body.trim() || null,
+      });
+      const content = generation.content as unknown as EmailDraftContent;
+      setSubject(content.subject);
+      setBody(content.body);
+      setTemplateId('');
+      setUnresolved([]);
+      setShowAiDraft(false);
+      setAiInstruction('');
+    } catch (caught) {
+      setAiError(describeApiError(caught, 'Could not draft this email.'));
+    } finally {
+      setAiDrafting(false);
+    }
+  }, [aiDraftSubjectKey, entityId, aiInstruction, aiTone, body]);
 
   const compose = (send: boolean) => ({
     subject: subject.trim(),
@@ -237,6 +279,64 @@ function ComposeForm({
                 </option>
               ))}
             </select>
+          </div>
+        )}
+
+        {aiDraftSubjectKey && (
+          <div className="bd rounded-lg border p-3">
+            {!showAiDraft ? (
+              <button
+                type="button"
+                onClick={() => setShowAiDraft(true)}
+                className="ctl inline-flex items-center gap-1.5 text-[12.5px] font-semibold hover:opacity-80"
+              >
+                <Sparkles className="h-3.5 w-3.5" aria-hidden="true" /> Draft with AI
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="txt text-[12.5px] font-semibold">Draft with AI</p>
+                  <select
+                    value={aiTone}
+                    onChange={(event) => setAiTone(event.target.value as EmailDraftTone)}
+                    className="bd surface rounded-md border px-2 py-1 text-[11.5px]"
+                  >
+                    <option value="PROFESSIONAL">Professional</option>
+                    <option value="FRIENDLY">Friendly</option>
+                    <option value="CONCISE">Concise</option>
+                    <option value="FORMAL">Formal</option>
+                  </select>
+                </div>
+                <FormTextarea
+                  value={aiInstruction}
+                  onChange={(event) => setAiInstruction(event.target.value)}
+                  rows={2}
+                  placeholder="What should this email say or do? e.g. follow up after our last meeting"
+                />
+                {aiError && <p className="text-[11.5px] text-rose-600">{aiError}</p>}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void generateAiDraft()}
+                    disabled={aiDrafting || !aiInstruction.trim()}
+                    className="btn-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {aiDrafting && <Loader2 className="h-3.5 w-3.5 motion-safe:animate-spin" aria-hidden="true" />}
+                    {aiDrafting ? 'Drafting…' : 'Generate'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowAiDraft(false)}
+                    className="txt-muted text-[12px] hover:opacity-70"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <p className="txt-faint text-[11px]">
+                  Never sent automatically — review the draft before pressing Send.
+                </p>
+              </div>
+            )}
           </div>
         )}
 

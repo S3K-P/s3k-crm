@@ -37,7 +37,9 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import enum
 import re
+import time
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -83,6 +85,23 @@ class AiNotConfiguredError(AppError):
     message = (
         "AI is not connected. An administrator must configure an AI provider "
         "credential before research can run."
+    )
+
+
+class AiAuthenticationError(AppError):
+    """A key is configured, and the provider refused it.
+
+    Distinct from :class:`AiNotConfiguredError` because the fix is different:
+    "add a key" is wrong advice to an operator whose key is present but
+    revoked, mistyped or blocked. Still a 503 — it is a deployment fault the
+    caller cannot repair — and still carries no detail of the credential.
+    """
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    code = "ai_authentication_failed"
+    message = (
+        "The AI provider rejected the configured credential. An administrator "
+        "must update the AI provider key before AI features can run."
     )
 
 
@@ -143,6 +162,112 @@ class ResearchResult:
     #: continuations, so the caller can label it partial rather than final.
     truncated: bool = False
     performed_at: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.UTC))
+
+
+class AiConnectionState(enum.StrEnum):
+    """What is known about the AI connection, from weakest claim to strongest.
+
+    ``CONFIGURED`` says only that a key is present. ``AVAILABLE`` is reserved
+    for a real round trip — a model answered a request this deployment sent —
+    and nothing else may produce it. The failure states are what a real call
+    most recently hit, so an operator can tell a refused key from an outage.
+    """
+
+    NOT_CONFIGURED = "NOT_CONFIGURED"
+    CONFIGURED = "CONFIGURED"
+    AUTHENTICATION_ERROR = "AUTHENTICATION_ERROR"
+    PROVIDER_ERROR = "PROVIDER_ERROR"
+    TIMEOUT = "TIMEOUT"
+    AVAILABLE = "AVAILABLE"
+    UNKNOWN_ERROR = "UNKNOWN_ERROR"
+
+
+#: The whole of the connection test's request. One word back is enough to prove
+#: the chain credential → provider → model → response, and asking for nothing
+#: longer keeps each test to a handful of tokens.
+HEALTH_CHECK_PROMPT = "Reply with the single word OK."
+#: Output ceiling for the test. Generous for a one-word reply on purpose: a
+#: model that reasons before answering spends part of its budget first, and a
+#: ceiling that starved it would read as a failure the provider never had.
+HEALTH_CHECK_MAX_TOKENS = 64
+
+
+@dataclass(frozen=True, slots=True)
+class ConnectionCheck:
+    """The outcome of one real connection test.
+
+    Carries no credential and no provider prose: ``error_code`` is a short
+    fixed vocabulary chosen here, because a provider's own error text is not
+    ours to forward and could in principle echo what it was sent.
+    """
+
+    state: AiConnectionState
+    #: The model the provider reported answering with, when it answered.
+    model: str | None = None
+    latency_ms: int | None = None
+    error_code: str | None = None
+    checked_at: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.UTC))
+
+
+class ConnectionCheckProvider(Protocol):
+    """A provider that can prove it is reachable with one minimal request."""
+
+    async def check(self, *, timeout_seconds: float) -> ConnectionCheck:
+        """Send the smallest real request the provider accepts and classify it."""
+        ...
+
+
+def _elapsed_ms(started: float) -> int:
+    return int((time.perf_counter() - started) * 1000)
+
+
+def classify_anthropic_error(exc: BaseException) -> tuple[AiConnectionState, str]:
+    """Map an Anthropic SDK failure to a connection state and a stable code.
+
+    Order matters: ``APITimeoutError`` subclasses ``APIConnectionError``, and
+    every status error subclasses ``APIStatusError``, so the specific cases are
+    tested before the families that contain them.
+    """
+    if isinstance(exc, (anthropic.APITimeoutError, TimeoutError)):
+        return AiConnectionState.TIMEOUT, "timeout"
+    if isinstance(exc, (anthropic.AuthenticationError, anthropic.PermissionDeniedError)):
+        return AiConnectionState.AUTHENTICATION_ERROR, "credential_rejected"
+    if isinstance(exc, anthropic.RateLimitError):
+        return AiConnectionState.PROVIDER_ERROR, "rate_limited"
+    if isinstance(exc, anthropic.NotFoundError):
+        return AiConnectionState.PROVIDER_ERROR, "model_not_found"
+    if isinstance(exc, anthropic.APIConnectionError):
+        return AiConnectionState.PROVIDER_ERROR, "connection_failed"
+    if isinstance(exc, anthropic.InternalServerError):
+        return AiConnectionState.PROVIDER_ERROR, "provider_unavailable"
+    if isinstance(exc, anthropic.APIStatusError):
+        return AiConnectionState.PROVIDER_ERROR, f"http_{exc.status_code}"
+    return AiConnectionState.UNKNOWN_ERROR, "unexpected_error"
+
+
+def classify_gemini_error(exc: BaseException) -> tuple[AiConnectionState, str]:
+    """Map a google-genai failure to a connection state and a stable code.
+
+    A rejected key arrives as **400**, not 401 (see :func:`is_credential_error`),
+    so the credential test runs before any status-code case.
+    """
+    if isinstance(exc, (TimeoutError, httpx.TimeoutException)):
+        return AiConnectionState.TIMEOUT, "timeout"
+    if isinstance(exc, genai_errors.ClientError):
+        if is_credential_error(exc):
+            return AiConnectionState.AUTHENTICATION_ERROR, "credential_rejected"
+        if exc.code == 429:
+            return AiConnectionState.PROVIDER_ERROR, "rate_limited"
+        if exc.code == 404:
+            return AiConnectionState.PROVIDER_ERROR, "model_not_found"
+        return AiConnectionState.PROVIDER_ERROR, f"http_{exc.code}"
+    if isinstance(exc, genai_errors.ServerError):
+        return AiConnectionState.PROVIDER_ERROR, "provider_unavailable"
+    if isinstance(exc, genai_errors.APIError):
+        return AiConnectionState.PROVIDER_ERROR, f"http_{getattr(exc, 'code', 'error')}"
+    if isinstance(exc, httpx.HTTPError):
+        return AiConnectionState.PROVIDER_ERROR, "connection_failed"
+    return AiConnectionState.UNKNOWN_ERROR, "unexpected_error"
 
 
 class ResearchProvider(Protocol):
@@ -325,15 +450,42 @@ class AnthropicResearchProvider:
         ) as exc:
             logger.warning("ai_provider_unavailable", error=type(exc).__name__)
             raise AiTemporarilyUnavailableError from exc
-        except anthropic.AuthenticationError as exc:
-            # A bad key is a deployment fault, not a user one. Reported as
-            # "not configured" so the operator-facing message is the accurate
-            # one, and so no credential detail reaches the client.
-            logger.error("ai_provider_rejected_credential")
-            raise AiNotConfiguredError from exc
+        except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as exc:
+            # A bad key is a deployment fault, not a user one. Reported as its
+            # own code so the operator is told the key was *refused* rather
+            # than missing, and so no credential detail reaches the client.
+            logger.error("ai_provider_rejected_credential", provider="anthropic")
+            raise AiAuthenticationError from exc
         except anthropic.APIStatusError as exc:
             logger.warning("ai_provider_error", status_code=exc.status_code)
             raise AiProviderError from exc
+
+    async def check(self, *, timeout_seconds: float) -> ConnectionCheck:
+        """One minimal, real Messages API call: no tools, no retries, no stream.
+
+        Retries are off because the question is "does it answer now", and a
+        retried success would hide the very latency and failures the test
+        exists to show. ``asyncio.wait_for`` bounds the whole call on top of the
+        SDK's own timeout, so nothing here can outlive ``timeout_seconds``.
+        """
+        started = time.perf_counter()
+        try:
+            message = await asyncio.wait_for(
+                self._client.with_options(timeout=timeout_seconds, max_retries=0).messages.create(
+                    model=self._model,
+                    max_tokens=HEALTH_CHECK_MAX_TOKENS,
+                    messages=[{"role": "user", "content": HEALTH_CHECK_PROMPT}],
+                ),
+                timeout=timeout_seconds,
+            )
+        except Exception as exc:
+            state, code = classify_anthropic_error(exc)
+            return ConnectionCheck(state=state, latency_ms=_elapsed_ms(started), error_code=code)
+        return ConnectionCheck(
+            state=AiConnectionState.AVAILABLE,
+            model=getattr(message, "model", None) or self._model,
+            latency_ms=_elapsed_ms(started),
+        )
 
 
 class GeminiResearchProvider:
@@ -491,15 +643,16 @@ class GeminiResearchProvider:
             except genai_errors.ClientError as exc:
                 # 429 is the free tier's quota, which is "come back later", not
                 # a fault. A rejected credential is a deployment fault,
-                # reported as "not configured" for the same reason the
-                # Anthropic path does so: that is the message whose advice
-                # actually helps.
+                # reported as its own code for the same reason the Anthropic
+                # path does so: that is the message whose advice actually helps.
                 if exc.code == 429:
                     logger.warning("ai_provider_unavailable", error="ClientError", code=exc.code)
                     raise AiTemporarilyUnavailableError from exc
                 if is_credential_error(exc):
-                    logger.error("ai_provider_rejected_credential", status_code=exc.code)
-                    raise AiNotConfiguredError from exc
+                    logger.error(
+                        "ai_provider_rejected_credential", provider="gemini", status_code=exc.code
+                    )
+                    raise AiAuthenticationError from exc
                 logger.warning("ai_provider_error", status_code=exc.code)
                 raise AiProviderError from exc
             except genai_errors.ServerError as exc:
@@ -516,6 +669,44 @@ class GeminiResearchProvider:
                 logger.warning("ai_provider_error", status_code=getattr(exc, "code", None))
                 raise AiProviderError from exc
         raise AssertionError("unreachable: the loop above always returns or raises")
+
+    async def check(self, *, timeout_seconds: float) -> ConnectionCheck:
+        """One minimal, real ``generate_content`` call: no grounding, no retry.
+
+        Calls the client directly rather than through :meth:`_send`, whose
+        capacity retry would turn "busy right now" into a slow success — the
+        opposite of what a connection test should report. A response with no
+        candidate is treated as a provider fault: the model did not answer.
+        """
+        started = time.perf_counter()
+        try:
+            response = await asyncio.wait_for(
+                self._client.aio.models.generate_content(
+                    model=self._model,
+                    contents=HEALTH_CHECK_PROMPT,
+                    config=genai_types.GenerateContentConfig(
+                        max_output_tokens=HEALTH_CHECK_MAX_TOKENS,
+                        automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(
+                            disable=True
+                        ),
+                    ),
+                ),
+                timeout=timeout_seconds,
+            )
+        except Exception as exc:
+            state, code = classify_gemini_error(exc)
+            return ConnectionCheck(state=state, latency_ms=_elapsed_ms(started), error_code=code)
+        if not getattr(response, "candidates", None):
+            return ConnectionCheck(
+                state=AiConnectionState.PROVIDER_ERROR,
+                latency_ms=_elapsed_ms(started),
+                error_code="empty_response",
+            )
+        return ConnectionCheck(
+            state=AiConnectionState.AVAILABLE,
+            model=getattr(response, "model_version", None) or self._model,
+            latency_ms=_elapsed_ms(started),
+        )
 
     async def _resolve_sources(
         self, sources: Sequence[ResearchSource]
@@ -570,6 +761,21 @@ class GeminiResearchProvider:
             if existing is None or (source.cited and not existing.cited):
                 unique[source.url] = source
         return tuple(unique.values())
+
+
+def build_provider(settings: Settings) -> AnthropicResearchProvider | GeminiResearchProvider:
+    """The provider ``AI_PROVIDER`` selects — the only place a vendor is chosen.
+
+    Raises:
+        AiNotConfiguredError: the selected provider has no key. A key for the
+            *other* provider is not a fallback: a deployment calls the vendor
+            it was configured to call, or none.
+    """
+    if not settings.ai_configured:
+        raise AiNotConfiguredError
+    if settings.ai_provider == "gemini":
+        return GeminiResearchProvider(settings)
+    return AnthropicResearchProvider(settings)
 
 
 #: Finish reasons that mean the model declined rather than failed.
@@ -781,16 +987,25 @@ def harvest_blocks(
 
 
 __all__ = [
+    "HEALTH_CHECK_MAX_TOKENS",
+    "HEALTH_CHECK_PROMPT",
     "WEB_SEARCH_TOOL_TYPE",
+    "AiAuthenticationError",
+    "AiConnectionState",
     "AiNotConfiguredError",
     "AiProviderError",
     "AiRefusedError",
     "AiTemporarilyUnavailableError",
     "AnthropicResearchProvider",
+    "ConnectionCheck",
+    "ConnectionCheckProvider",
     "GeminiResearchProvider",
     "ResearchProvider",
     "ResearchResult",
     "ResearchSource",
+    "build_provider",
+    "classify_anthropic_error",
+    "classify_gemini_error",
     "grounding_tools",
     "harvest_blocks",
     "harvest_gemini_response",

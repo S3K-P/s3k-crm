@@ -174,3 +174,67 @@ def test_a_token_from_a_different_issuer_is_rejected(settings: Settings) -> None
 def test_garbage_is_rejected(issuer: TokenIssuer) -> None:
     with pytest.raises(InvalidTokenError):
         issuer.verify("not-a-token")
+
+
+# --- MFA challenge tokens (Checkpoint 8) -------------------------------------
+
+
+def test_an_issued_mfa_challenge_verifies_and_round_trips_its_claims(
+    issuer: TokenIssuer,
+) -> None:
+    user_id, organization_id = uuid.uuid4(), uuid.uuid4()
+    now = dt.datetime.now(dt.UTC)
+
+    token, expires_at = issuer.issue_mfa_challenge(
+        user_id=user_id, organization_id=organization_id, now=now
+    )
+    claims = issuer.verify_mfa_challenge(token)
+
+    assert claims.user_id == user_id
+    assert claims.organization_id == organization_id
+    assert expires_at > now
+
+
+def test_an_mfa_challenge_carries_no_organization_when_none_was_resolved(
+    issuer: TokenIssuer,
+) -> None:
+    token, _ = issuer.issue_mfa_challenge(
+        user_id=uuid.uuid4(), organization_id=None, now=dt.datetime.now(dt.UTC)
+    )
+
+    assert issuer.verify_mfa_challenge(token).organization_id is None
+
+
+def test_a_real_access_token_is_not_accepted_as_an_mfa_challenge(
+    issuer: TokenIssuer,
+) -> None:
+    """The two token kinds share a signing key but never a purpose."""
+    token, _ = issuer.issue(
+        user_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        organization_id=None,
+        now=dt.datetime.now(dt.UTC),
+    )
+
+    with pytest.raises(InvalidTokenError):
+        issuer.verify_mfa_challenge(token)
+
+
+def test_an_mfa_challenge_is_not_accepted_as_a_real_access_token(
+    issuer: TokenIssuer,
+) -> None:
+    """The reverse must hold too: a challenge is not a bearer credential."""
+    token, _ = issuer.issue_mfa_challenge(
+        user_id=uuid.uuid4(), organization_id=None, now=dt.datetime.now(dt.UTC)
+    )
+
+    with pytest.raises(InvalidTokenError):
+        issuer.verify(token)
+
+
+def test_an_expired_mfa_challenge_is_rejected(issuer: TokenIssuer) -> None:
+    past = dt.datetime.now(dt.UTC) - dt.timedelta(hours=1)
+    token, _ = issuer.issue_mfa_challenge(user_id=uuid.uuid4(), organization_id=None, now=past)
+
+    with pytest.raises(InvalidTokenError):
+        issuer.verify_mfa_challenge(token)

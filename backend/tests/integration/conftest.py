@@ -108,6 +108,9 @@ _TENANT_SCOPED_STATEMENTS_TO_CLEAN = (
     # order keeps it true if the cascade is ever tightened.
     "DELETE FROM crm.blueprint_transitions",
     "DELETE FROM crm.blueprints",
+    # Runs before their rule, for the same reason.
+    "DELETE FROM crm.workflow_runs",
+    "DELETE FROM crm.workflow_rules",
     # Saved views reference nothing and nothing references them — a view holds
     # a question, not rows — so the position here is only for readability.
     "DELETE FROM crm.saved_views",

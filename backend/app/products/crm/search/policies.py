@@ -25,6 +25,7 @@ from __future__ import annotations
 from typing import Final
 
 from app.products.crm.accounts.models import Account
+from app.products.crm.activities.models import Activity
 from app.products.crm.contacts.models import Contact
 from app.products.crm.leads.models import Lead
 from app.products.crm.opportunities.models import Opportunity
@@ -34,11 +35,19 @@ from app.products.crm.search.schemas import SearchEntityType
 #: the CRM modules from ``PERMISSION_MODULES``; they are what
 #: ``RecordVisibility.for_module`` is keyed on too, so one string decides both
 #: "may they search this" and "how much of it may they see".
+#:
+#: ``activities`` is absent from ``OWNER_SCOPED_MODULES`` (an activity belongs
+#: to the record it is logged against, not to its own owner — see
+#: ``reports/repository.py``'s ``activity_by_owner`` for the same rule),
+#: so ``RecordVisibility.for_module`` resolves it unrestricted: holding
+#: ``activities.VIEW`` is what gates the branch existing at all, exactly as it
+#: is for the other four.
 MODULE_FOR_TYPE: Final[dict[SearchEntityType, str]] = {
     SearchEntityType.ACCOUNT: "accounts",
     SearchEntityType.CONTACT: "contacts",
     SearchEntityType.LEAD: "leads",
     SearchEntityType.OPPORTUNITY: "opportunities",
+    SearchEntityType.ACTIVITY: "activities",
 }
 
 #: Entity type -> its model. Kept beside the permission map so adding a fifth
@@ -50,6 +59,7 @@ MODEL_FOR_TYPE: Final[dict[SearchEntityType, type]] = {
     SearchEntityType.CONTACT: Contact,
     SearchEntityType.LEAD: Lead,
     SearchEntityType.OPPORTUNITY: Opportunity,
+    SearchEntityType.ACTIVITY: Activity,
 }
 
 

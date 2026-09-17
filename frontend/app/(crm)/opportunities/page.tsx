@@ -10,7 +10,10 @@ import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
+import BulkActionsToolbar, { type BulkEditableField } from '@/components/crm/toolbar/BulkActionsToolbar';
 import SavedViewPicker from '@/components/crm/toolbar/SavedViewPicker';
+import AdvancedFilterBar from '@/components/crm/toolbar/AdvancedFilterBar';
+import type { ReportFilterGroup } from '@/features/crm/reports/custom';
 import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
@@ -24,6 +27,9 @@ import { listAccounts, type Account } from '@/features/crm/accounts';
 import { listContacts, type Contact } from '@/features/crm/contacts';
 import {
   archiveOpportunity,
+  bulkChangeStage,
+  bulkDeleteOpportunities,
+  bulkUpdateOpportunities,
   changeStage,
   createOpportunity,
   exportOpportunities,
@@ -92,10 +98,15 @@ function OpportunitiesPageContent() {
   const mayViewContacts = can('contacts', 'VIEW');
 
   const [view, setView] = useState<ViewMode>('table');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkStageOpen, setBulkStageOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [stageFilter, setStageFilter] = useState('');
   const [page, setPage] = useState(1);
   const pageSize = view === 'kanban' ? 200 : 25;
+  // Checkpoint 5: a multi-condition AND/OR filter, additive on top of the
+  // named params above — see `AdvancedFilterBar`.
+  const [advancedFilter, setAdvancedFilter] = useState<ReportFilterGroup | null>(null);
 
   const fetcher = useCallback(
     () =>
@@ -106,13 +117,14 @@ function OpportunitiesPageContent() {
         stage_id: stageFilter || null,
         sort_by: 'expected_close_date',
         sort_dir: 'asc',
+        advanced_filter: advancedFilter ? JSON.stringify(advancedFilter) : null,
       }),
-    [page, pageSize, search, stageFilter, view],
+    [page, pageSize, search, stageFilter, view, advancedFilter],
   );
 
   const { status, items, pagination, error, reload, refreshing } = useCollection<Opportunity>(
     fetcher,
-    [page, pageSize, search, stageFilter, view],
+    [page, pageSize, search, stageFilter, view, advancedFilter],
     { errorMessage: 'Something went wrong loading opportunities.' },
   );
 
@@ -421,6 +433,8 @@ function OpportunitiesPageContent() {
         key: 'deal_value',
         label: 'Value',
         align: 'right',
+        editable: (row) => mayEdit && !isClosed(row),
+        editType: 'number',
         render: (row) => (
           <span className="tabular-nums">{formatMoney(row.deal_value, row.currency)}</span>
         ),
@@ -429,6 +443,8 @@ function OpportunitiesPageContent() {
         key: 'expected_close_date',
         label: 'Close',
         hideBelow: 'lg',
+        editable: (row) => mayEdit && !isClosed(row),
+        editType: 'date',
         render: (row) => row.expected_close_date ?? <span className="txt-faint">—</span>,
       },
       {
@@ -479,6 +495,15 @@ function OpportunitiesPageContent() {
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [mayEdit, mayDelete, accountNames, stageNames],
+  );
+
+  const bulkFields = useMemo<BulkEditableField[]>(
+    () => [
+      { key: 'forecast_category', label: 'Forecast category' },
+      { key: 'competitor', label: 'Competitor' },
+      { key: 'deal_value', label: 'Deal value', type: 'number' },
+    ],
+    [],
   );
 
   const stageFilterOptions = useMemo(
@@ -551,6 +576,11 @@ function OpportunitiesPageContent() {
             setPage(1);
           }}
         />
+        <AdvancedFilterBar
+          entity="OPPORTUNITY"
+          value={advancedFilter}
+          onApply={setAdvancedFilter}
+        />
         <SearchInput
           value={search}
           onChange={(event) => {
@@ -588,6 +618,34 @@ function OpportunitiesPageContent() {
         </p>
       )}
 
+      {(mayEdit || mayDelete) && selectedIds.size > 0 && view === 'table' && (
+        <BulkActionsToolbar
+          count={selectedIds.size}
+          onClear={() => setSelectedIds(new Set())}
+          mayEdit={mayEdit}
+          mayDelete={mayDelete}
+          entityLabelPlural="opportunities"
+          editableFields={bulkFields}
+          onBulkUpdate={(values) => bulkUpdateOpportunities(Array.from(selectedIds), values)}
+          onBulkDelete={() => bulkDeleteOpportunities(Array.from(selectedIds))}
+          onDone={() => {
+            setSelectedIds(new Set());
+            reload();
+          }}
+          extraActions={
+            mayEdit && (
+              <button
+                type="button"
+                onClick={() => setBulkStageOpen(true)}
+                className="txt-accent text-[12.5px] font-medium"
+              >
+                Bulk stage change
+              </button>
+            )
+          }
+        />
+      )}
+
       {status === 'error' && error !== null ? (
         <ListError message={error} onRetry={reload} />
       ) : view === 'table' ? (
@@ -598,6 +656,13 @@ function OpportunitiesPageContent() {
           onRowClick={(row) => router.push(`/opportunities/${row.id}`)}
           loading={status === 'loading'}
           skeletonRows={6}
+          selectable={mayEdit || mayDelete}
+          selectedKeys={selectedIds}
+          onSelectionChange={setSelectedIds}
+          onCellEdit={async (row, key, value) => {
+            await updateOpportunity(row.id, { [key]: value } as Partial<OpportunityInput>);
+            reload();
+          }}
           emptyState={
             <ListEmpty
               title="No opportunities yet"
@@ -618,6 +683,12 @@ function OpportunitiesPageContent() {
           columns={kanbanColumns}
           data={items}
           groupBy={(opportunity) => opportunity.stage_id}
+          getItemId={(opportunity) => opportunity.id}
+          canDrag={(opportunity) => mayEdit && !isClosed(opportunity)}
+          // Returning the promise (not `void`-wrapping it) is what lets
+          // KanbanBoard's duplicate-submission guard track when this drop
+          // finishes and re-enable dragging that one card.
+          onCardDrop={(opportunity, stageId) => handleStageChange(opportunity, stageId)}
           renderCard={(opportunity) => (
             <div className="surface bd rounded-xl border p-3">
               <button
@@ -789,10 +860,115 @@ function OpportunitiesPageContent() {
             entityType="OPPORTUNITY"
             values={customValues}
             onChange={setCustomValues}
+            recordContext={{ ...editing, ...form }}
           />
         </div>
       </SlideDrawer>
+      {bulkStageOpen && (
+        <BulkStageDrawer
+          count={selectedIds.size}
+          stages={stages}
+          onClose={() => setBulkStageOpen(false)}
+          onSubmit={async (stageId, lossReason) => {
+            const result = await bulkChangeStage(Array.from(selectedIds), {
+              stage_id: stageId,
+              loss_reason: lossReason,
+            });
+            if (result.failed.length === 0) {
+              notifySuccess(`${result.succeeded.length} deal(s) moved.`);
+            } else if (result.succeeded.length === 0) {
+              notifyError(
+                new Error(result.failed[0]?.reason ?? 'Failed'),
+                'No deals could be moved — see the reasons on each.',
+              );
+            } else {
+              notifySuccess(
+                `${result.succeeded.length} deal(s) moved.`,
+                `${result.failed.length} could not move: ${result.failed
+                  .slice(0, 3)
+                  .map((f) => f.reason)
+                  .join('; ')}`,
+              );
+            }
+            setBulkStageOpen(false);
+            setSelectedIds(new Set());
+            reload();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function BulkStageDrawer({
+  count,
+  stages,
+  onClose,
+  onSubmit,
+}: {
+  count: number;
+  stages: PipelineStage[];
+  onClose: () => void;
+  onSubmit: (stageId: string, lossReason?: string) => Promise<void>;
+}) {
+  const [stageId, setStageId] = useState(stages[0]?.id ?? '');
+  const [lossReason, setLossReason] = useState('');
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const target = stages.find((s) => s.id === stageId);
+
+  async function handleSubmit() {
+    setPending(true);
+    setError(null);
+    try {
+      await onSubmit(stageId, target?.is_lost ? lossReason : undefined);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'The bulk move could not be started.');
+      setPending(false);
+    }
+  }
+
+  return (
+    <SlideDrawer
+      open
+      onClose={onClose}
+      title={`Move ${count} deals`}
+      footer={
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="btn-ghost px-4 py-2 text-[13px]">
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSubmit()}
+            disabled={pending || !stageId || (target?.is_lost && !lossReason.trim())}
+            className="btn-primary px-4 py-2 text-[13px] disabled:opacity-60"
+          >
+            {pending ? 'Moving…' : `Move ${count} deals`}
+          </button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        <FormError message={error} />
+        <p className="txt-faint text-[12.5px]">
+          Each deal moves through the same rules as a single drag on the board — a closed deal or
+          one a blueprint refuses is reported, not silently skipped.
+        </p>
+        <FormField label="New stage">
+          <FormSelect
+            options={stages.map((s) => ({ value: s.id, label: s.name }))}
+            value={stageId}
+            onChange={(e) => setStageId(e.target.value)}
+          />
+        </FormField>
+        {target?.is_lost && (
+          <FormField label="Loss reason" required>
+            <FormInput value={lossReason} onChange={(e) => setLossReason(e.target.value)} />
+          </FormField>
+        )}
+      </div>
+    </SlideDrawer>
   );
 }
 

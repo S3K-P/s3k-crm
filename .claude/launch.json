@@ -84,18 +84,6 @@
       "autoPort": false
     },
     {
-      "name": "pipeline-journey",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "dev",
-        "--prefix",
-        ".claude/worktrees/s3k-crm-dashboard-a2842b/frontend"
-      ],
-      "port": 3000,
-      "autoPort": false
-    },
-    {
       "name": "frontend-3001",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
@@ -120,6 +108,38 @@
         "3005"
       ],
       "port": 3005,
+      "autoPort": false
+    },
+    {
+      "name": "ck7-backend",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "--directory",
+        "backend",
+        "uvicorn",
+        "app.main:app",
+        "--reload",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8010"
+      ],
+      "port": 8010,
+      "autoPort": false
+    },
+    {
+      "name": "ck7-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--workspace=frontend",
+        "--",
+        "--port",
+        "3010"
+      ],
+      "port": 3010,
       "autoPort": false
     }
   ]

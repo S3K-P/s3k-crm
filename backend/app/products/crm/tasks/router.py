@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from typing import Annotated
 
@@ -62,6 +63,14 @@ async def list_tasks(
     related_entity_type: Annotated[CrmEntityType | None, Query()] = None,
     related_entity_id: Annotated[uuid.UUID | None, Query()] = None,
     open_only: Annotated[bool, Query()] = False,
+    due_before: Annotated[
+        dt.datetime | None,
+        Query(description="Open, due before this instant — powers the Overdue view."),
+    ] = None,
+    due_after: Annotated[
+        dt.datetime | None,
+        Query(description="Due on or after this instant — powers the Upcoming view."),
+    ] = None,
 ) -> Page[TaskResponse]:
     """List tasks in the caller's organization."""
     filters = service.build_filters(
@@ -72,6 +81,8 @@ async def list_tasks(
         related_entity_type=related_entity_type,
         related_entity_id=related_entity_id,
         open_only=open_only,
+        due_before=due_before,
+        due_after=due_after,
     )
     items, total = await service.list_tasks(
         principal.organization_id,

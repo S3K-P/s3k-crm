@@ -44,6 +44,7 @@ from app.products.crm.dashboard.models import (
     Dashboard,
     DashboardComponent,
 )
+from app.products.crm.reports.catalog import REPORTS
 from app.products.crm.reports.library import (
     NotOwnerError,
     SavedReportService,
@@ -181,11 +182,22 @@ class DashboardLibraryService(TenantScopedService[Dashboard]):
         principal: Principal,
         *,
         today: dt.date | None = None,
+        date_filter: tuple[dt.date | None, dt.date | None] | None = None,
     ) -> list[dict[str, Any]]:
         """Run every tile as ``principal``, in display order.
 
         Returns one entry per tile carrying either a ``result`` or an
         ``unavailable`` reason — never both, never neither.
+
+        ``date_filter`` (Checkpoint 5) is a dashboard-wide override, applied
+        to a tile only when its report actually has a date dimension: a
+        catalogue report whose ``accepts_date_range`` is true, or any custom
+        report (which always has a ``date_field`` — see
+        ``reports.schemas.CustomReportDefinition``). A tile with no date
+        dimension renders its normal, unfiltered numbers rather than erroring
+        — ``DashboardComponentData.date_filter_applied`` tells the viewer
+        which happened, tile by tile, since a dashboard mixing both kinds of
+        tile cannot otherwise show this without it.
         """
         components = await self.components_of(dashboard)
         reports = await self.saved_reports_for(components, dashboard.organization_id)
@@ -202,6 +214,7 @@ class DashboardLibraryService(TenantScopedService[Dashboard]):
                 "sort_order": component.sort_order,
                 "result": None,
                 "unavailable": None,
+                "date_filter_applied": False,
             }
             if saved is None:
                 # The report was archived directly in the database — the API
@@ -209,14 +222,27 @@ class DashboardLibraryService(TenantScopedService[Dashboard]):
                 entry["unavailable"] = UNAVAILABLE_REPORT_GONE
                 rendered.append(entry)
                 continue
+            override = None
+            if date_filter is not None and self._accepts_date_filter(saved):
+                override = date_filter
+                entry["date_filter_applied"] = True
             try:
-                entry["result"] = await self._saved.run_saved(saved, principal, today=today)
+                entry["result"] = await self._saved.run_saved(
+                    saved, principal, today=today, date_override=override
+                )
             except PermissionDeniedError:
                 entry["unavailable"] = UNAVAILABLE_PERMISSION
             except (NotFoundError, UnknownReportError):
                 entry["unavailable"] = UNAVAILABLE_REPORT_GONE
             rendered.append(entry)
         return rendered
+
+    @staticmethod
+    def _accepts_date_filter(saved: SavedReport) -> bool:
+        if saved.custom_definition is not None:
+            return True
+        definition = REPORTS.get(saved.base_report_key or "")
+        return definition is not None and definition.accepts_date_range
 
     # --- Commands ----------------------------------------------------------
 

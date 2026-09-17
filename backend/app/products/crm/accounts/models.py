@@ -54,6 +54,7 @@ class Account(Base, CrmEntityMixin, CustomFieldValuesMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     industry: Mapped[str | None] = mapped_column(String(120), nullable=True)
     website: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     company_size: Mapped[str | None] = mapped_column(String(64), nullable=True)
     annual_revenue: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     status: Mapped[AccountStatus] = mapped_column(

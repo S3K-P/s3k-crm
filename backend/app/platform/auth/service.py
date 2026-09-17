@@ -42,8 +42,17 @@ from app.core.config import Settings
 from app.core.exceptions import AppError, ConflictError
 from app.core.tenant import get_tenant_context
 from app.platform.audit.service import AUTH_MODULE, Action, AuditService, Status
+from app.platform.auth.mfa import (
+    MfaSecretCipher,
+    generate_recovery_codes,
+    generate_totp_secret,
+    provisioning_uri,
+    verify_totp_code,
+)
 from app.platform.auth.models import (
     EmailVerificationToken,
+    MfaCredential,
+    MfaRecoveryCode,
     PasswordResetToken,
     Session,
     User,
@@ -52,6 +61,8 @@ from app.platform.auth.models import (
 )
 from app.platform.auth.repository import AuthRepository
 from app.platform.auth.security import (
+    InvalidTokenError,
+    MfaChallengeClaims,
     PasswordHasher,
     RefreshTokenFactory,
     TokenIssuer,
@@ -129,6 +140,20 @@ class AccountLockedError(AppError):
     message = "This account is temporarily locked after repeated failed sign-in attempts."
 
 
+class InvalidMfaCodeError(AppError):
+    """The presented TOTP or recovery code did not verify.
+
+    Distinct from :class:`AuthenticationError`: by this point the password
+    has already been accepted, so "email or password is incorrect" would be
+    a lie. Still deliberately generic between "wrong code" and "expired
+    code" for the same enumeration reason every other auth error here is.
+    """
+
+    status_code = status.HTTP_401_UNAUTHORIZED
+    code = "invalid_mfa_code"
+    message = "That code is incorrect or has expired."
+
+
 class NoOrganizationError(AppError):
     """Authentication succeeded but the user belongs to no usable organization."""
 
@@ -147,6 +172,21 @@ class IssuedTokens:
     refresh_expires_at: dt.datetime
     session_id: uuid.UUID
     organization_id: uuid.UUID | None
+
+
+@dataclass(frozen=True, slots=True)
+class MfaChallenge:
+    """Returned by :meth:`AuthService.authenticate` in place of
+    :class:`IssuedTokens` when the account has MFA enabled: the password
+    verified, but no session has been opened yet.
+    """
+
+    challenge_token: str
+    expires_at: dt.datetime
+
+
+#: What a login attempt produces: either a session, or one more step.
+AuthenticateResult = IssuedTokens | MfaChallenge
 
 
 class AuthService:
@@ -168,6 +208,7 @@ class AuthService:
         self._hasher = hasher
         self._issuer = issuer
         self._settings = settings
+        self._mfa_cipher = MfaSecretCipher(settings)
         # Used only to persist failed-login bookkeeping outside the request
         # transaction — see :meth:`_register_failure`.
         self._session_factory = session_factory
@@ -246,8 +287,8 @@ class AuthService:
         ip_address: str | None = None,
         user_agent: str | None = None,
         now: dt.datetime | None = None,
-    ) -> IssuedTokens:
-        """Verify credentials and open a session.
+    ) -> AuthenticateResult:
+        """Verify credentials and open a session — or, with MFA enabled, issue a challenge instead.
 
         Raises:
             AccountLockedError: the account is inside a lockout window.
@@ -290,17 +331,53 @@ class AuthService:
             # Opportunistic upgrade: the plaintext is only available here.
             user.password_hash = self._hasher.hash(password)
 
-        user.failed_login_count = 0
-        user.locked_until = None
-        user.last_login_at = now
-
         resolved_organization_id = await self._resolve_organization(
             user_id=user.id, requested=organization_id
         )
 
-        tokens = await self._issue_session(
+        mfa_credential = await self._repository.get_mfa_credential(user.id)
+        if mfa_credential is not None and mfa_credential.is_active:
+            challenge_token, expires_at = self._issuer.issue_mfa_challenge(
+                user_id=user.id, organization_id=resolved_organization_id, now=now
+            )
+            logger.info("mfa_challenge_issued", user_id=str(user.id))
+            return MfaChallenge(challenge_token=challenge_token, expires_at=expires_at)
+
+        return await self._complete_login(
             user=user,
             organization_id=resolved_organization_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            now=now,
+        )
+
+    async def _complete_login(
+        self,
+        *,
+        user: User,
+        organization_id: uuid.UUID | None,
+        ip_address: str | None,
+        user_agent: str | None,
+        now: dt.datetime,
+    ) -> IssuedTokens:
+        """Open the session and record it. The last step of both a plain
+        login and one that had to clear an MFA challenge first.
+
+        Clearing ``failed_login_count`` happens here rather than the moment
+        the password verifies, deliberately: with MFA enabled, a correct
+        password is not yet a completed login, and resetting the counter
+        that early would let an attacker who already has the password
+        re-submit it before every single MFA guess to keep the brute-force
+        counter at zero forever, defeating the lockout entirely for the
+        second factor.
+        """
+        user.failed_login_count = 0
+        user.locked_until = None
+        user.last_login_at = now
+
+        tokens = await self._issue_session(
+            user=user,
+            organization_id=organization_id,
             family_id=uuid.uuid4(),
             ip_address=ip_address,
             user_agent=user_agent,
@@ -309,9 +386,7 @@ class AuthService:
         logger.info(
             "login_succeeded",
             user_id=str(user.id),
-            organization_id=(
-                str(resolved_organization_id) if resolved_organization_id else None
-            ),
+            organization_id=(str(organization_id) if organization_id else None),
         )
         # In-transaction: a successful sign-in commits with the session row it
         # created, so the trail cannot claim a sign-in that did not persist.
@@ -320,9 +395,9 @@ class AuthService:
         # tenant-scoped and RLS-protected, so there is no tenant to attribute
         # this sign-in to. The alternative — inventing one — would put a record
         # in some organization's trail that its administrators cannot act on.
-        if self._audit is not None and resolved_organization_id is not None:
+        if self._audit is not None and organization_id is not None:
             await self._audit.record(
-                organization_id=resolved_organization_id,
+                organization_id=organization_id,
                 action=Action.LOGIN_SUCCEEDED,
                 module=AUTH_MODULE,
                 actor_id=user.id,
@@ -380,8 +455,14 @@ class AuthService:
         # a moment later, with this user as its actor.
         return tokens
 
-    async def _register_failure(self, user: User, *, now: dt.datetime) -> None:
+    async def _register_failure(
+        self, user: User, *, now: dt.datetime, reason: str = "bad_password"
+    ) -> None:
         """Count a failed attempt and lock the account at the threshold.
+
+        Shared by a wrong password and a wrong MFA code — one counter, one
+        lockout, regardless of which step of sign-in failed; only the
+        recorded ``reason`` tells the two apart afterwards.
 
         The caller raises immediately afterwards, which rolls the *request*
         transaction back — so writing the counter there would discard it and
@@ -422,12 +503,12 @@ class AuthService:
             )
         else:
             logger.info(
-                "login_failed", user_id=str(user.id), reason="bad_password", attempt=attempts
+                "login_failed", user_id=str(user.id), reason=reason, attempt=attempts
             )
             await self._audit_auth_failure(
                 user,
                 action=Action.LOGIN_FAILED,
-                reason="bad_password",
+                reason=reason,
                 extra={"consecutive_failures": attempts},
             )
 
@@ -727,6 +808,205 @@ class AuthService:
                 # is redacted on the way in and both keys would match.
                 details={"sessions_revoked": revoked, "self_service": True},
             )
+
+    # --- Multi-factor authentication (Checkpoint 8) -------------------------
+
+    async def mfa_status(self, user_id: uuid.UUID) -> tuple[bool, bool]:
+        """Return ``(enabled, pending)`` for the caller's own account."""
+        credential = await self._repository.get_mfa_credential(user_id)
+        if credential is None:
+            return False, False
+        return credential.is_active, not credential.is_active
+
+    async def begin_mfa_enrollment(self, *, user: User) -> tuple[str, str, list[str]]:
+        """Generate a fresh secret and recovery codes.
+
+        Returns ``(secret, provisioning_uri, recovery_codes)``.
+
+        Not yet a gate on login — that only happens once
+        :meth:`confirm_mfa_enrollment` proves the person can actually
+        generate a code from what was just shown them. Re-running this while
+        already enabled is refused; re-running it while a previous
+        enrollment is still unconfirmed replaces it outright, since an
+        abandoned secret the caller never finished setting up grants nobody
+        anything.
+
+        Raises:
+            MfaNotConfiguredError: 503, no ``MFA_ENCRYPTION_KEY`` is set.
+            ConflictError: MFA is already enabled on this account.
+        """
+        existing = await self._repository.get_mfa_credential(user.id)
+        if existing is not None and existing.is_active:
+            raise ConflictError(
+                "Multi-factor authentication is already enabled. Disable it before re-enrolling."
+            )
+        if existing is not None:
+            await self._repository.delete_mfa_credential(existing)
+
+        secret = generate_totp_secret()
+        encrypted_secret = self._mfa_cipher.encrypt(secret)
+        recovery_batch = generate_recovery_codes()
+
+        credential = MfaCredential(user_id=user.id, encrypted_secret=encrypted_secret)
+        credential.recovery_codes = [
+            MfaRecoveryCode(code_hash=self._hasher.hash(code))
+            for code in recovery_batch.plaintext_codes
+        ]
+        await self._repository.add_mfa_credential(credential)
+        logger.info("mfa_enrollment_started", user_id=str(user.id))
+
+        uri = provisioning_uri(secret=secret, account_email=user.email)
+        return secret, uri, list(recovery_batch.plaintext_codes)
+
+    async def confirm_mfa_enrollment(self, *, user: User, code: str) -> None:
+        """Activate a pending enrollment once its owner proves they hold it.
+
+        Raises:
+            ConflictError: no enrollment is pending (none started, or one is
+                already active).
+            InvalidMfaCodeError: the code does not match the pending secret.
+        """
+        credential = await self._repository.get_mfa_credential(user.id)
+        if credential is None or credential.is_active:
+            raise ConflictError("No pending MFA enrollment to confirm.")
+
+        secret = self._mfa_cipher.decrypt(credential.encrypted_secret)
+        if not verify_totp_code(secret=secret, code=code):
+            raise InvalidMfaCodeError
+
+        credential.enabled_at = dt.datetime.now(dt.UTC)
+        await self._repository.add_mfa_credential(credential)
+        logger.info("mfa_enabled", user_id=str(user.id))
+
+        organization_id = await self._audit_organization_for(user.id)
+        if self._audit is not None and organization_id is not None:
+            await self._audit.record(
+                organization_id=organization_id,
+                action=Action.MFA_ENABLED,
+                module=USERS_MODULE,
+                actor_id=user.id,
+                entity_type="USER",
+                entity_id=user.id,
+                entity_label=user.email,
+                details={"self_service": True},
+            )
+
+    async def disable_mfa(self, *, user: User, current_password: str) -> None:
+        """Remove the account's MFA credential entirely.
+
+        Re-proves the current password first: MFA is meant to still gate
+        the account even against someone who has stolen an already
+        signed-in session's bearer token, and turning it off is exactly the
+        action that guard exists to cover.
+
+        Raises:
+            AuthenticationError: the current password is wrong.
+            ConflictError: MFA is not enabled on this account.
+        """
+        if user.password_hash is None:
+            raise AuthenticationError
+        valid, _ = self._hasher.verify(
+            password=current_password, password_hash=user.password_hash
+        )
+        if not valid:
+            raise AuthenticationError
+
+        credential = await self._repository.get_mfa_credential(user.id)
+        if credential is None:
+            raise ConflictError("Multi-factor authentication is not enabled.")
+
+        await self._repository.delete_mfa_credential(credential)
+        logger.info("mfa_disabled", user_id=str(user.id))
+
+        organization_id = await self._audit_organization_for(user.id)
+        if self._audit is not None and organization_id is not None:
+            await self._audit.record(
+                organization_id=organization_id,
+                action=Action.MFA_DISABLED,
+                module=USERS_MODULE,
+                actor_id=user.id,
+                entity_type="USER",
+                entity_id=user.id,
+                entity_label=user.email,
+                details={"self_service": True},
+            )
+
+    async def verify_mfa_challenge(
+        self,
+        *,
+        challenge_token: str,
+        code: str,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+        now: dt.datetime | None = None,
+    ) -> IssuedTokens:
+        """Redeem a challenge from :meth:`authenticate` for a real session.
+
+        Raises:
+            InvalidTokenError: 401, the challenge token is malformed, signed
+                by another key, or expired.
+            AccountLockedError: a wrong code pushed the account over the
+                same failed-attempt threshold a wrong password would.
+            InvalidMfaCodeError: 401, the code (TOTP or recovery) is wrong.
+        """
+        now = now or dt.datetime.now(dt.UTC)
+        claims: MfaChallengeClaims = self._issuer.verify_mfa_challenge(challenge_token)
+
+        user = await self._repository.get_user(claims.user_id)
+        if user is None or not user.is_active:
+            raise InvalidTokenError
+
+        if user.is_locked_at(now):
+            await self._audit_auth_failure(
+                user, action=Action.LOGIN_BLOCKED, reason="account_locked"
+            )
+            raise AccountLockedError
+
+        credential = await self._repository.get_mfa_credential(user.id)
+        if credential is None or not credential.is_active:
+            # MFA was disabled mid-challenge — the token is stale, not wrong.
+            raise InvalidTokenError
+
+        if not await self._verify_mfa_code(credential, code):
+            await self._register_failure(user, now=now, reason="bad_mfa_code")
+            raise InvalidMfaCodeError
+
+        return await self._complete_login(
+            user=user,
+            organization_id=claims.organization_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            now=now,
+        )
+
+    async def _verify_mfa_code(self, credential: MfaCredential, code: str) -> bool:
+        """Try the code as a TOTP first, then as an unused recovery code.
+
+        A recovery code and a TOTP code never collide by construction (one
+        is six digits, the other ten letters/digits from an alphabet that
+        excludes pure-digit runs would need real bad luck to produce), so
+        trying both costs nothing extra in the common case and needs no
+        client-supplied "which kind is this" flag.
+        """
+        secret = self._mfa_cipher.decrypt(credential.encrypted_secret)
+        if verify_totp_code(secret=secret, code=code):
+            return True
+
+        # Recovery codes are generated upper-case; normalise what was typed
+        # by hand the same way before comparing against the stored digest.
+        normalised_code = code.strip().upper()
+        for recovery_code in credential.recovery_codes:
+            if recovery_code.used_at is not None:
+                continue
+            valid, _ = self._hasher.verify(
+                password=normalised_code, password_hash=recovery_code.code_hash
+            )
+            if valid:
+                recovery_code.used_at = dt.datetime.now(dt.UTC)
+                await self._repository.add_mfa_credential(credential)
+                logger.info("mfa_recovery_code_used", user_id=str(credential.user_id))
+                return True
+        return False
 
     async def set_password(
         self,
@@ -1197,9 +1477,12 @@ class AuthService:
 __all__ = [
     "AccountLockedError",
     "AuthService",
+    "AuthenticateResult",
     "AuthenticationError",
+    "InvalidMfaCodeError",
     "InvalidResetTokenError",
     "InvalidVerificationTokenError",
     "IssuedTokens",
+    "MfaChallenge",
     "NoOrganizationError",
 ]

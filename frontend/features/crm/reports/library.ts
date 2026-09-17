@@ -11,6 +11,7 @@ import { api } from '@/lib/api-client';
 import type { Page } from '@/features/shared/types/api';
 
 import type { ReportResult } from '.';
+import type { CustomReportDefinition } from './custom';
 
 /**
  * One page big enough to hold a realistic library.
@@ -77,7 +78,9 @@ export interface SavedReport {
   id: string;
   name: string;
   description: string | null;
-  base_report_key: string;
+  /** Exactly one of `base_report_key`/`custom_definition` is set. */
+  base_report_key: string | null;
+  custom_definition: CustomReportDefinition | null;
   folder_id: string | null;
   period: ReportPeriod;
   date_from: string | null;
@@ -91,7 +94,8 @@ export interface SavedReport {
 export interface SavedReportInput {
   name: string;
   description?: string | null;
-  base_report_key: string;
+  base_report_key?: string;
+  custom_definition?: CustomReportDefinition;
   folder_id?: string | null;
   period: ReportPeriod;
   date_from?: string | null;

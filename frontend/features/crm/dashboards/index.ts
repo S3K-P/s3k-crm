@@ -68,6 +68,14 @@ export interface DashboardComponentData {
   width: number;
   result: ReportResult | null;
   unavailable: string | null;
+  /**
+   * Checkpoint 5. Whether a dashboard-wide date filter was actually applied
+   * to this tile — a report with no date dimension (`accepts_date_range`
+   * false, and no custom reports lack one) ignores the filter rather than
+   * erroring, and this is how the UI tells "unaffected" apart from "no
+   * filter was set".
+   */
+  date_filter_applied: boolean;
 }
 
 export interface DashboardData {
@@ -111,8 +119,19 @@ export const updateDashboard = (
 export const deleteDashboard = (id: string) =>
   api.delete<void>(`/crm/dashboard/boards/${id}`);
 
-export const renderDashboard = (id: string) =>
-  api.get<DashboardData>(`/crm/dashboard/boards/${id}/data`);
+/** `dateFilter` (Checkpoint 5) narrows this one render; it is never saved. */
+export const renderDashboard = (
+  id: string,
+  dateFilter?: { date_from?: string | null; date_to?: string | null },
+) => {
+  const query = new URLSearchParams();
+  if (dateFilter?.date_from) query.set('date_from', dateFilter.date_from);
+  if (dateFilter?.date_to) query.set('date_to', dateFilter.date_to);
+  const suffix = query.toString();
+  return api.get<DashboardData>(
+    `/crm/dashboard/boards/${id}/data${suffix ? `?${suffix}` : ''}`,
+  );
+};
 
 export const addComponent = (
   dashboardId: string,

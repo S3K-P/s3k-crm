@@ -55,7 +55,7 @@ def service() -> SearchService:
 
 def test_a_caller_with_every_view_searches_every_type(service: SearchService) -> None:
     principal = _principal(
-        "accounts.VIEW", "contacts.VIEW", "leads.VIEW", "opportunities.VIEW"
+        "accounts.VIEW", "contacts.VIEW", "leads.VIEW", "opportunities.VIEW", "activities.VIEW"
     )
 
     assert service.searchable_types(principal, None) == ALL_TYPES
@@ -134,6 +134,22 @@ def test_the_types_parameter_can_only_narrow(
     assert service.searchable_types(principal, requested) == expected
 
 
+def test_activities_view_is_required_for_the_fifth_type(service: SearchService) -> None:
+    """Checkpoint 5's added entity follows the identical rule as the first four.
+
+    ``activities`` is absent from ``OWNER_SCOPED_MODULES`` (an activity
+    belongs to the record it is logged against, not to its own owner), which
+    narrows *which rows* once the branch exists — this asserts the other
+    half still applies: no ``activities.VIEW``, no branch at all.
+    """
+    principal = _principal("accounts.VIEW", "contacts.VIEW", "leads.VIEW", "opportunities.VIEW")
+
+    assert SearchEntityType.ACTIVITY not in service.searchable_types(principal, None)
+
+    granted = _principal("activities.VIEW")
+    assert service.searchable_types(granted, None) == [SearchEntityType.ACTIVITY]
+
+
 def test_the_result_is_ordered_by_the_enum_not_by_the_request(
     service: SearchService,
 ) -> None:
@@ -143,7 +159,7 @@ def test_the_result_is_ordered_by_the_enum_not_by_the_request(
     in parameter order return differently ordered groups for identical data.
     """
     principal = _principal(
-        "accounts.VIEW", "contacts.VIEW", "leads.VIEW", "opportunities.VIEW"
+        "accounts.VIEW", "contacts.VIEW", "leads.VIEW", "opportunities.VIEW", "activities.VIEW"
     )
     reversed_request = list(reversed(ALL_TYPES))
 

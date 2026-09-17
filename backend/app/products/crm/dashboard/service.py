@@ -20,18 +20,29 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.platform.organizations.service import organizations_for_session
 from app.products.crm.common import CrmEntityType
-from app.products.crm.dashboard.repository import DashboardRepository
+from app.products.crm.dashboard.repository import (
+    NEW_LEAD_WINDOW_DAYS,
+    DashboardRepository,
+)
 from app.products.crm.dashboard.schemas import (
     DashboardActivity,
     DashboardKpis,
     DashboardMeeting,
     DashboardSummary,
     DashboardTask,
+    LeadSourcePerformance,
+    OwnerPipelineSummary,
     PipelineStageSummary,
+    RevenueMonth,
 )
+from app.products.crm.reports.repository import ReportRepository
 from app.products.crm.shared.visibility import DashboardScope
 from app.products.crm.tasks.models import TaskStatus
+
+#: Months of won-revenue history the trend chart shows.
+REVENUE_TREND_MONTHS = 6
 
 
 class DashboardService:
@@ -39,6 +50,11 @@ class DashboardService:
 
     def __init__(self, session: AsyncSession) -> None:
         self._repository = DashboardRepository(session)
+        # Reused rather than re-queried: lead-source performance is exactly
+        # `reports.catalog`'s own `lead-conversion-by-source` runner, called
+        # directly on its repository so the two numbers can never disagree.
+        self._reports = ReportRepository(session)
+        self._organizations = organizations_for_session(session)
 
     async def summary(
         self,
@@ -89,6 +105,17 @@ class DashboardService:
         )
         tasks_due, tasks_due_high = await repository.count_tasks_due(
             organization_id, day_end=day_end, visibility=scope.tasks
+        )
+        weighted_pipeline = await repository.sum_weighted_pipeline_value(
+            organization_id, visibility=scope.opportunities
+        )
+        won_revenue = await repository.sum_won_revenue(
+            organization_id,
+            since=now - dt.timedelta(days=NEW_LEAD_WINDOW_DAYS),
+            visibility=scope.opportunities,
+        )
+        conversion_rate = await repository.lead_conversion_rate(
+            organization_id, visibility=scope.leads
         )
 
         stages = await repository.pipeline_by_stage(
@@ -162,6 +189,42 @@ class DashboardService:
             for activity in activity_rows
         ]
 
+        trend_rows = await repository.won_revenue_by_month(
+            organization_id,
+            months=REVENUE_TREND_MONTHS,
+            today=today,
+            visibility=scope.opportunities,
+        )
+        revenue_trend = [RevenueMonth(month=month, value=value) for month, value in trend_rows]
+
+        owner_rows = await repository.pipeline_by_owner(
+            organization_id, visibility=scope.opportunities
+        )
+        owner_ids = {owner_id for owner_id, _count, _value in owner_rows if owner_id is not None}
+        directory = (
+            await self._organizations.member_directory(organization_id, owner_ids)
+            if owner_ids
+            else {}
+        )
+        pipeline_by_owner = [
+            OwnerPipelineSummary(
+                owner=(directory[owner_id].display_name if owner_id in directory else "Unassigned"),
+                count=count,
+                value=value,
+            )
+            for owner_id, count, value in owner_rows
+        ]
+
+        # The report's own rows, reused verbatim rather than re-derived — see
+        # `__init__`'s docstring note. Capped for a dashboard-sized list; the
+        # full breakdown is the "Lead conversion by source" report itself.
+        source_rows = await self._reports.lead_conversion_by_source(
+            organization_id, visibility=scope.leads
+        )
+        lead_source_performance = [
+            LeadSourcePerformance(**row) for row in source_rows[:8]
+        ]
+
         return DashboardSummary(
             kpis=DashboardKpis(
                 new_leads=new_leads,
@@ -172,6 +235,9 @@ class DashboardService:
                 tasks_due=tasks_due,
                 tasks_due_high_priority=tasks_due_high,
                 opportunities_closing_soon=closing_soon,
+                weighted_pipeline_value=weighted_pipeline,
+                won_revenue=won_revenue,
+                lead_conversion_rate=conversion_rate,
             ),
             pipeline=pipeline,
             pipeline_total=pipeline_value,
@@ -179,6 +245,9 @@ class DashboardService:
             tasks=tasks,
             meetings=meetings,
             activities=activities,
+            revenue_trend=revenue_trend,
+            pipeline_by_owner=pipeline_by_owner,
+            lead_source_performance=lead_source_performance,
         )
 
 

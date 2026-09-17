@@ -11,6 +11,7 @@ import { FormError, ListError } from '@/components/crm/shared/ListStates';
 import AttachmentsPanel from '@/components/crm/shared/AttachmentsPanel';
 import CustomFieldsPanel from '@/components/crm/shared/CustomFieldsPanel';
 import { ActivityTimelinePanel, NotesPanel } from '@/components/crm/shared/RecordPanels';
+import AiRecordPanel from '@/components/crm/ai/AiRecordPanel';
 import EmailsPanel from '@/components/crm/emails/EmailsPanel';
 import { useRecord } from '@/components/crm/shared/useRecord';
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
@@ -659,6 +660,8 @@ export default function LeadDetailPage() {
       </div>
 
       <CustomFieldsPanel entityType="LEAD" values={lead.custom_fields} />
+
+      <AiRecordPanel entityType="LEAD" entityId={lead.id} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <ActivityTimelinePanel entityType="LEAD" entityId={lead.id} />

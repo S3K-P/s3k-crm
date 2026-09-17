@@ -3,7 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { AlertCircle, Loader2, Lock, Mail } from 'lucide-react';
+import { AlertCircle, KeyRound, Loader2, Lock, Mail } from 'lucide-react';
 
 import BrandLogo from '@/components/brand/BrandLogo';
 import { useAuth } from '@/context/AuthContext';
@@ -64,12 +64,17 @@ function LoginFallback() {
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { login, isAuthenticated, loading } = useAuth();
+  const { login, verifyMfa, isAuthenticated, loading } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // Set once the password verifies but a second factor is still owed —
+  // switches the form below to the code-entry step.
+  const [challengeToken, setChallengeToken] = useState<string | null>(null);
+  const [mfaCode, setMfaCode] = useState('');
 
   const destination = useCallback(
     () => safeRedirectTarget(searchParams.get('next')),
@@ -88,7 +93,12 @@ function LoginForm() {
     setError(null);
     setSubmitting(true);
     try {
-      await login({ email: email.trim(), password });
+      const outcome = await login({ email: email.trim(), password });
+      if (outcome.mfaRequired) {
+        setChallengeToken(outcome.challengeToken);
+        setPassword('');
+        return;
+      }
       // Return the user to whatever they were trying to reach.
       router.replace(destination());
     } catch (caught) {
@@ -100,6 +110,27 @@ function LoginForm() {
           : 'Unable to sign in right now. Please try again.',
       );
       setPassword('');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleVerifyMfa = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (submitting || !challengeToken) return;
+
+    setError(null);
+    setSubmitting(true);
+    try {
+      await verifyMfa(challengeToken, mfaCode.trim());
+      router.replace(destination());
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError
+          ? caught.message
+          : 'Unable to verify that code right now. Please try again.',
+      );
+      setMfaCode('');
     } finally {
       setSubmitting(false);
     }
@@ -128,12 +159,83 @@ function LoginForm() {
         </div>
 
         <div className="surface bd rounded-2xl border p-6 shadow-[0_20px_50px_-24px_rgba(50,30,90,0.25)]">
-          <h2 className="font-display txt text-[17px] font-bold">Sign in</h2>
-          <p className="txt-muted mt-1 text-[13px]">
-            Use your S3K account to continue.
-          </p>
+          {challengeToken ? (
+            <>
+              <h2 className="font-display txt text-[17px] font-bold">Enter your code</h2>
+              <p className="txt-muted mt-1 text-[13px]">
+                Open your authenticator app, or use one of your recovery codes.
+              </p>
 
-          <form onSubmit={handleSubmit} className="mt-5 space-y-4" noValidate>
+              <form onSubmit={(event) => void handleVerifyMfa(event)} className="mt-5 space-y-4" noValidate>
+                <div className="space-y-1.5">
+                  <label htmlFor="mfa-code" className="txt text-[13px] font-semibold">
+                    Code
+                  </label>
+                  <div className="relative">
+                    <KeyRound
+                      className="txt-faint pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2"
+                      aria-hidden="true"
+                    />
+                    <input
+                      id="mfa-code"
+                      name="mfa-code"
+                      type="text"
+                      inputMode="text"
+                      autoComplete="one-time-code"
+                      autoFocus
+                      required
+                      value={mfaCode}
+                      onChange={(event) => setMfaCode(event.target.value)}
+                      disabled={submitting}
+                      className="ctl w-full py-2.5 pl-9 pr-3.5 text-sm outline-none transition-colors focus:border-[var(--accent)] disabled:opacity-60"
+                      placeholder="123456"
+                    />
+                  </div>
+                </div>
+
+                {error && (
+                  <p
+                    role="alert"
+                    className="flex items-start gap-2 text-[12.5px] font-medium text-red-500"
+                  >
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    {error}
+                  </p>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-[13.5px] font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ background: 'var(--accent)' }}
+                >
+                  {submitting && (
+                    <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden="true" />
+                  )}
+                  {submitting ? 'Verifying…' : 'Verify'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setChallengeToken(null);
+                    setMfaCode('');
+                    setError(null);
+                  }}
+                  className="txt-muted hover:txt w-full text-center text-[12.5px] font-medium"
+                >
+                  Back to sign in
+                </button>
+              </form>
+            </>
+          ) : (
+            <>
+              <h2 className="font-display txt text-[17px] font-bold">Sign in</h2>
+              <p className="txt-muted mt-1 text-[13px]">
+                Use your S3K account to continue.
+              </p>
+
+              <form onSubmit={handleSubmit} className="mt-5 space-y-4" noValidate>
             <div className="space-y-1.5">
               <label htmlFor="email" className="txt text-[13px] font-semibold">
                 Email
@@ -213,7 +315,9 @@ function LoginForm() {
               )}
               {submitting ? 'Signing in…' : 'Sign in'}
             </button>
-          </form>
+              </form>
+            </>
+          )}
         </div>
 
         <p className="txt-faint mt-5 text-center text-[11.5px]">

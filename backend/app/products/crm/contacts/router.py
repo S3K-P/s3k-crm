@@ -8,6 +8,7 @@ influences the outcome.
 from __future__ import annotations
 
 import uuid
+from dataclasses import asdict
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response, status
@@ -18,14 +19,23 @@ from app.platform.authorization.service import Action as PermissionAction
 from app.products.crm.common import CrmEntityType
 from app.products.crm.contacts.models import Contact, ContactStatus
 from app.products.crm.contacts.schemas import (
+    ContactBulkUpdate,
     ContactCreate,
     ContactResponse,
     ContactUpdate,
 )
 from app.products.crm.contacts.service import ContactService
 from app.products.crm.custom_fields.query import CustomFieldQueryDep
+from app.products.crm.reports.custom import build_advanced_filter_predicate
+from app.products.crm.reports.fields import ReportEntity
+from app.products.crm.shared.advanced_filter_query import AdvancedFilterDep
 from app.products.crm.shared.csv_export import collect_rows, csv_response
 from app.products.crm.shared.pagination import Page, PageParams, page_params
+from app.products.crm.shared.schemas import (
+    BulkIdsRequest,
+    BulkOperationResult,
+    TimelineEntryResponse,
+)
 from app.products.crm.shared.visibility import RecordVisibility
 
 router = APIRouter()
@@ -55,8 +65,10 @@ def visible_to(principal: Principal) -> RecordVisibility:
 async def list_contacts(
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
     service: ServiceDep,
+    session: DbSession,
     params: PageParamsDep,
     custom: CustomFieldQueryDep,
+    advanced: AdvancedFilterDep,
     search: Annotated[str | None, Query(max_length=255)] = None,
     contact_status: Annotated[ContactStatus | None, Query(alias="status")] = None,
     account_id: Annotated[uuid.UUID | None, Query()] = None,
@@ -69,6 +81,9 @@ async def list_contacts(
     orders by one. Names are resolved against this organization's own
     definitions before any SQL is built (``custom_fields/query.py``), so an
     unrecognised one is a 422 rather than a filter on nothing.
+
+    ``?advanced_filter=`` (Checkpoint 5): see ``leads.router.list_leads``'s
+    docstring — the mechanism is identical, entity-parameterised.
     """
     filters = service.build_filters(
         search=search, status=contact_status, account_id=account_id, owner_id=owner_id
@@ -79,6 +94,12 @@ async def list_contacts(
         entity_type=CrmEntityType.CONTACT,
     )
     filters = [*filters, *custom_filters]
+    if advanced is not None:
+        predicate = await build_advanced_filter_predicate(
+            session, principal.organization_id, ReportEntity.CONTACT, advanced
+        )
+        if predicate is not None:
+            filters.append(predicate)
     items, total = await service.list_contacts(
         principal.organization_id,
         params=params,
@@ -135,6 +156,35 @@ async def export_contacts(
         },
     )
     return csv_response(rows, ContactResponse, entity_plural="contacts")
+
+
+@router.post("/bulk-update", response_model=BulkOperationResult)
+async def bulk_update_contacts(
+    payload: ContactBulkUpdate,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.EDIT))],
+    service: ServiceDep,
+) -> BulkOperationResult:
+    return await service.bulk_update(
+        payload.ids,
+        principal.organization_id,
+        actor_id=principal.user_id,
+        values=payload.values.model_dump(exclude_unset=True),
+        visibility=visible_to(principal),
+    )
+
+
+@router.post("/bulk-delete", response_model=BulkOperationResult)
+async def bulk_delete_contacts(
+    payload: BulkIdsRequest,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.DELETE))],
+    service: ServiceDep,
+) -> BulkOperationResult:
+    return await service.bulk_delete(
+        payload.ids,
+        principal.organization_id,
+        actor_id=principal.user_id,
+        visibility=visible_to(principal),
+    )
 
 
 @router.post("", response_model=ContactResponse, status_code=status.HTTP_201_CREATED)
@@ -206,6 +256,21 @@ async def make_primary(
     )
     updated = await service.set_primary(contact, actor_id=principal.user_id)
     return ContactResponse.model_validate(updated)
+
+
+@router.get("/{contact_id}/timeline", response_model=list[TimelineEntryResponse])
+async def get_contact_timeline(
+    contact_id: uuid.UUID,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
+    service: ServiceDep,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> list[TimelineEntryResponse]:
+    """Everything this caller may see against this contact, newest first."""
+    contact = await service.get_or_404(
+        contact_id, principal.organization_id, visibility=visible_to(principal)
+    )
+    entries = await service.timeline(contact, principal, limit=limit)
+    return [TimelineEntryResponse(**asdict(entry)) for entry in entries]
 
 
 @router.delete("/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)
