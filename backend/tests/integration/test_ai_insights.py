@@ -541,6 +541,85 @@ def test_explaining_a_closed_deals_priority_is_404(
     assert response.status_code == 404
 
 
+# Archived tasks and activities are gone from the record's own views, so they
+# cannot be a reason in its priority either — every reason must be a fact a
+# caller could check by opening the record (prioritization.py). A rep creates
+# the work; the admin archives it, since the User role may not delete.
+
+
+def _priority_reasons(api: ApiSession, kind: str, entity_id: str) -> set[str]:
+    response = api.get(f"{AI_INSIGHTS}/priority/{kind}?limit=100")
+    assert response.status_code == 200, response.text
+    item = next(i for i in response.json()["items"] if i["entity_id"] == entity_id)
+    return {reason["label"] for reason in item["reasons"]}
+
+
+def _archive(api: ApiSession, path: str) -> None:
+    response = api.delete(path)
+    assert response.status_code == 204, response.text
+
+
+def test_an_archived_overdue_task_is_not_a_priority_reason(
+    alpha_member: ApiSession, alpha_admin: ApiSession
+) -> None:
+    account = make_account(alpha_member, "Zephyr Chemicals")
+    opportunity = make_opportunity(alpha_member, account["id"])
+    task = alpha_member.post(
+        "/crm/tasks",
+        json={
+            "title": "Send revised pricing",
+            "due_date": (dt.datetime.now(dt.UTC) - dt.timedelta(days=2)).isoformat(),
+            "related_entity_type": "OPPORTUNITY",
+            "related_entity_id": opportunity["id"],
+        },
+    )
+    assert task.status_code == 201, task.text
+    assert "Overdue task(s)" in _priority_reasons(alpha_member, "opportunities", opportunity["id"])
+
+    _archive(alpha_admin, f"/crm/tasks/{task.json()['id']}")
+
+    reasons = _priority_reasons(alpha_member, "opportunities", opportunity["id"])
+    assert "Overdue task(s)" not in reasons
+
+
+def test_an_archived_open_task_is_not_a_scheduled_follow_up(
+    alpha_member: ApiSession, alpha_admin: ApiSession
+) -> None:
+    lead = make_lead(alpha_member)
+    task = alpha_member.post(
+        "/crm/tasks",
+        json={"title": "Call back", "related_entity_type": "LEAD", "related_entity_id": lead["id"]},
+    )
+    assert task.status_code == 201, task.text
+    assert "No follow-up scheduled" not in _priority_reasons(alpha_member, "leads", lead["id"])
+
+    _archive(alpha_admin, f"/crm/tasks/{task.json()['id']}")
+
+    assert "No follow-up scheduled" in _priority_reasons(alpha_member, "leads", lead["id"])
+
+
+def test_an_archived_activity_is_not_the_last_contact(
+    alpha_member: ApiSession, alpha_admin: ApiSession
+) -> None:
+    lead = make_lead(alpha_member)
+    activity = alpha_member.post(
+        "/crm/activities",
+        json={
+            "type": "CALL",
+            "subject": "Intro call",
+            "status": "COMPLETED",
+            "related_entity_type": "LEAD",
+            "related_entity_id": lead["id"],
+        },
+    )
+    assert activity.status_code == 201, activity.text
+    assert "Never contacted" not in _priority_reasons(alpha_member, "leads", lead["id"])
+
+    _archive(alpha_admin, f"/crm/activities/{activity.json()['id']}")
+
+    assert "Never contacted" in _priority_reasons(alpha_member, "leads", lead["id"])
+
+
 # ---------------------------------------------------------------------------
 # Feedback
 # ---------------------------------------------------------------------------

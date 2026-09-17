@@ -982,6 +982,12 @@ class AiInsightsService:
         )
 
     # --- Batched signal queries for prioritization ------------------------
+    #
+    # Each excludes archived (soft-deleted) rows. A reason must be a fact the
+    # caller could check by opening the record, and archived tasks and
+    # activities are gone from the record's own timeline — so an archived
+    # overdue task is not "overdue work", and an archived call is not "last
+    # contact".
 
     async def _last_activity_by_entity(
         self, organization_id: uuid.UUID, entity_type: CrmEntityType, entity_ids: list[uuid.UUID]
@@ -997,6 +1003,7 @@ class AiInsightsService:
             )
             .where(
                 Activity.organization_id == organization_id,
+                Activity.deleted_at.is_(None),
                 Activity.related_entity_type == entity_type,
                 Activity.related_entity_id.in_(entity_ids),
             )
@@ -1014,6 +1021,7 @@ class AiInsightsService:
             select(Task.related_entity_id, func.count())
             .where(
                 Task.organization_id == organization_id,
+                Task.deleted_at.is_(None),
                 Task.related_entity_type == entity_type,
                 Task.related_entity_id.in_(entity_ids),
                 Task.status.not_in(tuple(CLOSED_STATUSES)),
@@ -1034,6 +1042,7 @@ class AiInsightsService:
             select(Task.related_entity_id)
             .where(
                 Task.organization_id == organization_id,
+                Task.deleted_at.is_(None),
                 Task.related_entity_type == entity_type,
                 Task.related_entity_id.in_(entity_ids),
                 Task.status.not_in(tuple(CLOSED_STATUSES)),
