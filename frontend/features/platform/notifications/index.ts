@@ -10,7 +10,15 @@
 import { api } from '@/lib/api-client';
 import { toQuery, type ListParams, type Page } from '@/features/shared/types/api';
 
-export type NotificationKind = 'MEETING_REMINDER' | 'TASK_DUE' | 'RECORD_ASSIGNED';
+export type NotificationKind =
+  | 'MEETING_REMINDER'
+  | 'TASK_DUE'
+  | 'RECORD_ASSIGNED'
+  // P4-W27-BE-03: each also sends an email through Microsoft Graph.
+  | 'TASK_ASSIGNED'
+  | 'TASK_COMPLETED'
+  | 'LEAD_QUALIFIED'
+  | 'OPPORTUNITY_WON';
 
 export interface Notification {
   id: string;

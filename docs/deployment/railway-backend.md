@@ -161,6 +161,19 @@ Set on the **s3k-crm** service, `production` environment.
 | `STORAGE_SECRET_ACCESS_KEY` | R2 API token secret | required in production |
 | `STORAGE_ENDPOINT_URL` | `https://<account-id>.r2.cloudflarestorage.com` | |
 | `CORS_ALLOWED_ORIGINS` | the frontend origin | comma-separated, no wildcard — see §6 |
+| `PUBLIC_APP_URL` | the frontend origin | links in invitation, verification, reset and notification emails |
+| `EMAIL_PROVIDER` | `graph` | Microsoft Graph is the only transport; `console` is refused in production |
+| `MICROSOFT_TENANT_ID` | Entra ID tenant id | required when `EMAIL_PROVIDER=graph` |
+| `MICROSOFT_CLIENT_ID` | app registration (client) id | as above |
+| `MICROSOFT_CLIENT_SECRET` | app registration client secret | as above; server-side only, never logged |
+| `MICROSOFT_GRAPH_SENDER_EMAIL` | the mailbox mail is sent from | as above |
+
+The Microsoft app registration needs the **application** permissions
+`Mail.Send` and `Mail.ReadWrite` (the second is used only for messages whose
+attachments exceed Graph's 4 MB request limit, which are built as a draft and
+uploaded in chunks), with admin consent. Scope it to the sender mailbox with
+an Exchange Online application access policy, so the secret cannot send as any
+other mailbox in the tenant.
 
 Prefer Railway's variable references for the datastore hosts, so they follow a
 rebuilt service: the Postgres private domain and the Redis URL are both

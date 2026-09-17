@@ -33,8 +33,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.platform.documents.storage import ObjectStorage, StorageNotConfiguredError
 from app.platform.email.provider import (
+    PERMANENT_EMAIL_FAILURES,
     EmailAttachment,
-    EmailNotConfiguredError,
     EmailProvider,
     OutboundEmail,
 )
@@ -52,6 +52,13 @@ from app.products.crm.emails.repository import EmailRepository
 from app.products.crm.emails.service import load_attachments_for_send
 
 logger = structlog.get_logger(__name__)
+
+#: Failures no retry can fix: an unconfigured or refusing transport, or no
+#: object storage to read attachments from.
+_PERMANENT_FAILURES: tuple[type[Exception], ...] = (
+    *PERMANENT_EMAIL_FAILURES,
+    StorageNotConfiguredError,
+)
 
 
 async def deliver_crm_email_event(
@@ -97,7 +104,10 @@ async def deliver_crm_email_event(
         to_addresses=tuple(message.to_addresses[1:]),
         cc_addresses=tuple(message.cc_addresses),
         bcc_addresses=tuple(message.bcc_addresses),
-        reply_to=message.reply_to,
+        # Microsoft Graph sends from the organization's configured mailbox, not
+        # from the rep's own address, so replies are steered back to the person
+        # who wrote the message unless they chose somewhere else.
+        reply_to=message.reply_to or message.from_address,
         from_name=message.from_name,
         subject=message.subject,
         text_body=message.body_text,
@@ -109,14 +119,15 @@ async def deliver_crm_email_event(
 
     try:
         receipt = await provider.send(outbound)
-    except (EmailNotConfiguredError, StorageNotConfiguredError) as failure:
+    except _PERMANENT_FAILURES as failure:
         # Committed before raising, like the transient path below: the
         # dispatcher rolls the handler's session back, and an uncommitted
         # failure would vanish — leaving the sender with a message stuck on
         # QUEUED and nothing saying why.
         await _record_failure(session, message, claim, str(failure))
-        # Permanent: retrying cannot configure a provider or a bucket, and
-        # five attempts would only delay somebody noticing.
+        # Permanent: retrying cannot configure a provider or a bucket, or make
+        # Microsoft Graph accept what it refused; five attempts would only
+        # delay somebody noticing.
         raise PermanentEventError(str(failure)) from failure
     except Exception as failure:
         await _record_failure(

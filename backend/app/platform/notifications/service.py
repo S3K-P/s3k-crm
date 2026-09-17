@@ -60,6 +60,7 @@ from app.platform.audit.service import Action as AuditAction
 from app.platform.audit.service import AuditService, audit_for_session
 from app.platform.auth.dependencies import Principal
 from app.platform.email.service import request_email
+from app.platform.email.templates import NOTIFICATION
 from app.platform.notifications.models import Notification
 from app.platform.notifications.policies import (
     NullReminderSource,
@@ -131,8 +132,19 @@ class NotificationService:
         entity_type: str | None = None,
         entity_id: uuid.UUID | None = None,
         actor_id: uuid.UUID | None = None,
+        email: bool = False,
+        record_path: str | None = None,
     ) -> Notification:
         """Raise a notification for one recipient, in the caller's transaction.
+
+        ``email`` also sends the notification's email twin — its title and body
+        through the ``notification`` template, linked to ``record_path`` — via
+        the outbox and so via Microsoft Graph. Opt-in per call, for the reason
+        ``ReminderDue.email_template`` is: an email is an interruption, so only
+        the events the roadmap names as worth one ask for it. The email joins
+        the outbox in this transaction, and a failure to request it is logged
+        rather than raised, so a missing directory entry never costs the
+        business action that raised the notification.
 
         Direct calls (as opposed to reminders — see
         :func:`dispatch_due_reminders_for_all_organizations`) are never
@@ -165,8 +177,21 @@ class NotificationService:
             entity_id=notification.id,
             entity_label=title,
             actor_id=actor_id,
-            details={"recipient_user_id": str(recipient_user_id), "kind": kind},
+            details={
+                "recipient_user_id": str(recipient_user_id),
+                "kind": kind,
+                "email": email,
+            },
         )
+        if email:
+            await self._request_recipient_email(
+                organization_id=organization_id,
+                recipient_user_id=recipient_user_id,
+                kind=kind,
+                template=NOTIFICATION,
+                context={"title": title, "message": body or title},
+                record_path=record_path,
+            )
         return notification
 
     # --- Reminders -----------------------------------------------------
@@ -250,44 +275,65 @@ class NotificationService:
         """
         if reminder.email_template is None:
             return
+        await self._request_recipient_email(
+            organization_id=organization_id,
+            recipient_user_id=reminder.recipient_user_id,
+            kind=reminder.kind,
+            template=reminder.email_template,
+            context=dict(reminder.email_context),
+            record_path=reminder.record_path,
+        )
 
+    async def _request_recipient_email(
+        self,
+        *,
+        organization_id: uuid.UUID,
+        recipient_user_id: uuid.UUID,
+        kind: str,
+        template: str,
+        context: dict[str, str],
+        record_path: str | None,
+    ) -> None:
+        """Enqueue a notification or reminder email to one member.
+
+        The recipient's address is looked up in the organization's member
+        directory at request time, never taken from the caller, so a product
+        cannot address a notification email to somebody outside the tenant.
+        Every failure is logged and swallowed; see the callers for why.
+        """
         try:
             directory = await organizations_for_session(
                 self._repository.session
-            ).member_directory(organization_id, {reminder.recipient_user_id})
-            identity = directory.get(reminder.recipient_user_id)
+            ).member_directory(organization_id, {recipient_user_id})
+            identity = directory.get(recipient_user_id)
             if identity is None:
                 # Not a member any more, so not somebody to email. The in-app
                 # notification is already written and will simply not be read.
                 logger.info(
-                    "reminder_email_skipped_unknown_recipient",
-                    recipient_user_id=str(reminder.recipient_user_id),
+                    "notification_email_skipped_unknown_recipient",
+                    recipient_user_id=str(recipient_user_id),
                 )
                 return
 
             base = get_settings().public_app_url.rstrip("/")
-            context: dict[str, str] = {
-                **dict(reminder.email_context),
+            full_context: dict[str, str] = {
+                **context,
                 # Applied *after* the product's fields, so a product cannot
                 # redirect the greeting or the link by supplying its own.
                 "recipient_name": identity.full_name or identity.email,
-                "record_url": (
-                    f"{base}{reminder.record_path}"
-                    if reminder.record_path is not None
-                    else base
-                ),
+                "record_url": f"{base}{record_path}" if record_path is not None else base,
             }
             request_email(
                 self._repository.session,
                 organization_id=organization_id,
                 to_address=identity.email,
-                template=reminder.email_template,
-                context=context,
+                template=template,
+                context=full_context,
             )
-        except Exception:  # an email must not cost the reminder
+        except Exception:  # an email must not cost the notification
             logger.exception(
-                "reminder_email_could_not_be_requested",
-                kind=reminder.kind,
+                "notification_email_could_not_be_requested",
+                kind=kind,
                 organization_id=str(organization_id),
             )
 

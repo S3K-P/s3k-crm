@@ -170,6 +170,7 @@ async def compose_message(
         sender_address=sender_address,
         sender_name=sender_name,
         values=payload.model_dump(exclude_unset=True),
+        principal=principal,
     )
     return _present(message, principal)
 
@@ -249,6 +250,7 @@ async def update_draft(
         message,
         actor_id=principal.user_id,
         values=payload.model_dump(exclude_unset=True),
+        principal=principal,
     )
     return _present(updated, principal)
 
@@ -376,6 +378,7 @@ async def render_template(
         sender_name=sender_name,
         sender_email=sender_email,
         organization_name=await emails.organization_name(principal.organization_id),
+        principal=principal,
     )
     return TemplateRenderResponse(**rendered)
 

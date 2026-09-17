@@ -15,7 +15,7 @@ send when a deal closes" as a message with a magic status would mean every
 list of real correspondence had to remember to exclude it.
 
 **What is deliberately not here: the transport.** No provider, no retry count,
-no SMTP anything. A row in ``email_messages`` records what a person wrote and
+no transport anything. A row in ``email_messages`` records what a person wrote and
 what became of it; ``platform.email_deliveries`` records what the provider was
 asked to do and said. Two tables because they answer to different people — a
 salesperson asks "did my email to Ravi go out", an administrator asks "is our

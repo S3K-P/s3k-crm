@@ -129,6 +129,23 @@ class ResetPasswordRequest(BaseModel):
     new_password: SecretStr = Field(min_length=1, max_length=256)
 
 
+class ConfirmEmailVerificationRequest(BaseModel):
+    """Redeem an email-verification token."""
+
+    token: SecretStr = Field(min_length=1, max_length=512)
+
+
+class EmailVerificationRequestResponse(BaseModel):
+    """Whether a verification link was issued.
+
+    ``sent`` is ``False`` only when the address was already verified — the
+    caller is the account holder, so there is nothing to hide from them.
+    """
+
+    sent: bool
+    email_verified: bool
+
+
 class ChangePasswordRequest(BaseModel):
     current_password: SecretStr = Field(min_length=1, max_length=256)
     new_password: SecretStr = Field(min_length=1, max_length=256)
@@ -136,7 +153,9 @@ class ChangePasswordRequest(BaseModel):
 
 __all__ = [
     "ChangePasswordRequest",
+    "ConfirmEmailVerificationRequest",
     "CurrentUserResponse",
+    "EmailVerificationRequestResponse",
     "ForgotPasswordRequest",
     "LoginRequest",
     "MembershipSummary",
