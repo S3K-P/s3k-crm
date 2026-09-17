@@ -188,6 +188,112 @@ def test_publishing_demotes_the_previously_published_layout(as_alpha_admin: ApiS
     assert live["id"] == second["id"]
 
 
+def test_create_and_detail_layouts_publish_independently(as_alpha_admin: ApiSession) -> None:
+    """LayoutType (Checkpoint 9): a screen's published layout is scoped to it.
+
+    Publishing a CREATE layout must not demote a published DETAIL layout for
+    the same entity type, and each is returned by ``/published`` only for its
+    own ``layout_type`` — the whole point of the split.
+    """
+    detail_layout = make_layout(as_alpha_admin, name="Detail Layout", layout_type="DETAIL")
+    detail_section = make_section(as_alpha_admin, detail_layout["id"])
+    add_field(as_alpha_admin, detail_layout["id"], detail_section["id"], "first_name")
+    published_detail = as_alpha_admin.post(f"/crm/layouts/{detail_layout['id']}/publish")
+    assert published_detail.status_code == 200, published_detail.text
+
+    create_layout = make_layout(as_alpha_admin, name="Create Layout", layout_type="CREATE")
+    create_section = make_section(as_alpha_admin, create_layout["id"])
+    add_field(as_alpha_admin, create_layout["id"], create_section["id"], "last_name")
+    published_create = as_alpha_admin.post(f"/crm/layouts/{create_layout['id']}/publish")
+    assert published_create.status_code == 200, published_create.text
+
+    # Neither publish demoted the other — both are still PUBLISHED.
+    detail_after = as_alpha_admin.get(f"/crm/layouts/{detail_layout['id']}").json()
+    create_after = as_alpha_admin.get(f"/crm/layouts/{create_layout['id']}").json()
+    assert detail_after["status"] == "PUBLISHED"
+    assert create_after["status"] == "PUBLISHED"
+
+    live_detail = as_alpha_admin.get(
+        "/crm/layouts/published", params={"entity_type": "LEAD", "layout_type": "DETAIL"}
+    ).json()
+    live_create = as_alpha_admin.get(
+        "/crm/layouts/published", params={"entity_type": "LEAD", "layout_type": "CREATE"}
+    ).json()
+    assert live_detail["id"] == detail_layout["id"]
+    assert live_create["id"] == create_layout["id"]
+
+
+def test_a_create_request_falls_back_to_the_published_detail_layout(
+    as_alpha_admin: ApiSession,
+) -> None:
+    """No ``CREATE`` layout published yet: `/published` falls back to `DETAIL`.
+
+    This is what keeps an organization that published a layout before
+    ``LayoutType`` existed seeing identical behavior on every screen.
+    """
+    detail_layout = make_layout(as_alpha_admin, name="Only Layout", layout_type="DETAIL")
+    section = make_section(as_alpha_admin, detail_layout["id"])
+    add_field(as_alpha_admin, detail_layout["id"], section["id"], "first_name")
+    published = as_alpha_admin.post(f"/crm/layouts/{detail_layout['id']}/publish")
+    assert published.status_code == 200, published.text
+
+    for requested_type in ("CREATE", "QUICK_CREATE"):
+        response = as_alpha_admin.get(
+            "/crm/layouts/published",
+            params={"entity_type": "LEAD", "layout_type": requested_type},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["id"] == detail_layout["id"]
+
+
+def test_a_field_required_only_on_the_create_layout_does_not_bind_an_update(
+    as_alpha_admin: ApiSession,
+) -> None:
+    """A CREATE-only override does not leak into how an update is enforced.
+
+    ``CustomFieldValueService._layout_overrides`` (Checkpoint 9) consults the
+    published CREATE layout on create and the published DETAIL layout on
+    update — proven here by a field required only by the CREATE layout: it
+    blocks a lead with no value, but a later PATCH clearing it (with no
+    DETAIL layout published) succeeds, because nothing overrides the
+    definition's own ``is_required=False`` for that write.
+    """
+    field = make_custom_field(as_alpha_admin, api_name="priority_notes", label="Priority Notes")
+    layout = make_layout(as_alpha_admin, name="Create Only Layout", layout_type="CREATE")
+    section = make_section(as_alpha_admin, layout["id"])
+    add_field(
+        as_alpha_admin,
+        layout["id"],
+        section["id"],
+        f"custom:{field['api_name']}",
+        is_required_override=True,
+    )
+    published = as_alpha_admin.post(f"/crm/layouts/{layout['id']}/publish")
+    assert published.status_code == 200, published.text
+
+    missing = as_alpha_admin.post(
+        "/crm/leads", json={"first_name": "Ravi", "last_name": "Kumar"}
+    )
+    assert missing.status_code == 422, missing.text
+
+    created = as_alpha_admin.post(
+        "/crm/leads",
+        json={
+            "first_name": "Ravi",
+            "last_name": "Kumar",
+            "custom_fields": {"priority_notes": "Follow up Monday"},
+        },
+    )
+    assert created.status_code == 201, created.text
+    lead_id = created.json()["id"]
+
+    cleared = as_alpha_admin.patch(
+        f"/crm/leads/{lead_id}", json={"custom_fields": {"priority_notes": ""}}
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["custom_fields"].get("priority_notes") in (None, "")
+
+
 def test_a_rule_may_only_target_a_placed_custom_field(as_alpha_admin: ApiSession) -> None:
     layout = make_layout(as_alpha_admin, name="Rule Target Layout")
     response = as_alpha_admin.post(

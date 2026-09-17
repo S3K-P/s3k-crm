@@ -87,6 +87,28 @@ class LayoutStatus(enum.StrEnum):
     PUBLISHED = "PUBLISHED"
 
 
+class LayoutType(enum.StrEnum):
+    """Which screen a layout arranges fields for.
+
+    Zoho-style CRMs let an administrator configure the full record form, a
+    lightweight "Quick Create" popup, and the read-mostly detail view
+    independently — the same section can hold different fields, in a
+    different order, with different requiredness, depending which of the
+    three a rep is looking at. Before this member existed, one published
+    layout per entity type drove all three at once (see the migration
+    ``20260921_0200``, which backfills every pre-existing row as ``DETAIL``
+    and is why the server-side fallback in
+    :meth:`~app.products.crm.layouts.repository.RecordLayoutRepository.published_for_with_fallback`
+    exists: an organization that published a layout before this member was
+    added keeps exactly the behavior it had, on every screen, until an
+    administrator deliberately publishes a narrower one).
+    """
+
+    CREATE = "CREATE"
+    QUICK_CREATE = "QUICK_CREATE"
+    DETAIL = "DETAIL"
+
+
 class RuleLogic(enum.StrEnum):
     """How a rule's conditions combine."""
 
@@ -103,17 +125,20 @@ class RecordLayout(Base, CrmEntityMixin):
             "uq_record_layouts_organization_id_entity_type_name_live",
             "organization_id",
             "entity_type",
+            "layout_type",
             "name",
             unique=True,
             postgresql_where=text("deleted_at IS NULL"),
         ),
-        # At most one published layout per entity type — the one a form
-        # renders against and the one custom-field validation consults. See
-        # the module docstring for why publishing demotes rather than deletes.
+        # At most one published layout per entity type *and screen* — the one
+        # that screen's form renders against, and (for CREATE/DETAIL) the one
+        # custom-field validation consults. See the module docstring for why
+        # publishing demotes rather than deletes.
         Index(
             "uq_record_layouts_organization_id_entity_type_published",
             "organization_id",
             "entity_type",
+            "layout_type",
             unique=True,
             postgresql_where=text("status = 'PUBLISHED' AND deleted_at IS NULL"),
         ),
@@ -128,6 +153,13 @@ class RecordLayout(Base, CrmEntityMixin):
     entity_type: Mapped[CrmEntityType] = mapped_column(
         Enum(CrmEntityType, name="crm_entity_type", schema=CRM_SCHEMA, native_enum=True),
         nullable=False,
+    )
+    #: Which screen this layout arranges fields for. See :class:`LayoutType`.
+    layout_type: Mapped[LayoutType] = mapped_column(
+        Enum(LayoutType, name="layout_type", schema=CRM_SCHEMA, native_enum=True),
+        nullable=False,
+        default=LayoutType.DETAIL,
+        server_default=LayoutType.DETAIL.value,
     )
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     description: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -301,6 +333,7 @@ __all__ = [
     "LayoutFieldRule",
     "LayoutSection",
     "LayoutStatus",
+    "LayoutType",
     "RecordLayout",
     "RuleLogic",
 ]

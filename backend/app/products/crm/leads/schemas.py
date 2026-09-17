@@ -30,6 +30,11 @@ class LeadCreate(BaseModel):
     product_interest: str | None = Field(default=None, max_length=255)
     notes: str | None = None
     campaign_id: uuid.UUID | None = None
+    address_line1: str | None = Field(default=None, max_length=255)
+    city: str | None = Field(default=None, max_length=120)
+    state: str | None = Field(default=None, max_length=120)
+    postal_code: str | None = Field(default=None, max_length=32)
+    country: str | None = Field(default=None, max_length=120)
     #: Tenant-defined values, validated against this organization's own field
     #: definitions. Absent means "apply the configured defaults"; a supplied
     #: object is merged over them.
@@ -54,6 +59,11 @@ class LeadUpdate(BaseModel):
     product_interest: str | None = Field(default=None, max_length=255)
     notes: str | None = None
     ai_score: int | None = Field(default=None, ge=0, le=100)
+    address_line1: str | None = Field(default=None, max_length=255)
+    city: str | None = Field(default=None, max_length=120)
+    state: str | None = Field(default=None, max_length=120)
+    postal_code: str | None = Field(default=None, max_length=32)
+    country: str | None = Field(default=None, max_length=120)
     #: Tenant-defined values. Absent leaves the whole document untouched — an
     #: empty object is what clears it — so patching one built-in column cannot
     #: wipe a record's custom fields.
@@ -161,6 +171,11 @@ class LeadResponse(BaseModel):
     company_size: str | None
     product_interest: str | None
     notes: str | None
+    address_line1: str | None
+    city: str | None
+    state: str | None
+    postal_code: str | None
+    country: str | None
     lost_reason: str | None
     converted_at: dt.datetime | None
     converted_account_id: uuid.UUID | None

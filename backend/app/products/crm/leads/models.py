@@ -139,6 +139,18 @@ class Lead(Base, CrmEntityMixin, CustomFieldValuesMixin):
     product_interest: Mapped[str | None] = mapped_column(String(255), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # --- Address -------------------------------------------------------------
+    #: Same five columns as `accounts.models.Account` and
+    #: `contacts.models.Contact` — a lead is the one of the four Zoho-parity
+    #: entities that had no structured address at all (Checkpoint 9). Carried
+    #: forward on conversion is a later concern; this migration only adds
+    #: somewhere for a rep to record it before that.
+    address_line1: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    postal_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
     # --- Conversion outcome ------------------------------------------------
     converted_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     converted_account_id: Mapped[uuid.UUID | None] = mapped_column(

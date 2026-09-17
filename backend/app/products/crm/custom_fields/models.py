@@ -107,6 +107,7 @@ class CustomFieldType(enum.StrEnum):
     TEXTAREA = "TEXTAREA"
     NUMBER = "NUMBER"
     DECIMAL = "DECIMAL"
+    CURRENCY = "CURRENCY"
     DATE = "DATE"
     DATETIME = "DATETIME"
     BOOLEAN = "BOOLEAN"
@@ -115,6 +116,12 @@ class CustomFieldType(enum.StrEnum):
     PHONE = "PHONE"
     PICKLIST = "PICKLIST"
     MULTI_PICKLIST = "MULTI_PICKLIST"
+    #: A single organization member, stored as that user's id (a string, like
+    #: every other custom value — see the module docstring for why a custom
+    #: value is never a foreign key). Zoho-style "Lookup (User)" field; a
+    #: lookup to another *record* is not offered — that would need the custom
+    #: modules work item 40 in the Zoho gap list scopes out.
+    LOOKUP_USER = "LOOKUP_USER"
 
 
 #: Types whose value is chosen from a :class:`Picklist`.
@@ -134,6 +141,7 @@ SORTABLE_TYPES: frozenset[CustomFieldType] = frozenset(
         CustomFieldType.TEXT,
         CustomFieldType.NUMBER,
         CustomFieldType.DECIMAL,
+        CustomFieldType.CURRENCY,
         CustomFieldType.DATE,
         CustomFieldType.DATETIME,
         CustomFieldType.BOOLEAN,
@@ -144,7 +152,14 @@ SORTABLE_TYPES: frozenset[CustomFieldType] = frozenset(
     }
 )
 
-FILTERABLE_TYPES: frozenset[CustomFieldType] = SORTABLE_TYPES | {CustomFieldType.MULTI_PICKLIST}
+#: ``LOOKUP_USER`` is filterable (does this record's lookup equal that user?)
+#: but not sortable: ordering a list by a raw user id is not an ordering
+#: anybody asked for, the same reasoning that keeps ``MULTI_PICKLIST`` out of
+#: ``SORTABLE_TYPES``.
+FILTERABLE_TYPES: frozenset[CustomFieldType] = SORTABLE_TYPES | {
+    CustomFieldType.MULTI_PICKLIST,
+    CustomFieldType.LOOKUP_USER,
+}
 
 
 class Picklist(Base, CrmEntityMixin):

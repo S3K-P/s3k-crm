@@ -13,6 +13,7 @@ from app.products.crm.layouts.models import (
     MAX_CONDITIONS_PER_RULE,
     MAX_SECTION_COLUMNS,
     LayoutStatus,
+    LayoutType,
     RuleLogic,
 )
 
@@ -135,6 +136,9 @@ class LayoutSectionResponse(BaseModel):
 
 class RecordLayoutCreate(BaseModel):
     entity_type: CrmEntityType
+    #: Defaults to ``DETAIL`` so a client written before this field existed
+    #: still gets the layout that drove every screen before the split.
+    layout_type: LayoutType = LayoutType.DETAIL
     name: str = Field(min_length=1, max_length=160)
     description: str | None = Field(default=None, max_length=500)
 
@@ -150,6 +154,7 @@ class RecordLayoutResponse(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID
     entity_type: CrmEntityType
+    layout_type: LayoutType
     name: str
     description: str | None
     status: LayoutStatus

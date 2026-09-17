@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Users, Plus, Pencil, Trash2, Loader2, LayoutList, LayoutGrid, Upload, GitMerge,
+  Users, Plus, Pencil, Trash2, Loader2, LayoutList, LayoutGrid, Upload, GitMerge, LayoutTemplate,
 } from 'lucide-react';
 
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
@@ -97,6 +97,11 @@ const EMPTY_FORM: LeadInput = {
   product_interest: '',
   expected_deal_size: '',
   notes: '',
+  address_line1: '',
+  city: '',
+  state: '',
+  postal_code: '',
+  country: '',
 };
 
 type ViewMode = 'table' | 'kanban';
@@ -509,6 +514,17 @@ export default function LeadsPage() {
               <LayoutGrid className="h-4 w-4" />
             </button>
           </div>
+          {can('record_layouts', 'EDIT') && (
+            <button
+              type="button"
+              onClick={() => router.push('/admin/layouts?entity=LEAD')}
+              aria-label="Edit page layout"
+              title="Edit page layout"
+              className="ctl bd rounded-lg border p-2 transition hover:opacity-80"
+            >
+              <LayoutTemplate className="h-4 w-4" />
+            </button>
+          )}
           {mayCreate && (
             <button
               type="button"
@@ -875,6 +891,43 @@ export default function LeadsPage() {
               />
             </FormField>
           )}
+          <p className="txt-faint pt-2 text-[11px] font-semibold uppercase tracking-wide">
+            Address Information
+          </p>
+          <FormField label="Street">
+            <FormInput
+              value={form.address_line1 ?? ''}
+              onChange={(event) => setForm({ ...form, address_line1: event.target.value })}
+            />
+          </FormField>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="City">
+              <FormInput
+                value={form.city ?? ''}
+                onChange={(event) => setForm({ ...form, city: event.target.value })}
+              />
+            </FormField>
+            <FormField label="State">
+              <FormInput
+                value={form.state ?? ''}
+                onChange={(event) => setForm({ ...form, state: event.target.value })}
+              />
+            </FormField>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Postal code">
+              <FormInput
+                value={form.postal_code ?? ''}
+                onChange={(event) => setForm({ ...form, postal_code: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Country">
+              <FormInput
+                value={form.country ?? ''}
+                onChange={(event) => setForm({ ...form, country: event.target.value })}
+              />
+            </FormField>
+          </div>
           <FormField label="Notes">
             <FormTextarea
               value={form.notes ?? ''}
@@ -888,6 +941,7 @@ export default function LeadsPage() {
             values={customValues}
             onChange={setCustomValues}
             recordContext={{ ...editing, ...form }}
+            layoutType={editing ? 'DETAIL' : 'CREATE'}
           />
         </div>
       </SlideDrawer>

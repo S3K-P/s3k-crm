@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { Eye, LayoutTemplate, Plus, Radio, Trash2 } from 'lucide-react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { Eye, LayoutTemplate, Loader2, Plus, Radio, Trash2 } from 'lucide-react';
 
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
@@ -15,6 +16,8 @@ import LayoutCanvas from '@/components/crm/layouts/LayoutCanvas';
 import LayoutPreview from '@/components/crm/layouts/LayoutPreview';
 import {
   LAYOUT_ENTITY_TYPES,
+  LAYOUT_TYPES,
+  LAYOUT_TYPE_LABELS,
   addField,
   addSection,
   archiveLayout,
@@ -27,6 +30,7 @@ import {
   type AvailableFieldInfo,
   type LayoutEntityType,
   type LayoutField,
+  type LayoutType,
   type RecordLayout,
   type RecordLayoutDetail,
 } from '@/features/crm/layouts';
@@ -53,14 +57,32 @@ const ENTITY_LABELS: Record<LayoutEntityType, string> = {
   OPPORTUNITY: 'Opportunities',
 };
 
-export default function AdminLayoutsPage() {
+function AdminLayoutsPageContent() {
   const { can } = usePermissions();
   const mayView = can('record_layouts', 'VIEW');
   const mayEdit = can('record_layouts', 'EDIT');
   const mayCreate = can('record_layouts', 'CREATE');
   const mayDelete = can('record_layouts', 'DELETE');
 
-  const [entityType, setEntityType] = useState<LayoutEntityType>('LEAD');
+  // A module's own "Edit Page Layout" action deep-links here with the entity
+  // (and optionally the screen) preselected, rather than landing an admin on
+  // Leads every time and making them re-pick it.
+  const params = useSearchParams();
+  const requestedEntity = params.get('entity');
+  const requestedLayoutType = params.get('layout_type');
+  const initialEntity: LayoutEntityType = (LAYOUT_ENTITY_TYPES as string[]).includes(
+    requestedEntity ?? '',
+  )
+    ? (requestedEntity as LayoutEntityType)
+    : 'LEAD';
+  const initialLayoutType: LayoutType = (LAYOUT_TYPES as string[]).includes(
+    requestedLayoutType ?? '',
+  )
+    ? (requestedLayoutType as LayoutType)
+    : 'DETAIL';
+
+  const [entityType, setEntityType] = useState<LayoutEntityType>(initialEntity);
+  const [layoutType, setLayoutType] = useState<LayoutType>(initialLayoutType);
   const [layoutId, setLayoutId] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
@@ -79,6 +101,7 @@ export default function AdminLayoutsPage() {
   // calls `setState` synchronously inside an effect body to make that true.
   const [layoutsResult, setLayoutsResult] = useState<{
     entityType: LayoutEntityType;
+    layoutType: LayoutType;
     layouts: RecordLayout[] | null;
     error: string | null;
   } | null>(null);
@@ -87,12 +110,13 @@ export default function AdminLayoutsPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const list = await listLayouts(entityType);
-        if (!cancelled) setLayoutsResult({ entityType, layouts: list, error: null });
+        const list = await listLayouts(entityType, layoutType);
+        if (!cancelled) setLayoutsResult({ entityType, layoutType, layouts: list, error: null });
       } catch (caught) {
         if (!cancelled) {
           setLayoutsResult({
             entityType,
+            layoutType,
             layouts: null,
             error: describeApiError(caught, 'Could not load layouts.'),
           });
@@ -102,10 +126,16 @@ export default function AdminLayoutsPage() {
     return () => {
       cancelled = true;
     };
-  }, [entityType, attempt]);
+  }, [entityType, layoutType, attempt]);
 
-  const layouts = layoutsResult?.entityType === entityType ? layoutsResult.layouts : null;
-  const listError = layoutsResult?.entityType === entityType ? layoutsResult.error : null;
+  const layouts =
+    layoutsResult?.entityType === entityType && layoutsResult.layoutType === layoutType
+      ? layoutsResult.layouts
+      : null;
+  const listError =
+    layoutsResult?.entityType === entityType && layoutsResult.layoutType === layoutType
+      ? layoutsResult.error
+      : null;
 
   // The selected layout follows the loaded list: default to the published
   // one (or the first) whenever the list changes identity, adjusted at
@@ -271,6 +301,12 @@ export default function AdminLayoutsPage() {
             onChange={(e) => setEntityType(e.target.value as LayoutEntityType)}
             className="w-auto py-2 text-[13px]"
           />
+          <FormSelect
+            options={LAYOUT_TYPES.map((t) => ({ value: t, label: LAYOUT_TYPE_LABELS[t] }))}
+            value={layoutType}
+            onChange={(e) => setLayoutType(e.target.value as LayoutType)}
+            className="w-auto py-2 text-[13px]"
+          />
           {layouts && layouts.length > 0 && (
             <FormSelect
               options={layouts.map((l) => ({
@@ -410,6 +446,7 @@ export default function AdminLayoutsPage() {
       {createOpen && (
         <CreateLayoutDrawer
           entityType={entityType}
+          layoutType={layoutType}
           onClose={() => setCreateOpen(false)}
           onCreated={(layout) => {
             setCreateOpen(false);
@@ -441,12 +478,32 @@ export default function AdminLayoutsPage() {
   );
 }
 
+/** Suspense is required: `useSearchParams` above reads the deep link a
+ * module's own "Edit Page Layout" action carries the preselected entity
+ * (and screen) in, and Next refuses to prerender a route that reads the
+ * query string without one. */
+export default function AdminLayoutsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="txt-muted flex items-center gap-2 p-8 text-[13px]">
+          <Loader2 className="h-4 w-4 motion-safe:animate-spin" /> Loading layouts…
+        </div>
+      }
+    >
+      <AdminLayoutsPageContent />
+    </Suspense>
+  );
+}
+
 function CreateLayoutDrawer({
   entityType,
+  layoutType,
   onClose,
   onCreated,
 }: {
   entityType: LayoutEntityType;
+  layoutType: LayoutType;
   onClose: () => void;
   onCreated: (layout: RecordLayout) => void;
 }) {
@@ -457,7 +514,12 @@ function CreateLayoutDrawer({
   async function handleCreate() {
     clearError();
     const layout = await run(() =>
-      createLayout({ entity_type: entityType, name, description: description || undefined }),
+      createLayout({
+        entity_type: entityType,
+        layout_type: layoutType,
+        name,
+        description: description || undefined,
+      }),
     );
     if (layout) onCreated(layout);
   }

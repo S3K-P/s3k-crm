@@ -14,6 +14,7 @@ from app.products.crm.layouts.models import (
     LayoutFieldRule,
     LayoutSection,
     LayoutStatus,
+    LayoutType,
     RecordLayout,
 )
 from app.products.crm.shared.repository import TenantScopedRepository
@@ -24,19 +25,22 @@ class RecordLayoutRepository(TenantScopedRepository[RecordLayout]):
         super().__init__(session, RecordLayout)
 
     async def for_entity(
-        self, organization_id: uuid.UUID, entity_type: CrmEntityType
+        self,
+        organization_id: uuid.UUID,
+        entity_type: CrmEntityType,
+        *,
+        layout_type: LayoutType | None = None,
     ) -> Sequence[RecordLayout]:
-        result = await self._session.execute(
-            self._live(organization_id)
-            .where(RecordLayout.entity_type == entity_type)
-            .order_by(RecordLayout.created_at.asc())
-        )
+        statement = self._live(organization_id).where(RecordLayout.entity_type == entity_type)
+        if layout_type is not None:
+            statement = statement.where(RecordLayout.layout_type == layout_type)
+        result = await self._session.execute(statement.order_by(RecordLayout.created_at.asc()))
         return result.scalars().all()
 
     async def published_for(
-        self, organization_id: uuid.UUID, entity_type: CrmEntityType
+        self, organization_id: uuid.UUID, entity_type: CrmEntityType, layout_type: LayoutType
     ) -> RecordLayout | None:
-        """The one live layout for this entity type, or ``None``.
+        """The one live layout for this entity type and screen, or ``None``.
 
         The read every record write consults (via
         :class:`~app.products.crm.custom_fields.service.CustomFieldValueService`)
@@ -47,10 +51,30 @@ class RecordLayoutRepository(TenantScopedRepository[RecordLayout]):
         result = await self._session.execute(
             self._live(organization_id).where(
                 RecordLayout.entity_type == entity_type,
+                RecordLayout.layout_type == layout_type,
                 RecordLayout.status == LayoutStatus.PUBLISHED,
             )
         )
         return result.scalar_one_or_none()
+
+    async def published_for_with_fallback(
+        self, organization_id: uuid.UUID, entity_type: CrmEntityType, layout_type: LayoutType
+    ) -> RecordLayout | None:
+        """:meth:`published_for`, falling back to the published ``DETAIL`` layout.
+
+        Every ``record_layouts`` row that predates :class:`LayoutType` was
+        backfilled as ``DETAIL`` (migration ``20260921_0200``) because that was
+        the one layout driving every screen at the time. An organization that
+        published a layout before ``CREATE``/``QUICK_CREATE`` existed must see
+        no change at all until it deliberately publishes one of its own — so a
+        request for either falls back to the ``DETAIL`` layout exactly the way
+        it would have resolved before this member was added. A request for
+        ``DETAIL`` itself has nothing to fall back to.
+        """
+        found = await self.published_for(organization_id, entity_type, layout_type)
+        if found is not None or layout_type is LayoutType.DETAIL:
+            return found
+        return await self.published_for(organization_id, entity_type, LayoutType.DETAIL)
 
     def _live(self, organization_id: uuid.UUID) -> Select[tuple[RecordLayout]]:
         return select(RecordLayout).where(

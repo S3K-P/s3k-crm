@@ -62,6 +62,11 @@ export interface Lead extends RecordMeta {
   expected_deal_size: string | null;
   ai_score: number | null;
   notes: string | null;
+  address_line1: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  country: string | null;
   lost_reason: string | null;
   converted_at: string | null;
   converted_account_id: string | null;
@@ -90,6 +95,11 @@ export interface LeadInput {
   product_interest?: string | null;
   expected_deal_size?: string | null;
   notes?: string | null;
+  address_line1?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postal_code?: string | null;
+  country?: string | null;
   /**
    * Marketing attribution. Accepted by `LeadCreate` but **not** by
    * `LeadUpdate`, so it can only be set when the lead is created — sending it

@@ -39,6 +39,7 @@ export type CustomFieldType =
   | 'TEXTAREA'
   | 'NUMBER'
   | 'DECIMAL'
+  | 'CURRENCY'
   | 'DATE'
   | 'DATETIME'
   | 'BOOLEAN'
@@ -46,13 +47,15 @@ export type CustomFieldType =
   | 'URL'
   | 'PHONE'
   | 'PICKLIST'
-  | 'MULTI_PICKLIST';
+  | 'MULTI_PICKLIST'
+  | 'LOOKUP_USER';
 
 export const CUSTOM_FIELD_TYPES: CustomFieldType[] = [
   'TEXT',
   'TEXTAREA',
   'NUMBER',
   'DECIMAL',
+  'CURRENCY',
   'DATE',
   'DATETIME',
   'BOOLEAN',
@@ -61,6 +64,7 @@ export const CUSTOM_FIELD_TYPES: CustomFieldType[] = [
   'PHONE',
   'PICKLIST',
   'MULTI_PICKLIST',
+  'LOOKUP_USER',
 ];
 
 /** Types whose value is chosen from a picklist rather than typed. */
@@ -266,7 +270,14 @@ export function describeValue(
   if (isPicklistType(definition.field_type)) return labelFor(String(value));
   if (definition.field_type === 'DATE') return formatDate(String(value));
   if (definition.field_type === 'DATETIME') return formatDateTime(String(value));
+  if (definition.field_type === 'CURRENCY') return formatCurrency(value);
   return String(value);
+}
+
+function formatCurrency(value: CustomFieldValue): string {
+  const amount = typeof value === 'number' ? value : Number(value);
+  if (Number.isNaN(amount)) return String(value);
+  return amount.toLocaleString(undefined, { style: 'currency', currency: 'USD' });
 }
 
 function formatDate(iso: string): string {

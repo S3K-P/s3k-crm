@@ -59,6 +59,7 @@ from app.products.crm.layouts.models import (
     LayoutFieldRule,
     LayoutSection,
     LayoutStatus,
+    LayoutType,
     RecordLayout,
 )
 from app.products.crm.layouts.repository import (
@@ -102,10 +103,28 @@ class LayoutService(TenantScopedService[RecordLayout]):
     # --- Layouts -------------------------------------------------------
 
     async def list_for_entity(
-        self, organization_id: uuid.UUID, entity_type: CrmEntityType
+        self,
+        organization_id: uuid.UUID,
+        entity_type: CrmEntityType,
+        *,
+        layout_type: LayoutType | None = None,
     ) -> Sequence[RecordLayout]:
         self._require_layout_entity(entity_type)
-        return await self._layouts.for_entity(organization_id, entity_type)
+        return await self._layouts.for_entity(organization_id, entity_type, layout_type=layout_type)
+
+    async def get_published(
+        self, organization_id: uuid.UUID, entity_type: CrmEntityType, layout_type: LayoutType
+    ) -> RecordLayout | None:
+        """The layout ``layout_type`` should render, with the ``DETAIL`` fallback.
+
+        See :meth:`~.repository.RecordLayoutRepository.published_for_with_fallback`
+        for why a request for ``CREATE`` or ``QUICK_CREATE`` may return a
+        ``DETAIL`` layout.
+        """
+        self._require_layout_entity(entity_type)
+        return await self._layouts.published_for_with_fallback(
+            organization_id, entity_type, layout_type
+        )
 
     async def create_layout(
         self, *, organization_id: uuid.UUID, actor_id: uuid.UUID | None, values: dict[str, Any]
@@ -143,7 +162,9 @@ class LayoutService(TenantScopedService[RecordLayout]):
         rules = await self._rules.for_layout(layout.organization_id, layout.id)
         await self._validate_publishable(layout, fields=fields, rules=rules)
 
-        incumbent = await self._layouts.published_for(layout.organization_id, layout.entity_type)
+        incumbent = await self._layouts.published_for(
+            layout.organization_id, layout.entity_type, layout.layout_type
+        )
         if incumbent is not None and incumbent.id != layout.id:
             incumbent.status = LayoutStatus.DRAFT
             incumbent.updated_by_id = actor_id

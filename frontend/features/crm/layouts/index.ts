@@ -25,6 +25,20 @@ export const LAYOUT_ENTITY_TYPES: LayoutEntityType[] = [
 
 export type LayoutStatus = 'DRAFT' | 'PUBLISHED';
 
+/**
+ * Which screen a layout arranges fields for (Checkpoint 9 — Zoho field/layout
+ * parity). Mirrors `backend/app/products/crm/layouts/models.py::LayoutType`.
+ */
+export type LayoutType = 'CREATE' | 'QUICK_CREATE' | 'DETAIL';
+
+export const LAYOUT_TYPES: LayoutType[] = ['CREATE', 'QUICK_CREATE', 'DETAIL'];
+
+export const LAYOUT_TYPE_LABELS: Record<LayoutType, string> = {
+  CREATE: 'Create',
+  QUICK_CREATE: 'Quick Create',
+  DETAIL: 'Detail View',
+};
+
 export const CUSTOM_FIELD_KEY_PREFIX = 'custom:';
 
 export function customFieldKey(apiName: string): string {
@@ -43,6 +57,7 @@ export interface RecordLayout {
   id: string;
   organization_id: string;
   entity_type: LayoutEntityType;
+  layout_type: LayoutType;
   name: string;
   description: string | null;
   status: LayoutStatus;
@@ -99,21 +114,34 @@ export interface FieldStateResponse {
    Layouts
    ------------------------------------------------------------------ */
 
-export const listLayouts = (entityType: LayoutEntityType) =>
-  api.get<RecordLayout[]>(`/crm/layouts?entity_type=${entityType}`);
+export const listLayouts = (entityType: LayoutEntityType, layoutType?: LayoutType) =>
+  api.get<RecordLayout[]>(
+    `/crm/layouts?entity_type=${entityType}${layoutType ? `&layout_type=${layoutType}` : ''}`,
+  );
 
-/** The live layout a create/edit form for `entityType` should render, or
- * `null` when nothing has been published yet — a fully supported state. */
-export const getPublishedLayout = (entityType: LayoutEntityType) =>
-  api.get<RecordLayoutDetail | null>(`/crm/layouts/published?entity_type=${entityType}`);
+/**
+ * The live layout a form for `entityType`/`layoutType` should render, or
+ * `null` when nothing has been published yet — a fully supported state. A
+ * request for `'CREATE'` or `'QUICK_CREATE'` falls back to the published
+ * `'DETAIL'` layout (server-side) when neither has one of its own — see
+ * `backend/app/products/crm/layouts/repository.py::published_for_with_fallback`.
+ */
+export const getPublishedLayout = (entityType: LayoutEntityType, layoutType: LayoutType = 'DETAIL') =>
+  api.get<RecordLayoutDetail | null>(
+    `/crm/layouts/published?entity_type=${entityType}&layout_type=${layoutType}`,
+  );
 
 export const getLayout = (id: string) => api.get<RecordLayoutDetail>(`/crm/layouts/${id}`);
 
 export const listAvailableFields = (layoutId: string) =>
   api.get<AvailableFieldInfo[]>(`/crm/layouts/${layoutId}/available-fields`);
 
-export const createLayout = (body: { entity_type: LayoutEntityType; name: string; description?: string | null }) =>
-  api.post<RecordLayout>('/crm/layouts', body);
+export const createLayout = (body: {
+  entity_type: LayoutEntityType;
+  layout_type?: LayoutType;
+  name: string;
+  description?: string | null;
+}) => api.post<RecordLayout>('/crm/layouts', body);
 
 export const updateLayout = (id: string, body: { name?: string; description?: string | null }) =>
   api.patch<RecordLayout>(`/crm/layouts/${id}`, body);

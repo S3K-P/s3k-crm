@@ -53,6 +53,17 @@ _URL_RE = re.compile(r"^https?://[^\s/$.?#][^\s]*$", re.IGNORECASE)
 #: Digits, with the punctuation phone numbers are actually written with.
 _PHONE_RE = re.compile(r"^[+()\-.\s\d]{4,32}$")
 
+#: A lowercase-normalized UUID, the only shape a ``LOOKUP_USER`` value may
+#: take. Format only: whether the id actually names an active member of the
+#: organization is not checked here — this module is pure, by design (see the
+#: module docstring), and a lookup's *existence* is a database question. A
+#: value naming nobody real fails softly wherever it is displayed (the same
+#: way ``owner_id`` already can on a built-in field) rather than being
+#: rejected at write time.
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+)
+
 #: Accepted spellings of a boolean, because a CSV cell says "true" and a JSON
 #: body says ``true``.
 _TRUE = frozenset({"true", "t", "yes", "y", "1", "on"})
@@ -248,6 +259,13 @@ def _as_phone(api_name: str, value: Any, options: Sequence[str]) -> str:
     return text
 
 
+def _as_user_lookup(api_name: str, value: Any, _options: Sequence[str]) -> str:
+    text = _as_text(api_name, value, _options)
+    if not _UUID_RE.match(text):
+        raise CustomFieldValueError(api_name, "expected a user.")
+    return text.lower()
+
+
 def _as_option(api_name: str, value: Any, options: Sequence[str]) -> str:
     text = _as_text(api_name, value, options)
     if text not in options:
@@ -277,6 +295,7 @@ _COERCERS: Mapping[CustomFieldType, Any] = {
     CustomFieldType.TEXTAREA: _as_text,
     CustomFieldType.NUMBER: _as_integer,
     CustomFieldType.DECIMAL: _as_decimal,
+    CustomFieldType.CURRENCY: _as_decimal,
     CustomFieldType.DATE: _as_date,
     CustomFieldType.DATETIME: _as_datetime,
     CustomFieldType.BOOLEAN: _as_boolean,
@@ -285,6 +304,7 @@ _COERCERS: Mapping[CustomFieldType, Any] = {
     CustomFieldType.PHONE: _as_phone,
     CustomFieldType.PICKLIST: _as_option,
     CustomFieldType.MULTI_PICKLIST: _as_options,
+    CustomFieldType.LOOKUP_USER: _as_user_lookup,
 }
 
 

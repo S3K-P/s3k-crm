@@ -12,9 +12,16 @@ import {
   type CustomFieldValues,
 } from '@/features/crm/custom-fields';
 import { effectiveFieldStates } from '@/features/crm/layouts/evaluate';
-import { asLayoutEntityType, customFieldKey, isCustomFieldKey, type LayoutField } from '@/features/crm/layouts';
+import {
+  asLayoutEntityType,
+  customFieldKey,
+  isCustomFieldKey,
+  type LayoutField,
+  type LayoutType,
+} from '@/features/crm/layouts';
 import { usePublishedLayout } from '@/features/crm/layouts/usePublishedLayout';
 import { describeApiError } from '@/features/shared/hooks/useCollection';
+import { listMembers, type OrganizationMember } from '@/features/admin/users';
 import { cn } from '@/lib/utils';
 
 /* ============================================================
@@ -66,6 +73,15 @@ interface CustomFieldInputsProps {
    * `features/crm/layouts/evaluate.ts`.
    */
   recordContext?: Record<string, unknown>;
+  /**
+   * Which published layout to render against — Checkpoint 9 (Zoho field/
+   * layout parity). ``'CREATE'`` for a brand-new record, ``'DETAIL'`` for an
+   * existing one being edited or viewed, ``'QUICK_CREATE'`` for a lightweight
+   * create popup. Defaults to ``'DETAIL'``, the one layout type that existed
+   * before this prop did, so a caller that has not been updated keeps
+   * rendering exactly as before.
+   */
+  layoutType?: LayoutType;
 }
 
 export default function CustomFieldInputs({
@@ -76,9 +92,11 @@ export default function CustomFieldInputs({
   disabled,
   className,
   recordContext,
+  layoutType = 'DETAIL',
 }: CustomFieldInputsProps) {
   const { fields, status, error } = useEntitySchema(entityType);
-  const { layout } = usePublishedLayout(asLayoutEntityType(entityType));
+  const { layout } = usePublishedLayout(asLayoutEntityType(entityType), layoutType);
+  const members = useOrgMembers(fields.some((field) => field.field_type === 'LOOKUP_USER'));
 
   const set = useCallback(
     (apiName: string, value: CustomFieldValue) => onChange({ ...values, [apiName]: value }),
@@ -161,6 +179,7 @@ export default function CustomFieldInputs({
             onChange={(value) => set(field.api_name, value)}
             error={errors?.[field.api_name]}
             disabled={disabled || (placed?.is_read_only ?? false)}
+            members={members}
           />
         );
       })}
@@ -176,6 +195,7 @@ function CustomFieldControl({
   error,
   disabled,
   placeholder,
+  members,
 }: {
   field: CustomFieldDefinition;
   value: CustomFieldValue;
@@ -184,6 +204,8 @@ function CustomFieldControl({
   disabled?: boolean;
   /** A layout field's placeholder override (Checkpoint 4). */
   placeholder?: string;
+  /** Organization members, for a ``LOOKUP_USER`` field's select. */
+  members: OrganizationMember[];
 }) {
   const common = {
     name: `cf_${field.api_name}`,
@@ -218,7 +240,7 @@ function CustomFieldControl({
       hint={field.help_text ?? undefined}
       error={error}
     >
-      {renderControl(field, value, onChange, common)}
+      {renderControl(field, value, onChange, common, members)}
     </FormField>
   );
 }
@@ -228,8 +250,28 @@ function renderControl(
   value: CustomFieldValue,
   onChange: (value: CustomFieldValue) => void,
   common: Record<string, unknown>,
+  members: OrganizationMember[],
 ) {
   const options = field.options ?? [];
+
+  if (field.field_type === 'LOOKUP_USER') {
+    const current = typeof value === 'string' ? value : '';
+    return (
+      <select
+        className="ctl w-full px-3 py-2 text-[13px]"
+        value={current}
+        onChange={(event) => onChange(event.target.value)}
+        {...common}
+      >
+        <option value="">—</option>
+        {members.map((member) => (
+          <option key={member.user_id} value={member.user_id}>
+            {member.full_name?.trim() || member.email}
+          </option>
+        ))}
+      </select>
+    );
+  }
 
   if (field.field_type === 'MULTI_PICKLIST') {
     const selected = Array.isArray(value) ? value : [];
@@ -306,7 +348,7 @@ function renderControl(
       minLength={field.min_length ?? undefined}
       maxLength={field.max_length ?? undefined}
       pattern={field.pattern ?? undefined}
-      step={field.field_type === 'DECIMAL' ? 'any' : undefined}
+      step={field.field_type === 'DECIMAL' || field.field_type === 'CURRENCY' ? 'any' : undefined}
       {...common}
     />
   );
@@ -316,6 +358,7 @@ function inputType(field: CustomFieldDefinition): string {
   switch (field.field_type) {
     case 'NUMBER':
     case 'DECIMAL':
+    case 'CURRENCY':
       return 'number';
     case 'DATE':
       return 'date';
@@ -394,4 +437,32 @@ export function useEntitySchema(entityType: CustomFieldEntityType): SchemaState 
     return { fields: [], status: 'error', error: current.error };
   }
   return { fields: current.fields, status: 'ready', error: null };
+}
+
+/**
+ * Organization members, fetched only when a rendered field actually needs
+ * them (a ``LOOKUP_USER`` custom field) — the overwhelmingly common case is a
+ * form with none, and that case pays no request for this.
+ */
+function useOrgMembers(needed: boolean): OrganizationMember[] {
+  const [members, setMembers] = useState<OrganizationMember[]>([]);
+
+  useEffect(() => {
+    if (!needed) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const page = await listMembers();
+        if (!cancelled) setMembers(page.data);
+      } catch {
+        // A lookup field simply offers no options; the record still shows
+        // whatever id it already holds elsewhere in the product.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [needed]);
+
+  return members;
 }

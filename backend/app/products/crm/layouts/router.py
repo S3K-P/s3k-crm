@@ -21,7 +21,7 @@ from app.core.database import DbSession
 from app.platform.auth.dependencies import Principal, require_permission
 from app.platform.authorization.service import Action as PermissionAction
 from app.products.crm.common import CrmEntityType
-from app.products.crm.layouts.models import RecordLayout
+from app.products.crm.layouts.models import LayoutType, RecordLayout
 from app.products.crm.layouts.schemas import (
     AvailableFieldInfo,
     EvaluateFieldStatesRequest,
@@ -90,8 +90,11 @@ async def list_layouts(
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
     service: ServiceDep,
     entity_type: Annotated[CrmEntityType, Query()],
+    layout_type: Annotated[LayoutType | None, Query()] = None,
 ) -> list[RecordLayoutResponse]:
-    layouts = await service.list_for_entity(principal.organization_id, entity_type)
+    layouts = await service.list_for_entity(
+        principal.organization_id, entity_type, layout_type=layout_type
+    )
     return [RecordLayoutResponse.model_validate(layout) for layout in layouts]
 
 
@@ -100,16 +103,20 @@ async def get_published_layout(
     principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
     service: ServiceDep,
     entity_type: Annotated[CrmEntityType, Query()],
+    layout_type: Annotated[LayoutType, Query()] = LayoutType.DETAIL,
 ) -> RecordLayoutDetailResponse | None:
-    """The live layout a create/edit form for ``entity_type`` should render.
+    """The live layout a form for ``entity_type``/``layout_type`` should render.
 
     ``None`` (not 404) when no layout has been published — every entity type
     is fully usable with no layout at all, since forms fall back to their
     existing hardcoded rendering. This is what lets the feature be adopted
     incrementally, one entity type at a time.
+
+    A request for ``CREATE`` or ``QUICK_CREATE`` falls back to the published
+    ``DETAIL`` layout when neither has one of its own — see
+    :meth:`~app.products.crm.layouts.service.LayoutService.get_published`.
     """
-    layouts = await service.list_for_entity(principal.organization_id, entity_type)
-    published = next((layout for layout in layouts if layout.is_published), None)
+    published = await service.get_published(principal.organization_id, entity_type, layout_type)
     if published is None:
         return None
     return await _detail(service, published)

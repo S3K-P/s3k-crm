@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Target, Plus, Pencil, Trash2, Loader2, LayoutList, LayoutGrid } from 'lucide-react';
+import { Target, Plus, Pencil, Trash2, Loader2, LayoutList, LayoutGrid, LayoutTemplate } from 'lucide-react';
 
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
 import KanbanBoard, { type KanbanColumnDef } from '@/components/crm/kanban/KanbanBoard';
@@ -549,6 +549,17 @@ function OpportunitiesPageContent() {
               <LayoutGrid className="h-4 w-4" />
             </button>
           </div>
+          {can('record_layouts', 'EDIT') && (
+            <button
+              type="button"
+              onClick={() => router.push('/admin/layouts?entity=OPPORTUNITY')}
+              aria-label="Edit page layout"
+              title="Edit page layout"
+              className="ctl bd rounded-lg border p-2 transition hover:opacity-80"
+            >
+              <LayoutTemplate className="h-4 w-4" />
+            </button>
+          )}
           {mayCreate && (
             <button
               type="button"
@@ -861,6 +872,7 @@ function OpportunitiesPageContent() {
             values={customValues}
             onChange={setCustomValues}
             recordContext={{ ...editing, ...form }}
+            layoutType={editing ? 'DETAIL' : 'CREATE'}
           />
         </div>
       </SlideDrawer>

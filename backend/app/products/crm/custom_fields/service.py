@@ -725,6 +725,7 @@ class CustomFieldValueService:
             definitions=definitions,
             record_context=record_context,
             document=current,
+            creating=creating,
         )
         self._require_present(
             definitions, current, touched=set(submitted), creating=creating, overrides=overrides
@@ -739,8 +740,18 @@ class CustomFieldValueService:
         definitions: Sequence[CustomFieldDefinition],
         record_context: Mapping[str, Any] | None,
         document: Mapping[str, Any],
+        creating: bool = False,
     ) -> dict[str, bool] | None:
         """Final required-ness for every custom field *placed on* a published layout.
+
+        Consults the published ``CREATE`` layout for a new record and the
+        published ``DETAIL`` layout for an update — the two screens
+        ``LayoutType`` (Checkpoint 9) distinguishes a *write* can come from,
+        as opposed to ``QUICK_CREATE``, which is still a create. Falls back to
+        the published ``DETAIL`` layout when the relevant one has nothing
+        published, so an organization that configured only one layout (as
+        every organization did before ``LayoutType`` existed) keeps identical
+        enforcement on every write.
 
         Returns ``None`` — "no override, every field keeps its own definition's
         ``is_required``" — when ``record_context`` was not supplied (a caller
@@ -767,6 +778,7 @@ class CustomFieldValueService:
             return None
 
         from app.products.crm.layouts.evaluate import effective_custom_field_states
+        from app.products.crm.layouts.models import LayoutType
         from app.products.crm.layouts.repository import (
             LayoutFieldRepository,
             LayoutFieldRuleRepository,
@@ -774,7 +786,10 @@ class CustomFieldValueService:
         )
 
         session = self._picklists.session
-        layout = await RecordLayoutRepository(session).published_for(organization_id, entity_type)
+        layout_type = LayoutType.CREATE if creating else LayoutType.DETAIL
+        layout = await RecordLayoutRepository(session).published_for_with_fallback(
+            organization_id, entity_type, layout_type
+        )
         if layout is None:
             return None
 

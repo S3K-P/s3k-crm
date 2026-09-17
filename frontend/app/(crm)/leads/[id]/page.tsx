@@ -627,6 +627,18 @@ export default function LeadDetailPage() {
 
       <div className="grid gap-6 md:grid-cols-2">
         <div className="surface bd rounded-2xl border p-5">
+          <SectionHeader title="Address" />
+          <div className="space-y-4 pt-2">
+            <Field label="Street" value={lead.address_line1} />
+            <Field
+              label="City, state"
+              value={[lead.city, lead.state].filter(Boolean).join(', ') || null}
+            />
+            <Field label="Postal code" value={lead.postal_code} />
+            <Field label="Country" value={lead.country} />
+          </div>
+        </div>
+        <div className="surface bd rounded-2xl border p-5">
           <SectionHeader title="Qualification" />
           <div className="space-y-4 pt-2">
             <Field label="Status" value={humanize(lead.status)} />

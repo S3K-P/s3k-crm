@@ -102,6 +102,7 @@ _ALLOWED_OPERATORS: dict[CustomFieldType, tuple[FilterOperator, ...]] = {
     CustomFieldType.TEXTAREA: (FilterOperator.CONTAINS, *_PRESENCE),
     CustomFieldType.NUMBER: (*_EQUALITY, *_ORDERED, *_PRESENCE),
     CustomFieldType.DECIMAL: (*_EQUALITY, *_ORDERED, *_PRESENCE),
+    CustomFieldType.CURRENCY: (*_EQUALITY, *_ORDERED, *_PRESENCE),
     CustomFieldType.DATE: (*_EQUALITY, *_ORDERED, *_PRESENCE),
     CustomFieldType.DATETIME: (*_EQUALITY, *_ORDERED, *_PRESENCE),
     CustomFieldType.BOOLEAN: (FilterOperator.EQ, FilterOperator.NE, *_PRESENCE),
@@ -118,6 +119,9 @@ _ALLOWED_OPERATORS: dict[CustomFieldType, tuple[FilterOperator, ...]] = {
         FilterOperator.IN,
         *_PRESENCE,
     ),
+    # Equality only: "assigned to this user" is the question a lookup filter
+    # answers, never a range — a user id has no order.
+    CustomFieldType.LOOKUP_USER: (*_EQUALITY, *_PRESENCE),
 }
 
 
@@ -151,7 +155,7 @@ def typed_value(model: type[Any], definition: CustomFieldDefinition) -> ColumnEl
     """
     text = _text_of(model, definition.api_name)
     match definition.field_type:
-        case CustomFieldType.NUMBER | CustomFieldType.DECIMAL:
+        case CustomFieldType.NUMBER | CustomFieldType.DECIMAL | CustomFieldType.CURRENCY:
             return _guarded(text, _NUMERIC_GUARD, Numeric(20, 6))
         case CustomFieldType.DATE:
             return _guarded(text, _DATE_GUARD, Date)

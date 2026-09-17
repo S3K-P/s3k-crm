@@ -84,6 +84,8 @@ def test_an_empty_value_clears_the_field() -> None:
         (CustomFieldType.NUMBER, "-7", -7),
         (CustomFieldType.DECIMAL, "3.5", 3.5),
         (CustomFieldType.DECIMAL, 3, 3.0),
+        (CustomFieldType.CURRENCY, "1999.99", 1999.99),
+        (CustomFieldType.CURRENCY, 250, 250.0),
         (CustomFieldType.BOOLEAN, "yes", True),
         (CustomFieldType.BOOLEAN, "FALSE", False),
         (CustomFieldType.BOOLEAN, True, True),
@@ -174,6 +176,21 @@ def test_a_multi_picklist_accepts_a_single_value() -> None:
 def test_a_multi_picklist_of_only_blanks_clears_the_field() -> None:
     field = definition(CustomFieldType.MULTI_PICKLIST)
     assert coerce(field, ["", "  "], allowed_options=["EMEA"]) == []
+
+
+# --- Lookup (user) -----------------------------------------------------------
+
+
+def test_a_lookup_user_value_must_be_a_uuid() -> None:
+    field = definition(CustomFieldType.LOOKUP_USER)
+    with pytest.raises(CustomFieldValueError):
+        coerce(field, "not-a-uuid")
+
+
+def test_a_lookup_user_value_is_normalized_to_lower_case() -> None:
+    field = definition(CustomFieldType.LOOKUP_USER)
+    given = str(uuid.uuid4()).upper()
+    assert coerce(field, given) == given.lower()
 
 
 # --- Bounds ----------------------------------------------------------------

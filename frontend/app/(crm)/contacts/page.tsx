@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Contact as ContactIcon, GitMerge, Loader2, Pencil, Plus, Trash2, Upload } from 'lucide-react';
+import { Contact as ContactIcon, GitMerge, LayoutTemplate, Loader2, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
@@ -337,16 +337,29 @@ function ContactsPageContent() {
             </p>
           </div>
         </div>
-        {mayCreate && (
-          <button
-            type="button"
-            onClick={openAdd}
-            className="flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-semibold text-white transition hover:opacity-90"
-            style={{ background: 'var(--accent)' }}
-          >
-            <Plus className="h-4 w-4" /> New contact
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {can('record_layouts', 'EDIT') && (
+            <button
+              type="button"
+              onClick={() => router.push('/admin/layouts?entity=CONTACT')}
+              aria-label="Edit page layout"
+              title="Edit page layout"
+              className="ctl bd rounded-lg border p-2 transition hover:opacity-80"
+            >
+              <LayoutTemplate className="h-4 w-4" />
+            </button>
+          )}
+          {mayCreate && (
+            <button
+              type="button"
+              onClick={openAdd}
+              className="flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-semibold text-white transition hover:opacity-90"
+              style={{ background: 'var(--accent)' }}
+            >
+              <Plus className="h-4 w-4" /> New contact
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -576,12 +589,50 @@ function ContactsPageContent() {
               options={CONTACT_STATUSES.map((value) => ({ value, label: humanize(value) }))}
             />
           </FormField>
+          <p className="txt-faint pt-2 text-[11px] font-semibold uppercase tracking-wide">
+            Address Information
+          </p>
+          <FormField label="Street">
+            <FormInput
+              value={form.address_line1 ?? ''}
+              onChange={(event) => setForm({ ...form, address_line1: event.target.value })}
+            />
+          </FormField>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="City">
+              <FormInput
+                value={form.city ?? ''}
+                onChange={(event) => setForm({ ...form, city: event.target.value })}
+              />
+            </FormField>
+            <FormField label="State">
+              <FormInput
+                value={form.state ?? ''}
+                onChange={(event) => setForm({ ...form, state: event.target.value })}
+              />
+            </FormField>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Postal code">
+              <FormInput
+                value={form.postal_code ?? ''}
+                onChange={(event) => setForm({ ...form, postal_code: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Country">
+              <FormInput
+                value={form.country ?? ''}
+                onChange={(event) => setForm({ ...form, country: event.target.value })}
+              />
+            </FormField>
+          </div>
           <FormError message={saveError} />
           <CustomFieldInputs
             entityType="CONTACT"
             values={customValues}
             onChange={setCustomValues}
             recordContext={{ ...editing, ...form }}
+            layoutType={editing ? 'DETAIL' : 'CREATE'}
           />
         </div>
       </SlideDrawer>

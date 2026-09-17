@@ -169,6 +169,21 @@ export default function ContactDetailPage() {
         </div>
       </div>
 
+      <div className="grid gap-6 md:grid-cols-2">
+        <div className="surface bd rounded-2xl border p-5">
+          <SectionHeader title="Address" />
+          <div className="space-y-4 pt-2">
+            <Field label="Street" value={contact.address_line1} />
+            <Field
+              label="City, state"
+              value={[contact.city, contact.state].filter(Boolean).join(', ') || null}
+            />
+            <Field label="Postal code" value={contact.postal_code} />
+            <Field label="Country" value={contact.country} />
+          </div>
+        </div>
+      </div>
+
       {/* The account and the contact both travel with the link, so the new
           deal opens already attached to each — no re-picking, and both are
           written as the foreign keys the backend validates. */}
