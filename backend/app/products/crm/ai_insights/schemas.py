@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -282,6 +283,70 @@ class PriorityReason(BaseModel):
     detail: str
 
 
+class PriorityRecordFacts(BaseModel):
+    """Plain CRM fields about one ranked record, shown beside its reasons.
+
+    Read from the rows and batched queries the queue already loads, so the
+    Next Best Action screen can show what a record *is* — its account, value,
+    close date, last activity, follow-up state — without a request per row.
+    Display only: nothing here feeds the score, and nothing is inferred. A
+    field that does not apply to the record's type is left ``None``.
+    """
+
+    # --- Opportunities ---
+    account_id: uuid.UUID | None = None
+    #: ``None`` when the caller may see the deal but not its account: the name
+    #: is a read of the account, so the account's own visibility applies.
+    account_name: str | None = None
+    stage_name: str | None = None
+    deal_value: Decimal | None = None
+    currency: str | None = None
+    win_probability: int | None = None
+    expected_close_date: dt.date | None = None
+
+    # --- Leads ---
+    company: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    status: str | None = None
+    expected_deal_size: Decimal | None = None
+
+    # --- Both ---
+    #: The same "last activity" instant the score's staleness reasons use.
+    last_activity_at: dt.datetime | None = None
+    open_task_count: int = 0
+    overdue_task_count: int = 0
+
+
+class NbaSignalEvidence(BaseModel):
+    key: str
+    label: str
+    value: str
+
+
+class NbaActionResponse(BaseModel):
+    """One recommended action — from a rule (Level 1) or history (Level 2)."""
+
+    action_code: str
+    category: str
+    label: str
+    #: The CRM flow that carries it out: EMAIL, CALL, WHATSAPP, LINKEDIN, MEETING, TASK,
+    #: NOTE or RECORD.
+    execution: str
+    #: The draft the Copilot can prepare, if any.
+    copilot: str | None
+    priority: Literal["HIGH", "MEDIUM", "LOW"]
+    level: Literal["RULE", "PREDICTIVE"]
+    reasons: list[str]
+    rule_keys: list[str]
+    signals: list[NbaSignalEvidence]
+    timing: str | None = None
+    #: Suggested due time for the task/meeting that executes it.
+    due_at: dt.datetime | None = None
+    #: 0-100, only where it is measured (predictive recommendations).
+    confidence: int | None = None
+
+
 class PriorityScoreResponse(BaseModel):
     entity_type: str
     entity_id: uuid.UUID
@@ -289,6 +354,223 @@ class PriorityScoreResponse(BaseModel):
     level: Literal["HIGH", "MEDIUM", "LOW"]
     score: int = Field(ge=0, le=100)
     reasons: list[PriorityReason]
+    facts: PriorityRecordFacts = Field(default_factory=PriorityRecordFacts)
+    #: The record's most recent cached Next Best Action, if one was ever
+    #: generated. Read, never generated here — listing the queue makes no
+    #: model call (§15).
+    latest_recommendation: AiGenerationResponse | None = None
+    #: The Next Best Action engine's recommendations — rules and history, no
+    #: model call — best first.
+    actions: list[NbaActionResponse] = Field(default_factory=list)
+    #: The signal snapshot the actions were computed from (catalog signals only).
+    signals: dict[str, Any] = Field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Next Best Action engine: catalog, rules, action log, Copilot
+# ---------------------------------------------------------------------------
+
+NbaRecordKind = Literal["OPPORTUNITY", "LEAD"]
+NbaAppliesTo = Literal["OPPORTUNITY", "LEAD", "BOTH"]
+NbaPriority = Literal["HIGH", "MEDIUM", "LOW"]
+
+
+class NbaCatalogAction(BaseModel):
+    code: str
+    category: str
+    label: str
+    execution: str
+    copilot: str | None
+    applies_to: list[NbaRecordKind]
+
+
+class NbaCatalogSignal(BaseModel):
+    key: str
+    label: str
+    kind: str
+    applies_to: list[NbaRecordKind]
+    source: str
+
+
+class NbaCatalogResponse(BaseModel):
+    categories: list[str]
+    actions: list[NbaCatalogAction]
+    signals: list[NbaCatalogSignal]
+    operators: list[str]
+
+
+class NbaCondition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field_key: str = Field(min_length=1, max_length=120)
+    operator: str = Field(min_length=1, max_length=32)
+    value: Any = None
+
+
+class NbaRuleResponse(BaseModel):
+    #: The built-in key, or the tenant rule's id.
+    key: str
+    id: uuid.UUID | None
+    source: Literal["BUILTIN", "CUSTOM"]
+    name: str
+    description: str | None
+    applies_to: NbaAppliesTo
+    logic: Literal["AND", "OR"]
+    conditions: list[NbaCondition]
+    action_code: str
+    action_label: str
+    category: str
+    priority: NbaPriority
+    reason: str
+    timing: str | None
+    due_in_hours: int | None
+    cooldown_days: int
+    is_active: bool
+    #: A built-in the tenant has changed.
+    is_overridden: bool
+
+
+class NbaRuleCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=500)
+    applies_to: NbaAppliesTo = "BOTH"
+    logic: Literal["AND", "OR"] = "AND"
+    conditions: list[NbaCondition] = Field(min_length=1, max_length=10)
+    action_code: str = Field(min_length=1, max_length=64)
+    priority: NbaPriority = "MEDIUM"
+    reason: str = Field(min_length=1, max_length=500)
+    timing: str | None = Field(default=None, max_length=80)
+    due_in_hours: int | None = Field(default=None, ge=1, le=24 * 30)
+    cooldown_days: int = Field(default=3, ge=0, le=90)
+    is_active: bool = True
+
+
+class NbaRuleUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=500)
+    applies_to: NbaAppliesTo | None = None
+    logic: Literal["AND", "OR"] | None = None
+    conditions: list[NbaCondition] | None = Field(default=None, min_length=1, max_length=10)
+    action_code: str | None = Field(default=None, min_length=1, max_length=64)
+    priority: NbaPriority | None = None
+    reason: str | None = Field(default=None, min_length=1, max_length=500)
+    timing: str | None = Field(default=None, max_length=80)
+    due_in_hours: int | None = Field(default=None, ge=1, le=24 * 30)
+    cooldown_days: int | None = Field(default=None, ge=0, le=90)
+    is_active: bool | None = None
+
+
+class NbaBuiltinOverride(BaseModel):
+    """What a tenant may tune on a built-in rule. Omitted fields keep the default."""
+
+    is_active: bool | None = None
+    priority: NbaPriority | None = None
+    logic: Literal["AND", "OR"] | None = None
+    conditions: list[NbaCondition] | None = Field(default=None, min_length=1, max_length=10)
+    cooldown_days: int | None = Field(default=None, ge=0, le=90)
+
+
+class NbaActionLogCreate(BaseModel):
+    entity_type: NbaRecordKind
+    entity_id: uuid.UUID
+    action_code: str = Field(min_length=1, max_length=64)
+    outcome: Literal["EXECUTED", "DISMISSED"]
+    rule_keys: list[str] = Field(default_factory=list, max_length=40)
+    generation_id: uuid.UUID | None = None
+    note: str | None = Field(default=None, max_length=500)
+
+
+class NbaActionLogResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    entity_type: str
+    entity_id: uuid.UUID
+    action_code: str
+    outcome: str
+    rule_keys: list[str]
+    generation_id: uuid.UUID | None
+    note: str | None
+    actor_id: uuid.UUID | None
+    created_at: dt.datetime
+
+
+CopilotKindName = Literal["EMAIL", "MESSAGE", "MEETING_AGENDA", "CALL_SCRIPT", "PROPOSAL"]
+
+
+class NbaCopilotRequest(BaseModel):
+    entity_type: NbaRecordKind
+    entity_id: uuid.UUID
+    action_code: str = Field(min_length=1, max_length=64)
+    #: Defaults to the action's own Copilot kind.
+    kind: CopilotKindName | None = None
+    #: Optional guidance from the rep ("mention the Q3 discount").
+    instruction: str | None = Field(default=None, max_length=1_000)
+
+
+class CopilotEmailOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    subject: str = Field(min_length=1, max_length=300)
+    body: str = Field(min_length=1, max_length=8_000)
+
+
+class CopilotMessageOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    body: str = Field(min_length=1, max_length=1_500)
+
+
+class CopilotAgendaItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    topic: str = Field(min_length=1, max_length=200)
+    minutes: int = Field(ge=1, le=240)
+    objective: str = Field(default="", max_length=400)
+
+
+class CopilotMeetingOutput(BaseModel):
+    """A meeting the rep can schedule — the calendar invite and its agenda."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=200)
+    duration_minutes: int = Field(ge=15, le=240)
+    description: str = Field(default="", max_length=2_000)
+    agenda: list[CopilotAgendaItem] = Field(min_length=1, max_length=12)
+    attendee_roles: list[str] = Field(default_factory=list, max_length=10)
+
+
+class CopilotObjection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    objection: str = Field(min_length=1, max_length=300)
+    response: str = Field(min_length=1, max_length=600)
+
+
+class CopilotCallScriptOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    opening: str = Field(min_length=1, max_length=800)
+    questions: list[str] = Field(default_factory=list, max_length=12)
+    talking_points: list[str] = Field(default_factory=list, max_length=12)
+    objections: list[CopilotObjection] = Field(default_factory=list, max_length=8)
+    close: str = Field(min_length=1, max_length=600)
+
+
+class CopilotProposalSection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=200)
+    content: str = Field(min_length=1, max_length=3_000)
+
+
+class CopilotProposalOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str = Field(min_length=1, max_length=1_500)
+    sections: list[CopilotProposalSection] = Field(min_length=1, max_length=12)
+    next_steps: list[str] = Field(default_factory=list, max_length=8)
 
 
 class PriorityListResponse(BaseModel):
@@ -324,6 +606,11 @@ __all__ = [
     "AccountIntelligenceOutput",
     "AiFeedbackRequest",
     "AiGenerationResponse",
+    "CopilotCallScriptOutput",
+    "CopilotEmailOutput",
+    "CopilotMeetingOutput",
+    "CopilotMessageOutput",
+    "CopilotProposalOutput",
     "EmailDraftOutput",
     "EmailDraftRequest",
     "InsightItem",
@@ -334,6 +621,17 @@ __all__ = [
     "MeetingApplyResponse",
     "MeetingExtractRequest",
     "MeetingExtractionOutput",
+    "NbaActionLogCreate",
+    "NbaActionLogResponse",
+    "NbaActionResponse",
+    "NbaBuiltinOverride",
+    "NbaCatalogResponse",
+    "NbaCondition",
+    "NbaCopilotRequest",
+    "NbaRuleCreate",
+    "NbaRuleResponse",
+    "NbaRuleUpdate",
+    "NbaSignalEvidence",
     "NextBestActionOutput",
     "NlQueryRequest",
     "NlQueryResponse",
@@ -341,6 +639,7 @@ __all__ = [
     "PriorityExplanationOutput",
     "PriorityListResponse",
     "PriorityReason",
+    "PriorityRecordFacts",
     "PriorityScoreResponse",
     "RecordSummaryOutput",
     "RelationshipHealth",

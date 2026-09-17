@@ -7,7 +7,7 @@ import AiEmptyState from '@/components/crm/ai/shared/AiEmptyState';
 import ScoreMeter from '@/components/crm/ai/shared/ScoreMeter';
 import NbaRowActions, { type NbaAction } from './NbaRowActions';
 import {
-  PRIORITY_VARIANT,
+  FIXTURE_PRIORITY_VARIANT as PRIORITY_VARIANT,
   RISK_VARIANT,
   STATUS_VARIANT,
   confidenceLabel,

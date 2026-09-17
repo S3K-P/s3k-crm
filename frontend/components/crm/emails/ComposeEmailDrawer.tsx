@@ -61,6 +61,8 @@ interface ComposeEmailDrawerProps {
   /** Reply to this message, so it threads in the recipient's client. */
   inReplyToMessageId?: string | null;
   defaultSubject?: string;
+  /** Pre-filled body — e.g. a Copilot draft the rep approved. */
+  defaultBody?: string;
   onSent?: (message: EmailMessage) => void;
 }
 
@@ -92,6 +94,7 @@ function ComposeForm({
   threadId = null,
   inReplyToMessageId = null,
   defaultSubject = '',
+  defaultBody = '',
   onSent,
 }: ComposeEmailDrawerProps) {
   const { pending, error, run } = useMutation();
@@ -101,7 +104,7 @@ function ComposeForm({
   const [bcc, setBcc] = useState('');
   const [showCopies, setShowCopies] = useState(false);
   const [subject, setSubject] = useState(defaultSubject);
-  const [body, setBody] = useState('');
+  const [body, setBody] = useState(defaultBody);
 
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [templateId, setTemplateId] = useState<string>('');

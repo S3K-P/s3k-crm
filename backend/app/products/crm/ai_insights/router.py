@@ -13,7 +13,7 @@ from __future__ import annotations
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response, status
 
 from app.core.config import Settings
 from app.core.database import DbSession
@@ -31,9 +31,18 @@ from app.products.crm.ai_insights.schemas import (
     MeetingApplyRequest,
     MeetingApplyResponse,
     MeetingExtractRequest,
+    NbaActionLogCreate,
+    NbaActionLogResponse,
+    NbaBuiltinOverride,
+    NbaCatalogResponse,
+    NbaCopilotRequest,
+    NbaRuleCreate,
+    NbaRuleResponse,
+    NbaRuleUpdate,
     NlQueryRequest,
     NlQueryResponse,
     PriorityListResponse,
+    PriorityScoreResponse,
 )
 from app.products.crm.ai_insights.service import AiInsightsService
 from app.products.crm.common import CrmEntityType
@@ -60,6 +69,8 @@ ServiceDep = Annotated[AiInsightsService, Depends(get_service)]
 ViewPrincipal = Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))]
 CreatePrincipal = Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.CREATE))]
 EditPrincipal = Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.EDIT))]
+#: Changing the organization's Next Best Action rules — Admin only.
+AdminPrincipal = Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.ADMIN))]
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +349,94 @@ async def explain_lead_priority(
             "This lead is converted, lost or unqualified and has no priority score."
         )
     generation = await service.explain_priority(principal, score=score, subject="this lead")
+    return AiGenerationResponse.model_validate(generation)
+
+
+# ---------------------------------------------------------------------------
+# Next Best Action engine — rules (Level 1), history (Level 2), Copilot (Level 3)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/nba/catalog", response_model=NbaCatalogResponse)
+async def nba_catalog(principal: ViewPrincipal, service: ServiceDep) -> NbaCatalogResponse:
+    """Every action the engine may recommend and every signal a rule may test."""
+    return service.nba_catalog()
+
+
+@router.get("/nba/opportunities/{opportunity_id}", response_model=PriorityScoreResponse | None)
+async def nba_for_opportunity(
+    opportunity_id: uuid.UUID, principal: ViewPrincipal, service: ServiceDep
+) -> PriorityScoreResponse | None:
+    """One deal's queue entry: score, facts, signals and actions. ``null`` once closed."""
+    return await service.nba_for_opportunity(principal, opportunity_id)
+
+
+@router.get("/nba/leads/{lead_id}", response_model=PriorityScoreResponse | None)
+async def nba_for_lead(
+    lead_id: uuid.UUID, principal: ViewPrincipal, service: ServiceDep
+) -> PriorityScoreResponse | None:
+    return await service.nba_for_lead(principal, lead_id)
+
+
+@router.get("/nba/rules", response_model=list[NbaRuleResponse])
+async def list_nba_rules(principal: ViewPrincipal, service: ServiceDep) -> list[NbaRuleResponse]:
+    return await service.list_nba_rules(principal)
+
+
+@router.post("/nba/rules", response_model=NbaRuleResponse, status_code=status.HTTP_201_CREATED)
+async def create_nba_rule(
+    payload: NbaRuleCreate, principal: AdminPrincipal, service: ServiceDep
+) -> NbaRuleResponse:
+    return await service.create_nba_rule(principal, payload)
+
+
+@router.patch("/nba/rules/{rule_id}", response_model=NbaRuleResponse)
+async def update_nba_rule(
+    rule_id: uuid.UUID, payload: NbaRuleUpdate, principal: AdminPrincipal, service: ServiceDep
+) -> NbaRuleResponse:
+    return await service.update_nba_rule(principal, rule_id, payload)
+
+
+@router.delete("/nba/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_nba_rule(
+    rule_id: uuid.UUID, principal: AdminPrincipal, service: ServiceDep
+) -> Response:
+    await service.delete_nba_rule(principal, rule_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put("/nba/rules/builtin/{key}", response_model=NbaRuleResponse)
+async def override_builtin_nba_rule(
+    key: str, payload: NbaBuiltinOverride, principal: AdminPrincipal, service: ServiceDep
+) -> NbaRuleResponse:
+    """Switch a built-in rule off, re-prioritise it or change its thresholds."""
+    return await service.override_builtin_rule(principal, key, payload)
+
+
+@router.delete("/nba/rules/builtin/{key}", status_code=status.HTTP_204_NO_CONTENT)
+async def reset_builtin_nba_rule(
+    key: str, principal: AdminPrincipal, service: ServiceDep
+) -> Response:
+    await service.reset_builtin_rule(principal, key)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/nba/actions/log", response_model=NbaActionLogResponse, status_code=status.HTTP_201_CREATED
+)
+async def log_nba_action(
+    payload: NbaActionLogCreate, principal: CreatePrincipal, service: ServiceDep
+) -> NbaActionLogResponse:
+    """Record an executed or dismissed action so it is not recommended again straight away."""
+    return await service.log_nba_action(principal, payload)
+
+
+@router.post("/nba/copilot", response_model=AiGenerationResponse)
+async def nba_copilot(
+    payload: NbaCopilotRequest, principal: CreatePrincipal, service: ServiceDep
+) -> AiGenerationResponse:
+    """Draft what an action needs for the rep to review — nothing is sent or scheduled."""
+    generation = await service.nba_copilot(principal, payload)
     return AiGenerationResponse.model_validate(generation)
 
 

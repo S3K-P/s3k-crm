@@ -32,13 +32,13 @@ import datetime as dt
 import enum
 import uuid
 
-from sqlalchemy import Boolean, DateTime, Enum, Index, String, Text, Uuid, text
+from sqlalchemy import Boolean, DateTime, Enum, Index, Integer, String, Text, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.core.models import TenantMixin, TimestampMixin, UUIDPrimaryKeyMixin
-from app.products.crm.common import CRM_SCHEMA
+from app.products.crm.common import CRM_SCHEMA, CrmEntityMixin
 
 
 class AiFeature(enum.StrEnum):
@@ -53,6 +53,9 @@ class AiFeature(enum.StrEnum):
     MEETING_EXTRACTION = "MEETING_EXTRACTION"
     NL_QUERY = "NL_QUERY"
     PRIORITIZATION_EXPLANATION = "PRIORITIZATION_EXPLANATION"
+    #: A Next Best Action Copilot draft (email, message, agenda, call script,
+    #: proposal) prepared for a rep to review before anything is executed.
+    NBA_COPILOT = "NBA_COPILOT"
 
 
 class AiGenerationStatus(enum.StrEnum):
@@ -140,9 +143,109 @@ class AiGeneration(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
     feedback_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class NbaRule(Base, CrmEntityMixin):
+    """A tenant's Next Best Action rule: its own rule, or a tuned built-in.
+
+    Two kinds of row share the table. With ``builtin_key`` set, the row
+    overrides a built-in (``nba_rules.BUILTIN_RULES``) — its active flag,
+    priority, cooldown and, when ``conditions`` is non-empty, its thresholds —
+    while the built-in keeps its action. With ``builtin_key`` null it is a rule
+    the tenant wrote, evaluated by the same engine. Configuration, so it is
+    soft-deleted and audited like every other CRM configuration object.
+    """
+
+    __tablename__ = "nba_rules"
+    __table_args__ = (
+        Index(
+            "uq_nba_rules_organization_id_builtin_key_live",
+            "organization_id",
+            "builtin_key",
+            unique=True,
+            postgresql_where=text("builtin_key IS NOT NULL AND deleted_at IS NULL"),
+        ),
+        Index(
+            "uq_nba_rules_organization_id_name_live",
+            "organization_id",
+            "name",
+            unique=True,
+            postgresql_where=text("builtin_key IS NULL AND deleted_at IS NULL"),
+        ),
+        {"schema": CRM_SCHEMA},
+    )
+
+    builtin_key: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    #: ``OPPORTUNITY`` | ``LEAD`` | ``BOTH``.
+    applies_to: Mapped[str] = mapped_column(String(16), nullable=False, default="BOTH")
+    condition_logic: Mapped[str] = mapped_column(String(3), nullable=False, default="AND")
+    #: ``[{"field_key", "operator", "value"}]`` over signal keys — the shape
+    #: ``layouts.evaluate.evaluate_condition`` takes.
+    conditions: Mapped[list[dict[str, object]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    action_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    priority: Mapped[str] = mapped_column(String(8), nullable=False, default="MEDIUM")
+    #: ``str.format`` template over signal keys.
+    reason: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    timing: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    due_in_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cooldown_days: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=3, server_default="3"
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+
+
+class NbaActionOutcome(enum.StrEnum):
+    EXECUTED = "EXECUTED"
+    DISMISSED = "DISMISSED"
+
+
+class NbaActionLog(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    """A rep executed or dismissed a recommended action on a record.
+
+    Append-only, like ``ai_generations``. It is what keeps a recommendation
+    from coming straight back after the rep acted on it: the engine suppresses
+    an action logged for the same record within the rule's cooldown.
+    """
+
+    __tablename__ = "nba_action_logs"
+    __table_args__ = (
+        Index(
+            "ix_nba_action_logs_org_entity_action_created",
+            "organization_id",
+            "entity_type",
+            "entity_id",
+            "action_code",
+            "created_at",
+        ),
+        {"schema": CRM_SCHEMA},
+    )
+
+    entity_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    entity_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    action_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    outcome: Mapped[NbaActionOutcome] = mapped_column(
+        Enum(NbaActionOutcome, name="nba_action_outcome", schema=CRM_SCHEMA, native_enum=True),
+        nullable=False,
+    )
+    rule_keys: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    generation_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+
+
 __all__ = [
     "AiFeature",
     "AiFeedbackRating",
     "AiGeneration",
     "AiGenerationStatus",
+    "NbaActionLog",
+    "NbaActionOutcome",
+    "NbaRule",
 ]

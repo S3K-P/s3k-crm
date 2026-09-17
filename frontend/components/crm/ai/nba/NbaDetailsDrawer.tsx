@@ -31,7 +31,7 @@ import CopyButton from '@/components/crm/ai/shared/CopyButton';
 import AiEmptyState from '@/components/crm/ai/shared/AiEmptyState';
 import { ACTIVITY_ICONS } from '@/components/crm/ai/insights/report-helpers';
 import {
-  PRIORITY_VARIANT,
+  FIXTURE_PRIORITY_VARIANT as PRIORITY_VARIANT,
   PROPOSAL_VARIANT,
   RISK_VARIANT,
   SEVERITY_VARIANT,
