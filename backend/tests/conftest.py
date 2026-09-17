@@ -24,6 +24,7 @@ TEST_REDIS_URL = "redis://localhost:6379/15"
 def settings() -> Settings:
     """Deterministic settings independent of the local environment."""
     return Settings(
+        _env_file=None,  # skip backend/.env: unset fields must use their code defaults, not leak from the developer's machine
         app_name="s3k-crm-backend",
         environment="test",
         debug=False,
