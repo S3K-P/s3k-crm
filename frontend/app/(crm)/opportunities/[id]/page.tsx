@@ -387,6 +387,8 @@ export default function OpportunityDetailPage() {
             />
             <Field label="Expected close" value={opportunity.expected_close_date} />
             <Field label="Forecast category" value={opportunity.forecast_category} />
+            <Field label="Type" value={opportunity.deal_type} />
+            <Field label="Next step" value={opportunity.next_step} />
             <Field label="Competitor" value={opportunity.competitor} />
           </div>
         </div>

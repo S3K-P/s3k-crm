@@ -138,7 +138,10 @@ export default function ContactDetailPage() {
         <div className="surface bd rounded-2xl border p-5">
           <SectionHeader title="Contact information" />
           <div className="space-y-4 pt-2">
+            <Field label="Salutation" value={contact.salutation} />
             <Field label="Email" value={contact.email} />
+            <Field label="Secondary email" value={contact.secondary_email} />
+            <Field label="Email opt-out" value={contact.email_opt_out ? 'Yes' : 'No'} />
             <Field label="Phone" value={contact.phone} />
             <Field label="Mobile" value={contact.mobile} />
             <Field label="LinkedIn" value={contact.linkedin_url} />

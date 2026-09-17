@@ -608,9 +608,13 @@ export default function LeadDetailPage() {
         <div className="surface bd rounded-2xl border p-5">
           <SectionHeader title="Contact information" />
           <div className="space-y-4 pt-2">
+            <Field label="Title" value={lead.title} />
             <Field label="Email" value={lead.email} />
+            <Field label="Secondary email" value={lead.secondary_email} />
             <Field label="Phone" value={lead.phone} />
             <Field label="Priority" value={lead.priority ? humanize(lead.priority) : null} />
+            <Field label="Rating" value={lead.rating ? humanize(lead.rating) : null} />
+            <Field label="Email opt-out" value={lead.email_opt_out ? 'Yes' : 'No'} />
             <Field label="Owner" value={ownerName} />
           </div>
         </div>

@@ -12,6 +12,7 @@ import uuid
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     Enum,
@@ -32,6 +33,7 @@ from app.products.crm.common import (
     CrmEntityMixin,
     CustomFieldValuesMixin,
     Priority,
+    Rating,
     searchable,
 )
 
@@ -109,9 +111,14 @@ class Lead(Base, CrmEntityMixin, CustomFieldValuesMixin):
 
     first_name: Mapped[str] = mapped_column(String(120), nullable=False)
     last_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    #: Job title (Zoho "Title") — the person's role at ``company``.
+    title: Mapped[str | None] = mapped_column(String(100), nullable=True)
     #: Free-text company name; becomes an ``Account`` on conversion.
     company: Mapped[str | None] = mapped_column(String(255), nullable=True)
     email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    #: Zoho "Secondary Email" — an alternate address, never used for the
+    #: duplicate-email guard (only ``email`` is).
+    secondary_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     lead_source_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
@@ -130,6 +137,15 @@ class Lead(Base, CrmEntityMixin, CustomFieldValuesMixin):
     priority: Mapped[Priority | None] = mapped_column(
         Enum(Priority, name="crm_priority", schema=CRM_SCHEMA, native_enum=True),
         nullable=True,
+    )
+    #: Zoho "Rating" — a qualitative call on the lead, independent of ``ai_score``.
+    rating: Mapped[Rating | None] = mapped_column(
+        Enum(Rating, name="crm_rating", schema=CRM_SCHEMA, native_enum=True),
+        nullable=True,
+    )
+    #: Zoho "Email Opt Out" — excludes the lead from bulk/marketing email.
+    email_opt_out: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
     )
     expected_deal_size: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     industry: Mapped[str | None] = mapped_column(String(120), nullable=True)

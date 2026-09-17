@@ -30,6 +30,10 @@ export type LeadStatus =
 
 export type Priority = 'HIGH' | 'MEDIUM' | 'LOW';
 
+export type Rating = 'HOT' | 'WARM' | 'COLD';
+
+export const RATINGS: Rating[] = ['HOT', 'WARM', 'COLD'];
+
 /** Board columns, in pipeline order. Terminal states are shown last. */
 export const LEAD_STATUSES: LeadStatus[] = [
   'NEW',
@@ -47,11 +51,15 @@ export const PRIORITIES: Priority[] = ['HIGH', 'MEDIUM', 'LOW'];
 export interface Lead extends RecordMeta {
   first_name: string;
   last_name: string;
+  title: string | null;
   company: string | null;
   email: string | null;
+  secondary_email: string | null;
   phone: string | null;
   status: LeadStatus;
   priority: Priority | null;
+  rating: Rating | null;
+  email_opt_out: boolean;
   owner_id: string | null;
   lead_source_id: string | null;
   campaign_id: string | null;
@@ -78,10 +86,14 @@ export interface Lead extends RecordMeta {
 export interface LeadInput {
   first_name: string;
   last_name: string;
+  title?: string | null;
   company?: string | null;
   email?: string | null;
+  secondary_email?: string | null;
   phone?: string | null;
   priority?: Priority;
+  rating?: Rating | null;
+  email_opt_out?: boolean;
   owner_id?: string | null;
   lead_source_id?: string | null;
   industry?: string | null;

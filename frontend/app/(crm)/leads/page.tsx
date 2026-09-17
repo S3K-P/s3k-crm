@@ -36,6 +36,7 @@ import { listMembers, type OrganizationMember } from '@/features/admin/users';
 import {
   LEAD_STATUSES,
   PRIORITIES,
+  RATINGS,
   archiveLead,
   bulkChangeLeadStatus,
   bulkDeleteLeads,
@@ -49,6 +50,7 @@ import {
   type LeadInput,
   type LeadStatus,
   type Priority,
+  type Rating,
 } from '@/features/crm/leads';
 
 /* ============================================================
@@ -84,10 +86,14 @@ const KANBAN_COLUMNS: KanbanColumnDef[] = LEAD_STATUSES.map((status) => ({
 const EMPTY_FORM: LeadInput = {
   first_name: '',
   last_name: '',
+  title: '',
   company: '',
   email: '',
+  secondary_email: '',
   phone: '',
   priority: 'MEDIUM',
+  rating: null,
+  email_opt_out: false,
   owner_id: '',
   lead_source_id: '',
   campaign_id: '',
@@ -254,10 +260,14 @@ export default function LeadsPage() {
     setForm({
       first_name: row.first_name,
       last_name: row.last_name,
+      title: row.title ?? '',
       company: row.company ?? '',
       email: row.email ?? '',
+      secondary_email: row.secondary_email ?? '',
       phone: row.phone ?? '',
       priority: row.priority ?? 'MEDIUM',
+      rating: row.rating ?? null,
+      email_opt_out: row.email_opt_out,
       owner_id: row.owner_id ?? '',
       lead_source_id: row.lead_source_id ?? '',
       industry: row.industry ?? '',
@@ -277,10 +287,14 @@ export default function LeadsPage() {
     const body: LeadInput = {
       first_name: form.first_name.trim(),
       last_name: form.last_name.trim(),
+      title: form.title?.trim() || null,
       company: form.company?.trim() || null,
       email: form.email?.trim() || null,
+      secondary_email: form.secondary_email?.trim() || null,
       phone: form.phone?.trim() || null,
       priority: form.priority,
+      rating: form.rating || null,
+      email_opt_out: form.email_opt_out ?? false,
       owner_id: form.owner_id || null,
       lead_source_id: form.lead_source_id || null,
       industry: form.industry?.trim() || null,
@@ -776,11 +790,25 @@ export default function LeadsPage() {
               onChange={(event) => setForm({ ...form, company: event.target.value })}
             />
           </FormField>
+          <FormField label="Title">
+            <FormInput
+              value={form.title ?? ''}
+              onChange={(event) => setForm({ ...form, title: event.target.value })}
+              placeholder="Job title"
+            />
+          </FormField>
           <FormField label="Email">
             <FormInput
               type="email"
               value={form.email ?? ''}
               onChange={(event) => setForm({ ...form, email: event.target.value })}
+            />
+          </FormField>
+          <FormField label="Secondary email">
+            <FormInput
+              type="email"
+              value={form.secondary_email ?? ''}
+              onChange={(event) => setForm({ ...form, secondary_email: event.target.value })}
             />
           </FormField>
           <FormField label="Phone">
@@ -789,6 +817,24 @@ export default function LeadsPage() {
               onChange={(event) => setForm({ ...form, phone: event.target.value })}
             />
           </FormField>
+          <FormField label="Rating">
+            <FormSelect
+              value={form.rating ?? ''}
+              onChange={(event) =>
+                setForm({ ...form, rating: (event.target.value || null) as Rating | null })
+              }
+              placeholder="Unrated"
+              options={RATINGS.map((value) => ({ value, label: humanize(value) }))}
+            />
+          </FormField>
+          <label className="flex items-center gap-2 text-[13px] font-semibold">
+            <input
+              type="checkbox"
+              checked={form.email_opt_out ?? false}
+              onChange={(event) => setForm({ ...form, email_opt_out: event.target.checked })}
+            />
+            Email opt-out
+          </label>
           <FormField label="Industry">
             <FormInput
               value={form.industry ?? ''}

@@ -23,10 +23,13 @@ export const CONTACT_STATUSES: ContactStatus[] = ['ACTIVE', 'INACTIVE'];
 
 export interface Contact extends RecordMeta {
   account_id: string | null;
+  salutation: string | null;
   first_name: string;
   last_name: string;
   full_name: string;
   email: string | null;
+  secondary_email: string | null;
+  email_opt_out: boolean;
   phone: string | null;
   mobile: string | null;
   job_title: string | null;
@@ -53,8 +56,11 @@ export interface Contact extends RecordMeta {
 export interface ContactInput {
   first_name: string;
   last_name: string;
+  salutation?: string | null;
   account_id?: string | null;
   email?: string | null;
+  secondary_email?: string | null;
+  email_opt_out?: boolean;
   phone?: string | null;
   mobile?: string | null;
   job_title?: string | null;

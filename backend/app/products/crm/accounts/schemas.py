@@ -13,19 +13,25 @@ import uuid
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.products.crm.accounts.models import AccountStatus
+from app.products.crm.common import Rating
 from app.products.crm.shared.schemas import CustomFieldValues
 
 
 class AccountBase(BaseModel):
     name: str = Field(min_length=1, max_length=255)
+    account_type: str | None = Field(default=None, max_length=64)
     industry: str | None = Field(default=None, max_length=120)
     website: str | None = Field(default=None, max_length=512)
     phone: str | None = Field(default=None, max_length=32)
+    fax: str | None = Field(default=None, max_length=32)
+    email: EmailStr | None = None
+    rating: Rating | None = None
     company_size: str | None = Field(default=None, max_length=64)
     annual_revenue: Decimal | None = Field(default=None, ge=0)
+    parent_account_id: uuid.UUID | None = None
     status: AccountStatus = AccountStatus.ACTIVE
     owner_id: uuid.UUID | None = None
     primary_contact_id: uuid.UUID | None = None
@@ -37,6 +43,11 @@ class AccountBase(BaseModel):
     state: str | None = Field(default=None, max_length=120)
     postal_code: str | None = Field(default=None, max_length=32)
     country: str | None = Field(default=None, max_length=120)
+    shipping_address_line1: str | None = Field(default=None, max_length=255)
+    shipping_city: str | None = Field(default=None, max_length=120)
+    shipping_state: str | None = Field(default=None, max_length=120)
+    shipping_postal_code: str | None = Field(default=None, max_length=32)
+    shipping_country: str | None = Field(default=None, max_length=120)
 
 
 class AccountCreate(AccountBase):
@@ -52,11 +63,16 @@ class AccountUpdate(BaseModel):
     """Partial update. Only supplied fields are written."""
 
     name: str | None = Field(default=None, min_length=1, max_length=255)
+    account_type: str | None = Field(default=None, max_length=64)
     industry: str | None = Field(default=None, max_length=120)
     website: str | None = Field(default=None, max_length=512)
     phone: str | None = Field(default=None, max_length=32)
+    fax: str | None = Field(default=None, max_length=32)
+    email: EmailStr | None = None
+    rating: Rating | None = None
     company_size: str | None = Field(default=None, max_length=64)
     annual_revenue: Decimal | None = Field(default=None, ge=0)
+    parent_account_id: uuid.UUID | None = None
     status: AccountStatus | None = None
     owner_id: uuid.UUID | None = None
     primary_contact_id: uuid.UUID | None = None
@@ -68,6 +84,11 @@ class AccountUpdate(BaseModel):
     state: str | None = Field(default=None, max_length=120)
     postal_code: str | None = Field(default=None, max_length=32)
     country: str | None = Field(default=None, max_length=120)
+    shipping_address_line1: str | None = Field(default=None, max_length=255)
+    shipping_city: str | None = Field(default=None, max_length=120)
+    shipping_state: str | None = Field(default=None, max_length=120)
+    shipping_postal_code: str | None = Field(default=None, max_length=32)
+    shipping_country: str | None = Field(default=None, max_length=120)
     #: Tenant-defined values. Absent leaves the whole document untouched — an
     #: empty object is what clears it — so patching one built-in column cannot
     #: wipe a record's custom fields.
@@ -87,11 +108,16 @@ class AccountResponse(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID
     name: str
+    account_type: str | None
     industry: str | None
     website: str | None
     phone: str | None
+    fax: str | None
+    email: str | None
+    rating: Rating | None
     company_size: str | None
     annual_revenue: Decimal | None
+    parent_account_id: uuid.UUID | None
     status: AccountStatus
     owner_id: uuid.UUID | None
     primary_contact_id: uuid.UUID | None
@@ -103,6 +129,11 @@ class AccountResponse(BaseModel):
     state: str | None
     postal_code: str | None
     country: str | None
+    shipping_address_line1: str | None
+    shipping_city: str | None
+    shipping_state: str | None
+    shipping_postal_code: str | None
+    shipping_country: str | None
     created_at: dt.datetime
     updated_at: dt.datetime
     created_by_id: uuid.UUID | None

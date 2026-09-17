@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Building2, Loader2, Plus } from 'lucide-react';
 
@@ -61,6 +61,24 @@ export default function AccountDetailPage() {
     errorMessage: 'Could not load this account.',
   });
 
+  const parentAccountId = data?.parent_account_id ?? null;
+  const [parentAccountName, setParentAccountName] = useState<string | null>(null);
+  useEffect(() => {
+    if (!parentAccountId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const parent = await getAccount(parentAccountId);
+        if (!cancelled) setParentAccountName(parent.name);
+      } catch {
+        if (!cancelled) setParentAccountName(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [parentAccountId]);
+
   /* Bumped after a contact is promoted to primary, so the summary header's
      figure — read from a separate endpoint — stays in step with the change
      the Contacts tab just made. */
@@ -119,16 +137,35 @@ export default function AccountDetailPage() {
             <div className="surface bd rounded-2xl border p-5">
               <SectionHeader title="Company details" />
               <div className="space-y-4 pt-2">
+                <Field label="Account type" value={account.account_type} />
                 <Field label="Website" value={account.website} />
                 <Field label="Phone" value={account.phone} />
+                <Field label="Fax" value={account.fax} />
+                <Field label="Email" value={account.email} />
                 <Field label="Industry" value={account.industry} />
+                <Field label="Rating" value={account.rating ? humanize(account.rating) : null} />
                 <Field label="Company size" value={account.company_size} />
                 <Field label="Source" value={account.source} />
+                {parentAccountId && (
+                  <div>
+                    <p className="txt-muted text-[12px] font-semibold uppercase">
+                      Parent account
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => router.push(`/accounts/${parentAccountId}`)}
+                      className="mt-1 text-[13.5px] font-semibold hover:opacity-70"
+                      style={{ color: 'var(--accent)' }}
+                    >
+                      {parentAccountName ?? 'View account'} →
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="surface bd rounded-2xl border p-5">
-              <SectionHeader title="Address" />
+              <SectionHeader title="Billing address" />
               <div className="space-y-4 pt-2">
                 <Field label="Street" value={account.address_line1} />
                 <Field
@@ -137,6 +174,22 @@ export default function AccountDetailPage() {
                 />
                 <Field label="Postal code" value={account.postal_code} />
                 <Field label="Country" value={account.country} />
+              </div>
+            </div>
+
+            <div className="surface bd rounded-2xl border p-5">
+              <SectionHeader title="Shipping address" />
+              <div className="space-y-4 pt-2">
+                <Field label="Street" value={account.shipping_address_line1} />
+                <Field
+                  label="City, state"
+                  value={
+                    [account.shipping_city, account.shipping_state].filter(Boolean).join(', ') ||
+                    null
+                  }
+                />
+                <Field label="Postal code" value={account.shipping_postal_code} />
+                <Field label="Country" value={account.shipping_country} />
               </div>
             </div>
           </div>

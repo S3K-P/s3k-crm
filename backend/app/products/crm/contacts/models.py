@@ -6,6 +6,7 @@ import enum
 import uuid
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Enum,
     ForeignKey,
@@ -56,9 +57,15 @@ class Contact(Base, CrmEntityMixin, CustomFieldValuesMixin):
         ForeignKey(f"{CRM_SCHEMA}.accounts.id", ondelete="SET NULL"),
         nullable=True,
     )
+    #: Zoho "Salutation" — Mr./Ms./Dr., free text like ``job_title`` rather
+    #: than a native enum, so a tenant can use whatever titles they use.
+    salutation: Mapped[str | None] = mapped_column(String(20), nullable=True)
     first_name: Mapped[str] = mapped_column(String(120), nullable=False)
     last_name: Mapped[str] = mapped_column(String(120), nullable=False)
     email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    #: Zoho "Secondary Email" — an alternate address, never used for the
+    #: duplicate-email guard (only ``email`` is).
+    secondary_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     mobile: Mapped[str | None] = mapped_column(String(32), nullable=True)
     job_title: Mapped[str | None] = mapped_column(String(160), nullable=True)
@@ -75,6 +82,10 @@ class Contact(Base, CrmEntityMixin, CustomFieldValuesMixin):
     )
     #: Persisted only; nothing computes it yet (resolves A01).
     ai_score: Mapped[int | None] = mapped_column(nullable=True)
+    #: Zoho "Email Opt Out" — excludes the contact from bulk/marketing email.
+    email_opt_out: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     preferred_communication: Mapped[str | None] = mapped_column(String(64), nullable=True)
     linkedin_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

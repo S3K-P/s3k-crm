@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Building2, GitMerge, Loader2, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 
@@ -25,6 +25,7 @@ import CustomFieldInputs from '@/components/crm/forms/CustomFieldInputs';
 import { changedValues, type CustomFieldValues } from '@/features/crm/custom-fields';
 import { usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
+import { RATINGS, type Rating } from '@/features/crm/leads';
 import {
   ACCOUNT_STATUSES,
   archiveAccount,
@@ -63,9 +64,13 @@ const STATUS_FORM_OPTIONS = ACCOUNT_STATUSES.map((value) => ({
 
 const EMPTY_FORM: AccountInput = {
   name: '',
+  account_type: '',
   industry: '',
   website: '',
   phone: '',
+  email: '',
+  rating: null,
+  parent_account_id: '',
   company_size: '',
   status: 'ACTIVE',
   city: '',
@@ -116,6 +121,25 @@ export default function AccountsPage() {
     { errorMessage: 'Something went wrong loading accounts.' },
   );
 
+  // Options for the "Parent account" picker — a lightweight, separate fetch
+  // rather than reusing `items` (the current filtered/paginated page), so the
+  // picker always offers the full set regardless of the table's own filters.
+  const [parentOptions, setParentOptions] = useState<Account[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await listAccounts({ page_size: 200, sort_by: 'name', sort_dir: 'asc' });
+        if (!cancelled) setParentOptions(result.data);
+      } catch {
+        // Non-fatal — the picker is simply empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Custom values are held apart from `form` because they are keyed by tenant
   // data: folding them into a typed `AccountInput` would mean giving that
@@ -140,9 +164,13 @@ export default function AccountsPage() {
     setEditing(row);
     setForm({
       name: row.name,
+      account_type: row.account_type ?? '',
       industry: row.industry ?? '',
       website: row.website ?? '',
       phone: row.phone ?? '',
+      email: row.email ?? '',
+      rating: row.rating ?? null,
+      parent_account_id: row.parent_account_id ?? '',
       company_size: row.company_size ?? '',
       status: row.status,
       city: row.city ?? '',
@@ -158,9 +186,13 @@ export default function AccountsPage() {
     if (!form.name.trim()) return;
     const body: AccountInput = {
       name: form.name.trim(),
+      account_type: form.account_type?.trim() || null,
       industry: form.industry?.trim() || null,
       website: form.website?.trim() || null,
       phone: form.phone?.trim() || null,
+      email: form.email?.trim() || null,
+      rating: form.rating || null,
+      parent_account_id: form.parent_account_id || null,
       company_size: form.company_size?.trim() || null,
       status: form.status,
       city: form.city?.trim() || null,
@@ -483,6 +515,13 @@ export default function AccountsPage() {
               placeholder="Acme Corp"
             />
           </FormField>
+          <FormField label="Account type">
+            <FormInput
+              value={form.account_type ?? ''}
+              onChange={(event) => setForm({ ...form, account_type: event.target.value })}
+              placeholder="Customer, Partner, Prospect…"
+            />
+          </FormField>
           <FormField label="Industry">
             <FormInput
               value={form.industry ?? ''}
@@ -502,6 +541,35 @@ export default function AccountsPage() {
               value={form.phone ?? ''}
               onChange={(event) => setForm({ ...form, phone: event.target.value })}
               placeholder="+1 555 123 4567"
+            />
+          </FormField>
+          <FormField label="Email">
+            <FormInput
+              type="email"
+              value={form.email ?? ''}
+              onChange={(event) => setForm({ ...form, email: event.target.value })}
+            />
+          </FormField>
+          <FormField label="Rating">
+            <FormSelect
+              value={form.rating ?? ''}
+              onChange={(event) =>
+                setForm({ ...form, rating: (event.target.value || null) as Rating | null })
+              }
+              placeholder="Unrated"
+              options={RATINGS.map((value) => ({ value, label: humanize(value) }))}
+            />
+          </FormField>
+          <FormField label="Parent account">
+            <FormSelect
+              value={form.parent_account_id ?? ''}
+              onChange={(event) =>
+                setForm({ ...form, parent_account_id: event.target.value })
+              }
+              placeholder="No parent"
+              options={parentOptions
+                .filter((account) => account.id !== editing?.id)
+                .map((account) => ({ value: account.id, label: account.name }))}
             />
           </FormField>
           <FormField label="Company size">

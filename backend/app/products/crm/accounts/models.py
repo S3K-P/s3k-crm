@@ -23,7 +23,13 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
-from app.products.crm.common import CRM_SCHEMA, CrmEntityMixin, CustomFieldValuesMixin, searchable
+from app.products.crm.common import (
+    CRM_SCHEMA,
+    CrmEntityMixin,
+    CustomFieldValuesMixin,
+    Rating,
+    searchable,
+)
 
 
 class AccountStatus(enum.StrEnum):
@@ -44,6 +50,11 @@ class Account(Base, CrmEntityMixin, CustomFieldValuesMixin):
         Index("ix_accounts_organization_id_owner_id", "organization_id", "owner_id"),
         Index("ix_accounts_organization_id_deleted_at", "organization_id", "deleted_at"),
         Index("ix_accounts_organization_id_name", "organization_id", "name"),
+        Index(
+            "ix_accounts_organization_id_parent_account_id",
+            "organization_id",
+            "parent_account_id",
+        ),
         CheckConstraint(
             "health_score IS NULL OR (health_score >= 0 AND health_score <= 100)",
             name="health_score_range",
@@ -52,11 +63,30 @@ class Account(Base, CrmEntityMixin, CustomFieldValuesMixin):
     )
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    #: Zoho "Account Type" — e.g. Customer, Partner, Prospect, Vendor, Reseller.
+    #: A free-text picklist, like ``industry``, rather than a native enum:
+    #: tenants use their own vocabulary here just as Zoho customers do.
+    account_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     industry: Mapped[str | None] = mapped_column(String(120), nullable=True)
     website: Mapped[str | None] = mapped_column(String(512), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    fax: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    rating: Mapped[Rating | None] = mapped_column(
+        Enum(Rating, name="crm_rating", schema=CRM_SCHEMA, native_enum=True),
+        nullable=True,
+    )
     company_size: Mapped[str | None] = mapped_column(String(64), nullable=True)
     annual_revenue: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    #: Company hierarchy (Zoho "Parent Account"). Self-referential and
+    #: ``SET NULL`` for the same reason ``merged_into_id`` below is: removing
+    #: the parent should not block removing the child, nor cascade into an
+    #: unrelated record.
+    parent_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(f"{CRM_SCHEMA}.accounts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     status: Mapped[AccountStatus] = mapped_column(
         Enum(AccountStatus, name="account_status", schema=CRM_SCHEMA, native_enum=True),
         nullable=False,
@@ -71,12 +101,22 @@ class Account(Base, CrmEntityMixin, CustomFieldValuesMixin):
     source: Mapped[str | None] = mapped_column(String(120), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # --- Address -----------------------------------------------------------
+    # --- Address (billing) --------------------------------------------------
     address_line1: Mapped[str | None] = mapped_column(String(255), nullable=True)
     city: Mapped[str | None] = mapped_column(String(120), nullable=True)
     state: Mapped[str | None] = mapped_column(String(120), nullable=True)
     postal_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
     country: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+    # --- Address (shipping) --------------------------------------------------
+    #: Zoho keeps Billing and Shipping as two distinct address blocks; the
+    #: fields above have always been the billing address, so this is a purely
+    #: additive second block rather than a rename of existing data.
+    shipping_address_line1: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    shipping_city: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    shipping_state: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    shipping_postal_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    shipping_country: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
     # --- Integration -------------------------------------------------------
     external_id: Mapped[str | None] = mapped_column(String(255), nullable=True)

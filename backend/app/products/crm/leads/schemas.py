@@ -9,7 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.products.crm.common import Priority
+from app.products.crm.common import Priority, Rating
 from app.products.crm.leads.models import LeadSourceStatus, LeadStatus
 from app.products.crm.shared.schemas import CustomFieldValues
 
@@ -17,12 +17,16 @@ from app.products.crm.shared.schemas import CustomFieldValues
 class LeadCreate(BaseModel):
     first_name: str = Field(min_length=1, max_length=120)
     last_name: str = Field(min_length=1, max_length=120)
+    title: str | None = Field(default=None, max_length=100)
     company: str | None = Field(default=None, max_length=255)
     email: EmailStr | None = None
+    secondary_email: EmailStr | None = None
     phone: str | None = Field(default=None, max_length=32)
     lead_source_id: uuid.UUID | None = None
     owner_id: uuid.UUID | None = None
     priority: Priority | None = None
+    rating: Rating | None = None
+    email_opt_out: bool = False
     expected_deal_size: Decimal | None = Field(default=None, ge=0)
     industry: str | None = Field(default=None, max_length=120)
     website: str | None = Field(default=None, max_length=512)
@@ -41,12 +45,16 @@ class LeadUpdate(BaseModel):
 
     first_name: str | None = Field(default=None, min_length=1, max_length=120)
     last_name: str | None = Field(default=None, min_length=1, max_length=120)
+    title: str | None = Field(default=None, max_length=100)
     company: str | None = Field(default=None, max_length=255)
     email: EmailStr | None = None
+    secondary_email: EmailStr | None = None
     phone: str | None = Field(default=None, max_length=32)
     lead_source_id: uuid.UUID | None = None
     owner_id: uuid.UUID | None = None
     priority: Priority | None = None
+    rating: Rating | None = None
+    email_opt_out: bool | None = None
     expected_deal_size: Decimal | None = Field(default=None, ge=0)
     industry: str | None = Field(default=None, max_length=120)
     website: str | None = Field(default=None, max_length=512)
@@ -147,14 +155,18 @@ class LeadResponse(BaseModel):
     organization_id: uuid.UUID
     first_name: str
     last_name: str
+    title: str | None
     company: str | None
     email: str | None
+    secondary_email: str | None
     phone: str | None
     lead_source_id: uuid.UUID | None
     owner_id: uuid.UUID | None
     status: LeadStatus
     ai_score: int | None
     priority: Priority | None
+    rating: Rating | None
+    email_opt_out: bool
     expected_deal_size: Decimal | None
     industry: str | None
     website: str | None

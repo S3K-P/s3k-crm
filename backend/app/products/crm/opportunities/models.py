@@ -152,6 +152,11 @@ class Opportunity(Base, CrmEntityMixin, CustomFieldValuesMixin):
     expected_close_date: Mapped[dt.date | None] = mapped_column(nullable=True)
     health_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     forecast_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: Zoho "Type" — e.g. New Business, Existing Business, Renewal, Upsell.
+    #: Free-text picklist, matching ``forecast_category``'s pattern.
+    deal_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: Zoho "Next Step" — the single next action, shown alongside the stage.
+    next_step: Mapped[str | None] = mapped_column(String(255), nullable=True)
     competitor: Mapped[str | None] = mapped_column(String(160), nullable=True)
     lead_source_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),

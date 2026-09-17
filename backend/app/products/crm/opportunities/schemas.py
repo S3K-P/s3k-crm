@@ -23,6 +23,8 @@ class OpportunityCreate(BaseModel):
     win_probability: int | None = Field(default=None, ge=0, le=100)
     expected_close_date: dt.date | None = None
     forecast_category: str | None = Field(default=None, max_length=64)
+    deal_type: str | None = Field(default=None, max_length=64)
+    next_step: str | None = Field(default=None, max_length=255)
     competitor: str | None = Field(default=None, max_length=160)
     lead_source_id: uuid.UUID | None = None
     products: str | None = None
@@ -45,6 +47,8 @@ class OpportunityUpdate(BaseModel):
     expected_close_date: dt.date | None = None
     health_score: int | None = Field(default=None, ge=0, le=100)
     forecast_category: str | None = Field(default=None, max_length=64)
+    deal_type: str | None = Field(default=None, max_length=64)
+    next_step: str | None = Field(default=None, max_length=255)
     competitor: str | None = Field(default=None, max_length=160)
     products: str | None = None
     notes: str | None = None
@@ -110,6 +114,8 @@ class OpportunityResponse(BaseModel):
     expected_close_date: dt.date | None
     health_score: int | None
     forecast_category: str | None
+    deal_type: str | None
+    next_step: str | None
     competitor: str | None
     lead_source_id: uuid.UUID | None
     products: str | None

@@ -41,6 +41,8 @@ export interface Opportunity extends RecordMeta {
   expected_close_date: string | null;
   health_score: number | null;
   forecast_category: string | null;
+  deal_type: string | null;
+  next_step: string | null;
   competitor: string | null;
   lead_source_id: string | null;
   products: string | null;
@@ -67,6 +69,8 @@ export interface OpportunityInput {
   currency?: string;
   expected_close_date?: string | null;
   forecast_category?: string | null;
+  deal_type?: string | null;
+  next_step?: string | null;
   competitor?: string | null;
   products?: string | null;
   notes?: string | null;

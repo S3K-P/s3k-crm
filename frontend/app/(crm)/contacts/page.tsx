@@ -57,8 +57,11 @@ const STATUS_FILTER_OPTIONS = [
 const EMPTY_FORM: ContactInput = {
   first_name: '',
   last_name: '',
+  salutation: '',
   account_id: '',
   email: '',
+  secondary_email: '',
+  email_opt_out: false,
   phone: '',
   job_title: '',
   status: 'ACTIVE',
@@ -172,8 +175,11 @@ function ContactsPageContent() {
     setForm({
       first_name: row.first_name,
       last_name: row.last_name,
+      salutation: row.salutation ?? '',
       account_id: row.account_id ?? '',
       email: row.email ?? '',
+      secondary_email: row.secondary_email ?? '',
+      email_opt_out: row.email_opt_out,
       phone: row.phone ?? '',
       job_title: row.job_title ?? '',
       status: row.status,
@@ -188,8 +194,11 @@ function ContactsPageContent() {
     const body: ContactInput = {
       first_name: form.first_name.trim(),
       last_name: form.last_name.trim(),
+      salutation: form.salutation?.trim() || null,
       account_id: form.account_id || null,
       email: form.email?.trim() || null,
+      secondary_email: form.secondary_email?.trim() || null,
+      email_opt_out: form.email_opt_out ?? false,
       phone: form.phone?.trim() || null,
       job_title: form.job_title?.trim() || null,
       status: form.status,
@@ -514,6 +523,13 @@ function ContactsPageContent() {
         }
       >
         <div className="space-y-4">
+          <FormField label="Salutation">
+            <FormInput
+              value={form.salutation ?? ''}
+              onChange={(event) => setForm({ ...form, salutation: event.target.value })}
+              placeholder="Mr., Ms., Dr.…"
+            />
+          </FormField>
           <div className="grid grid-cols-2 gap-3">
             <FormField label="First name" required>
               <FormInput
@@ -555,6 +571,21 @@ function ContactsPageContent() {
               placeholder="person@company.com"
             />
           </FormField>
+          <FormField label="Secondary email">
+            <FormInput
+              type="email"
+              value={form.secondary_email ?? ''}
+              onChange={(event) => setForm({ ...form, secondary_email: event.target.value })}
+            />
+          </FormField>
+          <label className="flex items-center gap-2 text-[13px] font-semibold">
+            <input
+              type="checkbox"
+              checked={form.email_opt_out ?? false}
+              onChange={(event) => setForm({ ...form, email_opt_out: event.target.checked })}
+            />
+            Email opt-out
+          </label>
           <FormField label="Phone">
             <FormInput
               value={form.phone ?? ''}

@@ -154,6 +154,14 @@ class Priority(enum.StrEnum):
     LOW = "LOW"
 
 
+class Rating(enum.StrEnum):
+    """Shared qualitative rating, mirroring Zoho's Lead/Account "Rating" field."""
+
+    HOT = "HOT"
+    WARM = "WARM"
+    COLD = "COLD"
+
+
 class CrmEntityType(enum.StrEnum):
     """Target of a polymorphic association (activities, tasks, notes).
 

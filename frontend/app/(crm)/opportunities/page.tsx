@@ -65,6 +65,8 @@ const EMPTY_FORM: OpportunityInput = {
   primary_contact_id: '',
   deal_value: '',
   expected_close_date: '',
+  deal_type: '',
+  next_step: '',
   notes: '',
 };
 
@@ -301,6 +303,8 @@ function OpportunitiesPageContent() {
       primary_contact_id: row.primary_contact_id ?? '',
       deal_value: row.deal_value ?? '',
       expected_close_date: row.expected_close_date ?? '',
+      deal_type: row.deal_type ?? '',
+      next_step: row.next_step ?? '',
       notes: row.notes ?? '',
     });
     clearError();
@@ -323,6 +327,8 @@ function OpportunitiesPageContent() {
       primary_contact_id: form.primary_contact_id || null,
       deal_value: form.deal_value || null,
       expected_close_date: form.expected_close_date || null,
+      deal_type: form.deal_type?.trim() || null,
+      next_step: form.next_step?.trim() || null,
       notes: form.notes?.trim() || null,
       // Only what the user actually touched. Sending the whole document would
       // be harmless but noisy; sending `{}` when they touched nothing would
@@ -846,6 +852,20 @@ function OpportunitiesPageContent() {
               onChange={(event) =>
                 setForm({ ...form, expected_close_date: event.target.value })
               }
+            />
+          </FormField>
+          <FormField label="Type">
+            <FormInput
+              value={form.deal_type ?? ''}
+              onChange={(event) => setForm({ ...form, deal_type: event.target.value })}
+              placeholder="New Business, Renewal, Upsell…"
+            />
+          </FormField>
+          <FormField label="Next step">
+            <FormInput
+              value={form.next_step ?? ''}
+              onChange={(event) => setForm({ ...form, next_step: event.target.value })}
+              placeholder="What happens next?"
             />
           </FormField>
           <FormField label="Notes">

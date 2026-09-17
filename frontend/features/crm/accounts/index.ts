@@ -18,7 +18,9 @@ import {
   type TimelineEntryKind,
 } from '@/features/shared/types/api';
 import type { CustomFieldValues } from '@/features/crm/custom-fields';
+import type { Rating } from '@/features/crm/leads';
 
+export type { Rating };
 export type AccountStatus = 'ACTIVE' | 'ONBOARDING' | 'AT_RISK' | 'CHURNED';
 
 export const ACCOUNT_STATUSES: AccountStatus[] = [
@@ -30,11 +32,16 @@ export const ACCOUNT_STATUSES: AccountStatus[] = [
 
 export interface Account extends RecordMeta {
   name: string;
+  account_type: string | null;
   industry: string | null;
   website: string | null;
   phone: string | null;
+  fax: string | null;
+  email: string | null;
+  rating: Rating | null;
   company_size: string | null;
   annual_revenue: string | null;
+  parent_account_id: string | null;
   status: AccountStatus;
   owner_id: string | null;
   primary_contact_id: string | null;
@@ -46,6 +53,11 @@ export interface Account extends RecordMeta {
   state: string | null;
   postal_code: string | null;
   country: string | null;
+  shipping_address_line1: string | null;
+  shipping_city: string | null;
+  shipping_state: string | null;
+  shipping_postal_code: string | null;
+  shipping_country: string | null;
   /**
    * Tenant-defined values, keyed by `api_name`. Always present — the column is
    * `NOT NULL DEFAULT '{}'` — so this is `{}` rather than absent for a record
@@ -56,11 +68,16 @@ export interface Account extends RecordMeta {
 
 export interface AccountInput {
   name: string;
+  account_type?: string | null;
   industry?: string | null;
   website?: string | null;
   phone?: string | null;
+  fax?: string | null;
+  email?: string | null;
+  rating?: Rating | null;
   company_size?: string | null;
   annual_revenue?: string | null;
+  parent_account_id?: string | null;
   status?: AccountStatus;
   owner_id?: string | null;
   health_score?: number | null;
@@ -71,6 +88,11 @@ export interface AccountInput {
   state?: string | null;
   postal_code?: string | null;
   country?: string | null;
+  shipping_address_line1?: string | null;
+  shipping_city?: string | null;
+  shipping_state?: string | null;
+  shipping_postal_code?: string | null;
+  shipping_country?: string | null;
   /**
    * Tenant-defined values. Omit the key entirely to leave the record's existing
    * document untouched; `{}` clears it. The two are different on the wire, so

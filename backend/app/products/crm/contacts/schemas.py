@@ -17,10 +17,13 @@ from app.products.crm.shared.schemas import CustomFieldValues
 
 
 class ContactBase(BaseModel):
+    salutation: str | None = Field(default=None, max_length=20)
     first_name: str = Field(min_length=1, max_length=120)
     last_name: str = Field(min_length=1, max_length=120)
     account_id: uuid.UUID | None = None
     email: EmailStr | None = None
+    secondary_email: EmailStr | None = None
+    email_opt_out: bool = False
     phone: str | None = Field(default=None, max_length=32)
     mobile: str | None = Field(default=None, max_length=32)
     job_title: str | None = Field(default=None, max_length=160)
@@ -51,10 +54,13 @@ class ContactCreate(ContactBase):
 class ContactUpdate(BaseModel):
     """Partial update. Only supplied fields are written."""
 
+    salutation: str | None = Field(default=None, max_length=20)
     first_name: str | None = Field(default=None, min_length=1, max_length=120)
     last_name: str | None = Field(default=None, min_length=1, max_length=120)
     account_id: uuid.UUID | None = None
     email: EmailStr | None = None
+    secondary_email: EmailStr | None = None
+    email_opt_out: bool | None = None
     phone: str | None = Field(default=None, max_length=32)
     mobile: str | None = Field(default=None, max_length=32)
     job_title: str | None = Field(default=None, max_length=160)
@@ -89,10 +95,13 @@ class ContactResponse(BaseModel):
     id: uuid.UUID
     organization_id: uuid.UUID
     account_id: uuid.UUID | None
+    salutation: str | None
     first_name: str
     last_name: str
     full_name: str
     email: str | None
+    secondary_email: str | None
+    email_opt_out: bool
     phone: str | None
     mobile: str | None
     job_title: str | None
