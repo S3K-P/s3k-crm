@@ -45,6 +45,9 @@ for contrast).
 | `ctl` | Complete input/chip/secondary-button surface (bg + border + radius) |
 | `seg` | Selectable segment card (2px border, 14px radius) |
 | `seg-on` | Selected state for `seg` (accent border + soft background) |
+| `btn-primary` | Accent button — the primary-button pattern below as one class |
+| `btn-secondary` | `ctl`-surface button (matches `ctl` in dark mode too) |
+| `btn-ghost` | Borderless muted button with a tinted hover (Cancel, row actions) |
 | `font-display` | Sora heading font with tight letter-spacing |
 
 For anything not covered, use inline `style={{ color: 'var(--accent)' }}` or
@@ -71,6 +74,15 @@ Tailwind arbitrary values like `focus:border-[var(--accent)]`.
 ```tsx
 <button className="ctl px-5 py-2.5 text-sm font-semibold hover:opacity-80">Cancel</button>
 <input className="ctl w-full px-3.5 py-2.5 text-sm outline-none focus:border-[var(--accent)]" />
+```
+
+### Button classes
+`btn-primary`, `btn-secondary` and `btn-ghost` package the two patterns above (plus a
+ghost variant) with focus and disabled styles. They default to `px-5 py-2.5 text-sm`, and
+because they live in `@layer components`, utilities at the call site override them:
+```tsx
+<button className="btn-ghost" onClick={onClose}>Cancel</button>
+<button className="btn-primary px-3 py-1.5 text-[12px]" disabled={pending}>Apply</button>
 ```
 
 ### Selectable option card

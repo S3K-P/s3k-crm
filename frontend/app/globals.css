@@ -127,6 +127,75 @@ body {
 .seg     { border: 2px solid var(--border); border-radius: 14px; }
 .seg-on  { border-color: var(--accent); background: var(--accent-soft); }
 
+/* ============================================================
+   BUTTONS  (.btn-primary / .btn-secondary / .btn-ghost)
+   The THEME.md button patterns as classes. They sit in the
+   components layer, which Tailwind emits BEFORE utilities, so
+   whatever the call site adds (px-3 py-1.5 text-[12px], flex,
+   disabled:opacity-60) overrides the defaults here. Keep every
+   selector at single-class specificity for the same reason —
+   the dark-mode ancestor is wrapped in :where() so it adds none.
+   All three share a 1px border so they line up in one row.
+   ============================================================ */
+@layer components {
+  .btn-primary,
+  .btn-secondary,
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-transparent px-5 py-2.5 text-sm font-semibold transition;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+  }
+  .btn-primary:hover { opacity: 0.9; }
+
+  /* Same surface as .ctl, including its lighter dark-mode fill. */
+  .btn-secondary {
+    background: var(--surface-2);
+    border-color: var(--border);
+    color: var(--text);
+  }
+  :where(.dark) .btn-secondary {
+    background: #252537;
+    border-color: #3e3e58;
+  }
+  .btn-secondary:hover { opacity: 0.8; }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--muted);
+  }
+  /* Tinted from the text token, so the hover reads on light and dark cards alike. */
+  .btn-ghost:hover {
+    background: color-mix(in srgb, var(--text) 7%, transparent);
+    color: var(--text);
+  }
+
+  .btn-primary:focus-visible,
+  .btn-secondary:focus-visible,
+  .btn-ghost:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* After the hover rules, so hovering a disabled button changes nothing. */
+  .btn-primary:disabled,
+  .btn-secondary:disabled,
+  .btn-ghost:disabled,
+  .btn-primary[aria-disabled='true'],
+  .btn-secondary[aria-disabled='true'],
+  .btn-ghost[aria-disabled='true'] {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+  .btn-ghost:disabled,
+  .btn-ghost[aria-disabled='true'] {
+    background: transparent;
+    color: var(--muted);
+  }
+}
+
 input[type=range] { accent-color: var(--accent); }
 
 /* Custom scrollbar (token-aware) */
