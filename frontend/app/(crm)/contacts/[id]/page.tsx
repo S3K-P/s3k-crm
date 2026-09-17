@@ -7,6 +7,7 @@ import StatusBadge from '@/components/crm/shared/StatusBadge';
 import Tabs, { type TabDef } from '@/components/crm/shared/Tabs';
 import AIPanel, { type AIPanelData } from '@/components/crm/ai/AIPanel';
 import ActivityItem from '@/components/crm/cards/ActivityItem';
+import { useSetBreadcrumbTitle } from '@/components/crm/breadcrumbs/BreadcrumbTitleContext';
 
 /* ============================================================
    MOCK DATA
@@ -59,6 +60,9 @@ export default function ContactDetailsPage() {
   
   // Real app would fetch contact by id here.
   const contact = MOCK_CONTACT;
+
+  // Show the record name in the breadcrumb bar instead of the raw id.
+  useSetBreadcrumbTitle(`${contact.firstName} ${contact.lastName}`);
 
   const tabs: TabDef[] = [
     {

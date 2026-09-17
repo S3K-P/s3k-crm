@@ -9,6 +9,7 @@ import Tabs, { type TabDef } from '@/components/crm/shared/Tabs';
 import AIPanel, { type AIPanelData } from '@/components/crm/ai/AIPanel';
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
 import ActivityItem from '@/components/crm/cards/ActivityItem';
+import { useSetBreadcrumbTitle } from '@/components/crm/breadcrumbs/BreadcrumbTitleContext';
 
 /* ============================================================
    MOCK DATA
@@ -57,6 +58,9 @@ export default function LeadDetailsPage() {
   
   // Real app would fetch lead by id here. Using MOCK_LEAD for now.
   const lead = MOCK_LEAD;
+
+  // Show the record name in the breadcrumb bar instead of the raw id.
+  useSetBreadcrumbTitle(`${lead.firstName} ${lead.lastName}`);
 
   const [convertModalOpen, setConvertModalOpen] = useState(false);
 

@@ -9,6 +9,7 @@ import AICampaignInsights, { type AICampaignInsightsData } from '@/components/cr
 import AICommandBar from '@/components/crm/ai/AICommandBar';
 import ActivityItem from '@/components/crm/cards/ActivityItem';
 import { cn } from '@/lib/utils';
+import { useSetBreadcrumbTitle } from '@/components/crm/breadcrumbs/BreadcrumbTitleContext';
 
 /* ============================================================
    MOCK DATA
@@ -61,6 +62,9 @@ export default function CampaignDetailsPage() {
   const { id } = useParams();
   
   const campaign = MOCK_CAMPAIGN;
+
+  // Show the record name in the breadcrumb bar instead of the raw id.
+  useSetBreadcrumbTitle(campaign.name);
   const rels = MOCK_RELATIONSHIPS;
 
   const tabs: TabDef[] = [

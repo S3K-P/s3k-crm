@@ -7,6 +7,7 @@ import StatusBadge from '@/components/crm/shared/StatusBadge';
 import Tabs, { type TabDef } from '@/components/crm/shared/Tabs';
 import AIMeetingAssistant, { type AIMeetingAssistantData } from '@/components/crm/ai/AIMeetingAssistant';
 import ActivityItem from '@/components/crm/cards/ActivityItem';
+import { useSetBreadcrumbTitle } from '@/components/crm/breadcrumbs/BreadcrumbTitleContext';
 
 /* ============================================================
    MOCK DATA
@@ -58,6 +59,9 @@ export default function MeetingDetailsPage() {
   
   // Real app would fetch meeting by id here.
   const meeting = MOCK_MEETING;
+
+  // Show the record name in the breadcrumb bar instead of the raw id.
+  useSetBreadcrumbTitle(meeting.title);
 
   const tabs: TabDef[] = [
     {

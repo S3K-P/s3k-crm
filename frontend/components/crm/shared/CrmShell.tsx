@@ -3,6 +3,7 @@
 import CrmSidebar from '@/components/crm/sidebar/CrmSidebar';
 import CrmTopbar from '@/components/crm/topbar/CrmTopbar';
 import CrmBreadcrumbs from '@/components/crm/breadcrumbs/CrmBreadcrumbs';
+import { BreadcrumbTitleProvider } from '@/components/crm/breadcrumbs/BreadcrumbTitleContext';
 
 /* ============================================================
    CRM SHELL
@@ -12,18 +13,22 @@ import CrmBreadcrumbs from '@/components/crm/breadcrumbs/CrmBreadcrumbs';
 
 export default function CrmShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg)' }}>
-      {/* Persistent sidebar */}
-      <CrmSidebar />
+    // Provider spans the breadcrumb bar and the page, so a detail page
+    // can publish its record name to the last crumb.
+    <BreadcrumbTitleProvider>
+      <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg)' }}>
+        {/* Persistent sidebar */}
+        <CrmSidebar />
 
-      {/* Main column */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <CrmTopbar />
-        <CrmBreadcrumbs />
-        <main className="flex-1 overflow-y-auto">
-          {children}
-        </main>
+        {/* Main column */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <CrmTopbar />
+          <CrmBreadcrumbs />
+          <main className="flex-1 overflow-y-auto">
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </BreadcrumbTitleProvider>
   );
 }

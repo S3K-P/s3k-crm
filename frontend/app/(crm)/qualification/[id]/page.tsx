@@ -9,6 +9,7 @@ import AICommandBar from '@/components/crm/ai/AICommandBar';
 import AIQualificationAssistant, { type AIQualificationAssistantData } from '@/components/crm/ai/AIQualificationAssistant';
 import { cn } from '@/lib/utils';
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
+import { useSetBreadcrumbTitle } from '@/components/crm/breadcrumbs/BreadcrumbTitleContext';
 
 /* ============================================================
    MOCK DATA
@@ -55,6 +56,9 @@ export default function QualificationWorkspacePage() {
   const { id } = useParams();
   
   const lead = MOCK_LEAD;
+
+  // Show the record name in the breadcrumb bar instead of the raw id.
+  useSetBreadcrumbTitle(lead.name);
   const [framework, setFramework] = useState<Framework>('BANT');
   const [convertOpen, setConvertOpen] = useState(false);
 

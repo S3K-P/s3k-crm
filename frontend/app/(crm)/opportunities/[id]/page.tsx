@@ -8,6 +8,7 @@ import Tabs, { type TabDef } from '@/components/crm/shared/Tabs';
 import AIPanel, { type AIPanelData } from '@/components/crm/ai/AIPanel';
 import AICommandBar from '@/components/crm/ai/AICommandBar';
 import ActivityItem from '@/components/crm/cards/ActivityItem';
+import { useSetBreadcrumbTitle } from '@/components/crm/breadcrumbs/BreadcrumbTitleContext';
 
 /* ============================================================
    MOCK DATA
@@ -54,6 +55,9 @@ export default function OpportunityDetailsPage() {
   
   // Real app would fetch opp by id here.
   const opp = MOCK_OPP;
+
+  // Show the record name in the breadcrumb bar instead of the raw id.
+  useSetBreadcrumbTitle(opp.name);
 
   const tabs: TabDef[] = [
     {

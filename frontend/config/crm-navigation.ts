@@ -106,3 +106,19 @@ export const BREADCRUMB_LABELS: Record<string, string> = {
   insights: 'AI Insights',
   'next-best-action': 'Next Best Action',
 };
+
+/**
+ * Fallback label for the record crumb on a detail route (`/leads/<id>`),
+ * keyed by the parent list segment. Used only when the page has not
+ * published the record's own name via `useSetBreadcrumbTitle`.
+ */
+export const BREADCRUMB_RECORD_LABELS: Record<string, string> = {
+  leads: 'Lead',
+  partners: 'Partner',
+  campaigns: 'Campaign',
+  meetings: 'Meeting',
+  accounts: 'Account',
+  contacts: 'Contact',
+  opportunities: 'Opportunity',
+  qualification: 'Qualification',
+};
