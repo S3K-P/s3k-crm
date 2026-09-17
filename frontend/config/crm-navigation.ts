@@ -13,6 +13,7 @@ import {
   Sparkles,
   ClipboardList,
   BrainCircuit,
+  Telescope,
   Zap,
   type LucideIcon,
 } from 'lucide-react';
@@ -92,6 +93,7 @@ export const CRM_NAV_SECTIONS: CrmNavSection[] = [
     title: 'AI',
     items: [
       { id: 'ai-insights', label: 'AI Insights', href: '/ai/insights', icon: BrainCircuit, permissionModule: 'dashboard' },
+      { id: 'ai-market-insights', label: 'Market Insights', href: '/ai/market-insights', icon: Telescope, permissionModule: 'market_insights' },
       { id: 'ai-next-best-action', label: 'Next Best Action', href: '/ai/next-best-action', icon: Zap, permissionModule: 'opportunities' },
     ],
   },
@@ -127,5 +129,6 @@ export const BREADCRUMB_LABELS: Record<string, string> = {
   'ai-settings': 'AI Settings',
   ai: 'AI',
   insights: 'AI Insights',
+  'market-insights': 'Market Insights',
   'next-best-action': 'Next Best Action',
 };

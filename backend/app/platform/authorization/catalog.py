@@ -26,6 +26,10 @@ PERMISSION_MODULES: Final[tuple[str, ...]] = (
     #: Team and department administration (B02). A Platform module, not a CRM
     #: one — it is gated separately from the CRM data teams affect.
     "teams",
+    #: The AI gateway (ADR-016). Only ``ai.ADMIN`` is meaningful, and no system
+    #: role template below grants it, so configuring prompts stays with the
+    #: wildcard Admin role.
+    "ai",
     # CRM
     "accounts",
     "contacts",
@@ -38,6 +42,9 @@ PERMISSION_MODULES: Final[tuple[str, ...]] = (
     "notes",
     "documents",
     "dashboard",
+    #: AI company research (Market Insights). A CRM module: it reads CRM data
+    #: and its sessions are owned by the rep who ran them.
+    "market_insights",
 )
 
 #: Actions available on every module (doc 04 ``PermissionAction``).
@@ -82,6 +89,7 @@ _CRM_MODULES: Final[tuple[str, ...]] = (
     "notes",
     "documents",
     "dashboard",
+    "market_insights",
 )
 
 _MANAGER_ACTIONS: Final = (
@@ -135,8 +143,15 @@ def _user_permissions() -> tuple[str, ...]:
 #: it is logged against, and scoping it by its own owner would hide a
 #: colleague's call from that record's timeline — which is the opposite of
 #: what a shared account history is for.
+#:
+#: ``market_insights`` is here for a slightly different reason from the rest: a
+#: research session is not a shared customer record but one person's working
+#: notes, and §13 requires that a colleague cannot read them. Owner-scoping is
+#: the mechanism the system already has for that, so a manager holding
+#: ``VIEW_ALL`` still sees the team's research and nobody needs a second
+#: permission model.
 OWNER_SCOPED_MODULES: Final[frozenset[str]] = frozenset(
-    {"accounts", "contacts", "leads", "opportunities", "tasks"}
+    {"accounts", "contacts", "leads", "opportunities", "tasks", "market_insights"}
 )
 
 

@@ -14,7 +14,7 @@ import sys
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, ValidationError, field_validator, model_validator
+from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["development", "test", "staging", "production"]
@@ -139,9 +139,51 @@ class Settings(BaseSettings):
     storage_connect_timeout_seconds: float = Field(default=5.0, gt=0)
     storage_read_timeout_seconds: float = Field(default=15.0, gt=0)
 
+    # --- AI gateway (ADR-016) ----------------------------------------------
+    #
+    # The credential defaults to ``None`` and has no fallback, exactly like the
+    # storage keys above. An unset key is a supported, *visible* state: the AI
+    # endpoints report 503 ``ai_not_configured`` and the interface says so on
+    # screen. That is the honest failure mode, and it is the reason nothing in
+    # this codebase can silently substitute invented output for a model call.
+    #
+    # ``SecretStr`` keeps the value out of ``repr()``, structured logs and
+    # tracebacks. It is read exactly once, by the provider, and is never part
+    # of any response body — see ``AiConfigResponse``, which reports only
+    # whether a key is present.
+    anthropic_api_key: SecretStr | None = Field(
+        default=None,
+        description="Anthropic API key. Unset disables AI features rather than faking them.",
+    )
+    #: Pinned rather than 'latest': a model change alters what every stored
+    #: research session would say if re-run, so it is a deliberate act.
+    ai_model: str = "claude-opus-5"
+    #: Streaming is used for every call, so this can be generous without
+    #: risking an HTTP timeout mid-report.
+    ai_max_output_tokens: int = Field(default=64_000, ge=1_024, le=128_000)
+    #: Ceiling on searches per research turn. Guards both latency and spend.
+    ai_web_search_max_uses: int = Field(default=8, ge=1, le=30)
+    #: A deep research turn legitimately runs for minutes.
+    ai_request_timeout_seconds: float = Field(default=300.0, gt=0, le=900.0)
+    #: ``pause_turn`` resumes before the turn is abandoned (server-tool loops).
+    ai_max_continuations: int = Field(default=4, ge=0, le=10)
+    #: Research turns started per user per hour. Applied in Redis.
+    ai_rate_limit_per_hour: int = Field(default=40, ge=1, le=1000)
+
     # --- Observability (ADR-018) -------------------------------------------
     log_level: LogLevel = "INFO"
     log_json: bool = True
+
+    @property
+    def ai_configured(self) -> bool:
+        """Whether the AI gateway has a credential to call a model with.
+
+        False is a first-class state, not an error: AI routes answer 503 with
+        ``ai_not_configured`` and the frontend renders its existing
+        "AI is not connected" surface. Nothing degrades to canned output.
+        """
+        key = self.anthropic_api_key
+        return bool(key and key.get_secret_value().strip())
 
     @property
     def storage_configured(self) -> bool:

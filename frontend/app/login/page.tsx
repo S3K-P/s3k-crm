@@ -2,8 +2,11 @@
 
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { AlertCircle, Loader2, Lock, Mail } from 'lucide-react';
+import { AlertCircle, Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react';
 
+// TEMPORARY (development only) — delete this import and the <DevCredentials />
+// element below to remove the seeded sign-in panel. See the file's header.
+import DevCredentials from './DevCredentials';
 import BrandLogo from '@/components/brand/BrandLogo';
 import { useAuth } from '@/context/AuthContext';
 import { ApiError } from '@/lib/api-client';
@@ -69,6 +72,7 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [passwordVisible, setPasswordVisible] = useState(false);
 
   const destination = useCallback(
     () => safeRedirectTarget(searchParams.get('next')),
@@ -99,6 +103,7 @@ function LoginForm() {
           : 'Unable to sign in right now. Please try again.',
       );
       setPassword('');
+      setPasswordVisible(false);
     } finally {
       setSubmitting(false);
     }
@@ -169,15 +174,32 @@ function LoginForm() {
                 <input
                   id="password"
                   name="password"
-                  type="password"
+                  type={passwordVisible ? 'text' : 'password'}
                   autoComplete="current-password"
                   required
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   disabled={submitting}
-                  className="ctl w-full py-2.5 pl-9 pr-3.5 text-sm outline-none transition-colors focus:border-[var(--accent)] disabled:opacity-60"
+                  className="ctl w-full py-2.5 pl-9 pr-10 text-sm outline-none transition-colors focus:border-[var(--accent)] disabled:opacity-60"
                   placeholder="••••••••••••"
                 />
+                {/* Reveal is a deliberate, per-field action: the input goes back
+                    to `type="password"` the moment this is toggled off, and the
+                    state never survives a navigation. */}
+                <button
+                  type="button"
+                  onClick={() => setPasswordVisible((visible) => !visible)}
+                  disabled={submitting}
+                  aria-label={passwordVisible ? 'Hide password' : 'Show password'}
+                  aria-pressed={passwordVisible}
+                  className="txt-faint absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-1 transition-colors hover:text-[var(--accent)] disabled:opacity-60"
+                >
+                  {passwordVisible ? (
+                    <EyeOff className="h-4 w-4" aria-hidden="true" />
+                  ) : (
+                    <Eye className="h-4 w-4" aria-hidden="true" />
+                  )}
+                </button>
               </div>
             </div>
 
@@ -203,6 +225,15 @@ function LoginForm() {
               {submitting ? 'Signing in…' : 'Sign in'}
             </button>
           </form>
+
+          {/* TEMPORARY (development only) — see DevCredentials.tsx to remove. */}
+          <DevCredentials
+            onPick={(demoEmail, demoPassword) => {
+              setEmail(demoEmail);
+              setPassword(demoPassword);
+              setError(null);
+            }}
+          />
         </div>
 
         <p className="txt-faint mt-5 text-center text-[11.5px]">
