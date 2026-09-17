@@ -121,13 +121,42 @@ export interface PriorityReason {
   detail: string;
 }
 
+/**
+ * Plain CRM fields about a ranked record, for display beside its reasons.
+ * Fields that do not apply to the record's type are `null`.
+ */
+export interface PriorityRecordFacts {
+  /* Opportunities */
+  account_id: string | null;
+  /** `null` when the caller may see the deal but not its account. */
+  account_name: string | null;
+  stage_name: string | null;
+  deal_value: string | null;
+  currency: string | null;
+  win_probability: number | null;
+  expected_close_date: string | null;
+  /* Leads */
+  company: string | null;
+  email: string | null;
+  phone: string | null;
+  status: string | null;
+  expected_deal_size: string | null;
+  /* Both */
+  last_activity_at: string | null;
+  open_task_count: number;
+  overdue_task_count: number;
+}
+
 export interface PriorityScore {
-  entity_type: string;
+  entity_type: 'OPPORTUNITY' | 'LEAD';
   entity_id: string;
   entity_label: string;
   level: 'HIGH' | 'MEDIUM' | 'LOW';
   score: number;
   reasons: PriorityReason[];
+  facts: PriorityRecordFacts;
+  /** The most recent cached Next Best Action, if one was ever generated. */
+  latest_recommendation: AiGeneration | null;
 }
 
 export interface InsightItem {

@@ -503,6 +503,119 @@ def test_priority_list_ranks_without_calling_the_model(
     assert not provider.calls  # rules only, no model call
 
 
+def _priority_item(api: ApiSession, kind: str, entity_id: str) -> dict[str, Any]:
+    response = api.get(f"{AI_INSIGHTS}/priority/{kind}?limit=100")
+    assert response.status_code == 200, response.text
+    item: dict[str, Any] = next(i for i in response.json()["items"] if i["entity_id"] == entity_id)
+    return item
+
+
+def test_priority_list_carries_each_deals_own_facts(
+    alpha_member: ApiSession, provider: StubProvider
+) -> None:
+    """The Next Best Action queue shows what a deal is without a request per row."""
+    account = make_account(alpha_member, "Zephyr Chemicals")
+    close = (dt.date.today() + dt.timedelta(days=5)).isoformat()
+    opportunity = make_opportunity(
+        alpha_member,
+        account["id"],
+        name="Zephyr expansion",
+        deal_value="750000",
+        expected_close_date=close,
+    )
+    task = alpha_member.post(
+        "/crm/tasks",
+        json={
+            "title": "Send pricing",
+            "related_entity_type": "OPPORTUNITY",
+            "related_entity_id": opportunity["id"],
+        },
+    )
+    assert task.status_code == 201, task.text
+
+    item = _priority_item(alpha_member, "opportunities", opportunity["id"])
+
+    facts = item["facts"]
+    assert facts["account_id"] == account["id"]
+    assert facts["account_name"] == "Zephyr Chemicals"
+    assert facts["stage_name"] == "Qualification"
+    assert float(facts["deal_value"]) == 750000
+    assert facts["expected_close_date"] == close
+    assert facts["open_task_count"] == 1
+    assert facts["overdue_task_count"] == 0
+    assert item["latest_recommendation"] is None
+    assert not provider.calls  # listing the queue never calls the model
+
+
+def test_priority_list_includes_the_latest_cached_recommendation(
+    alpha_member: ApiSession, provider: StubProvider
+) -> None:
+    lead = make_lead(alpha_member, email="grace@hopper.example")
+    provider.text = json.dumps(
+        {
+            "action": "Call Grace to qualify budget.",
+            "why": "The lead has never been contacted.",
+            "urgency": "HIGH",
+            "evidence": ["No activity logged."],
+            "suggested_actions": [],
+        }
+    )
+    generated = alpha_member.post(f"{AI_INSIGHTS}/leads/{lead['id']}/next-best-action")
+    assert generated.status_code == 200, generated.text
+
+    item = _priority_item(alpha_member, "leads", lead["id"])
+
+    assert item["facts"]["company"] == "Hopper Systems"
+    assert item["facts"]["email"] == "grace@hopper.example"
+    assert item["facts"]["status"] == lead["status"]
+    recommendation = item["latest_recommendation"]
+    assert recommendation["id"] == generated.json()["id"]
+    assert recommendation["content"]["action"] == "Call Grace to qualify budget."
+    assert len(provider.calls) == 1  # the generation above, and nothing since
+
+
+def test_priority_facts_never_name_an_account_the_caller_cannot_see(
+    alpha_admin: ApiSession, alpha_member: ApiSession, alpha: Tenant
+) -> None:
+    """Seeing a deal is not seeing its account: the account's own visibility applies."""
+    account = make_account(alpha_admin, "Admin Owned Ltd")
+    opportunity = make_opportunity(alpha_admin, account["id"], owner_id=str(alpha.member.user_id))
+    assert alpha_member.get(f"/crm/accounts/{account['id']}").status_code == 404
+
+    item = _priority_item(alpha_member, "opportunities", opportunity["id"])
+
+    assert item["facts"]["account_id"] == account["id"]
+    assert item["facts"]["account_name"] is None
+
+
+def test_priority_facts_do_not_count_an_archived_task_as_open(
+    alpha_member: ApiSession, alpha_admin: ApiSession
+) -> None:
+    """An archived task is gone from the record, so the queue must not count it.
+
+    The admin archives it: the User role may not delete.
+    """
+    account = make_account(alpha_member, "Zephyr Chemicals")
+    opportunity = make_opportunity(alpha_member, account["id"])
+    task = alpha_member.post(
+        "/crm/tasks",
+        json={
+            "title": "Send pricing",
+            "related_entity_type": "OPPORTUNITY",
+            "related_entity_id": opportunity["id"],
+        },
+    )
+    assert task.status_code == 201, task.text
+    before = _priority_item(alpha_member, "opportunities", opportunity["id"])["facts"]
+    assert before["open_task_count"] == 1
+
+    archived = alpha_admin.delete(f"/crm/tasks/{task.json()['id']}")
+    assert archived.status_code == 204, archived.text
+
+    after = _priority_item(alpha_member, "opportunities", opportunity["id"])["facts"]
+    assert after["open_task_count"] == 0
+
+
 def test_explaining_a_priority_narrates_the_precomputed_reasons(
     alpha_member: ApiSession, provider: StubProvider
 ) -> None:
@@ -539,6 +652,85 @@ def test_explaining_a_closed_deals_priority_is_404(
     )
 
     assert response.status_code == 404
+
+
+# Archived tasks and activities are gone from the record's own views, so they
+# cannot be a reason in its priority either — every reason must be a fact a
+# caller could check by opening the record (prioritization.py). A rep creates
+# the work; the admin archives it, since the User role may not delete.
+
+
+def _priority_reasons(api: ApiSession, kind: str, entity_id: str) -> set[str]:
+    response = api.get(f"{AI_INSIGHTS}/priority/{kind}?limit=100")
+    assert response.status_code == 200, response.text
+    item = next(i for i in response.json()["items"] if i["entity_id"] == entity_id)
+    return {reason["label"] for reason in item["reasons"]}
+
+
+def _archive(api: ApiSession, path: str) -> None:
+    response = api.delete(path)
+    assert response.status_code == 204, response.text
+
+
+def test_an_archived_overdue_task_is_not_a_priority_reason(
+    alpha_member: ApiSession, alpha_admin: ApiSession
+) -> None:
+    account = make_account(alpha_member, "Zephyr Chemicals")
+    opportunity = make_opportunity(alpha_member, account["id"])
+    task = alpha_member.post(
+        "/crm/tasks",
+        json={
+            "title": "Send revised pricing",
+            "due_date": (dt.datetime.now(dt.UTC) - dt.timedelta(days=2)).isoformat(),
+            "related_entity_type": "OPPORTUNITY",
+            "related_entity_id": opportunity["id"],
+        },
+    )
+    assert task.status_code == 201, task.text
+    assert "Overdue task(s)" in _priority_reasons(alpha_member, "opportunities", opportunity["id"])
+
+    _archive(alpha_admin, f"/crm/tasks/{task.json()['id']}")
+
+    reasons = _priority_reasons(alpha_member, "opportunities", opportunity["id"])
+    assert "Overdue task(s)" not in reasons
+
+
+def test_an_archived_open_task_is_not_a_scheduled_follow_up(
+    alpha_member: ApiSession, alpha_admin: ApiSession
+) -> None:
+    lead = make_lead(alpha_member)
+    task = alpha_member.post(
+        "/crm/tasks",
+        json={"title": "Call back", "related_entity_type": "LEAD", "related_entity_id": lead["id"]},
+    )
+    assert task.status_code == 201, task.text
+    assert "No follow-up scheduled" not in _priority_reasons(alpha_member, "leads", lead["id"])
+
+    _archive(alpha_admin, f"/crm/tasks/{task.json()['id']}")
+
+    assert "No follow-up scheduled" in _priority_reasons(alpha_member, "leads", lead["id"])
+
+
+def test_an_archived_activity_is_not_the_last_contact(
+    alpha_member: ApiSession, alpha_admin: ApiSession
+) -> None:
+    lead = make_lead(alpha_member)
+    activity = alpha_member.post(
+        "/crm/activities",
+        json={
+            "type": "CALL",
+            "subject": "Intro call",
+            "status": "COMPLETED",
+            "related_entity_type": "LEAD",
+            "related_entity_id": lead["id"],
+        },
+    )
+    assert activity.status_code == 201, activity.text
+    assert "Never contacted" not in _priority_reasons(alpha_member, "leads", lead["id"])
+
+    _archive(alpha_admin, f"/crm/activities/{activity.json()['id']}")
+
+    assert "Never contacted" in _priority_reasons(alpha_member, "leads", lead["id"])
 
 
 # ---------------------------------------------------------------------------

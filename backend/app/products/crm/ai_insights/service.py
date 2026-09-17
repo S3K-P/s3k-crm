@@ -80,6 +80,7 @@ from app.products.crm.ai_insights.prompts import (
 from app.products.crm.ai_insights.repository import AiGenerationRepository
 from app.products.crm.ai_insights.schemas import (
     AccountIntelligenceOutput,
+    AiGenerationResponse,
     EmailDraftOutput,
     EmailDraftRequest,
     InsightItem,
@@ -90,6 +91,7 @@ from app.products.crm.ai_insights.schemas import (
     NextBestActionOutput,
     NlQueryTranslation,
     PriorityExplanationOutput,
+    PriorityRecordFacts,
     PriorityScoreResponse,
     RecordSummaryOutput,
 )
@@ -816,8 +818,49 @@ class AiInsightsService:
             if score is not None:
                 scored.append(score)
         scored.sort(key=lambda s: s.score, reverse=True)
-        labels = {opportunity.id: opportunity.name for opportunity in opportunities}
-        return [_to_priority_response(s, labels[s.entity_id]) for s in scored[:limit]]
+        top = scored[:limit]
+
+        # Display facts for the ranked page only — never the whole candidate
+        # set, and never an input to the score above.
+        by_id = {opportunity.id: opportunity for opportunity in opportunities}
+        top_ids = [s.entity_id for s in top]
+        account_names = await self._visible_account_names(
+            principal, {by_id[entity_id].account_id for entity_id in top_ids}
+        )
+        open_tasks = await self._open_task_counts(
+            principal.organization_id, CrmEntityType.OPPORTUNITY, top_ids
+        )
+        recommendations = await self._generations.latest_for_many(
+            principal.organization_id,
+            entity_type=CrmEntityType.OPPORTUNITY.value,
+            entity_ids=top_ids,
+            feature=AiFeature.NEXT_BEST_ACTION,
+        )
+
+        responses = []
+        for s in top:
+            opportunity = by_id[s.entity_id]
+            facts = PriorityRecordFacts(
+                account_id=opportunity.account_id,
+                account_name=account_names.get(opportunity.account_id),
+                stage_name=stage_names[opportunity.id],
+                deal_value=opportunity.deal_value,
+                currency=opportunity.currency,
+                win_probability=opportunity.win_probability,
+                expected_close_date=opportunity.expected_close_date,
+                last_activity_at=last_activity.get(opportunity.id),
+                open_task_count=open_tasks.get(opportunity.id, 0),
+                overdue_task_count=overdue.get(opportunity.id, 0),
+            )
+            responses.append(
+                _to_priority_response(
+                    s,
+                    opportunity.name,
+                    facts=facts,
+                    latest_recommendation=recommendations.get(opportunity.id),
+                )
+            )
+        return responses
 
     async def prioritize_leads(
         self, principal: Principal, *, limit: int = 25
@@ -868,11 +911,42 @@ class AiInsightsService:
             if score is not None:
                 scored.append(score)
         scored.sort(key=lambda s: s.score, reverse=True)
-        labels = {
-            lead.id: f"{lead.first_name} {lead.last_name}".strip() or lead.company or "Lead"
-            for lead in leads
-        }
-        return [_to_priority_response(s, labels[s.entity_id]) for s in scored[:limit]]
+        top = scored[:limit]
+
+        by_id = {lead.id: lead for lead in leads}
+        top_ids = [s.entity_id for s in top]
+        open_task_counts = await self._open_task_counts(
+            principal.organization_id, CrmEntityType.LEAD, top_ids
+        )
+        recommendations = await self._generations.latest_for_many(
+            principal.organization_id,
+            entity_type=CrmEntityType.LEAD.value,
+            entity_ids=top_ids,
+            feature=AiFeature.NEXT_BEST_ACTION,
+        )
+
+        responses = []
+        for s in top:
+            lead = by_id[s.entity_id]
+            facts = PriorityRecordFacts(
+                company=lead.company,
+                email=lead.email,
+                phone=lead.phone,
+                status=lead.status.value,
+                expected_deal_size=lead.expected_deal_size,
+                last_activity_at=last_activity.get(lead.id),
+                open_task_count=open_task_counts.get(lead.id, 0),
+                overdue_task_count=overdue.get(lead.id, 0),
+            )
+            responses.append(
+                _to_priority_response(
+                    s,
+                    f"{lead.first_name} {lead.last_name}".strip() or lead.company or "Lead",
+                    facts=facts,
+                    latest_recommendation=recommendations.get(lead.id),
+                )
+            )
+        return responses
 
     # --- Single-record scoring, for the "explain" action -------------------
 
@@ -982,6 +1056,12 @@ class AiInsightsService:
         )
 
     # --- Batched signal queries for prioritization ------------------------
+    #
+    # Each excludes archived (soft-deleted) rows. A reason must be a fact the
+    # caller could check by opening the record, and archived tasks and
+    # activities are gone from the record's own timeline — so an archived
+    # overdue task is not "overdue work", and an archived call is not "last
+    # contact".
 
     async def _last_activity_by_entity(
         self, organization_id: uuid.UUID, entity_type: CrmEntityType, entity_ids: list[uuid.UUID]
@@ -997,6 +1077,7 @@ class AiInsightsService:
             )
             .where(
                 Activity.organization_id == organization_id,
+                Activity.deleted_at.is_(None),
                 Activity.related_entity_type == entity_type,
                 Activity.related_entity_id.in_(entity_ids),
             )
@@ -1014,6 +1095,7 @@ class AiInsightsService:
             select(Task.related_entity_id, func.count())
             .where(
                 Task.organization_id == organization_id,
+                Task.deleted_at.is_(None),
                 Task.related_entity_type == entity_type,
                 Task.related_entity_id.in_(entity_ids),
                 Task.status.not_in(tuple(CLOSED_STATUSES)),
@@ -1034,6 +1116,7 @@ class AiInsightsService:
             select(Task.related_entity_id)
             .where(
                 Task.organization_id == organization_id,
+                Task.deleted_at.is_(None),
                 Task.related_entity_type == entity_type,
                 Task.related_entity_id.in_(entity_ids),
                 Task.status.not_in(tuple(CLOSED_STATUSES)),
@@ -1042,6 +1125,52 @@ class AiInsightsService:
         )
         rows = (await self._session.execute(statement)).scalars().all()
         return dict.fromkeys((entity_id for entity_id in rows if entity_id is not None), True)
+
+    async def _open_task_counts(
+        self, organization_id: uuid.UUID, entity_type: CrmEntityType, entity_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, int]:
+        """Open tasks per record — the same "open" ``_open_task_flags`` scores
+        on, counted, so the queue's follow-up state agrees with its reasons.
+        Archived tasks are gone from the record, so they are not counted.
+        """
+        if not entity_ids:
+            return {}
+        statement = (
+            select(Task.related_entity_id, func.count())
+            .where(
+                Task.organization_id == organization_id,
+                Task.deleted_at.is_(None),
+                Task.related_entity_type == entity_type,
+                Task.related_entity_id.in_(entity_ids),
+                Task.status.not_in(tuple(CLOSED_STATUSES)),
+            )
+            .group_by(Task.related_entity_id)
+        )
+        rows = (await self._session.execute(statement)).all()
+        return {row[0]: int(row[1]) for row in rows}
+
+    async def _visible_account_names(
+        self, principal: Principal, account_ids: set[uuid.UUID]
+    ) -> dict[uuid.UUID, str]:
+        """Names of the accounts the caller may see, by id.
+
+        Seeing a deal does not grant seeing its account, so the account's own
+        permission and record visibility decide — the same rule
+        ``GET /crm/accounts/{id}`` applies. An account missing here renders as
+        no name, never as a leaked one.
+        """
+        if not account_ids or not principal.has_permission("accounts", PermissionAction.VIEW):
+            return {}
+        statement = select(Account.id, Account.name).where(
+            Account.organization_id == principal.organization_id,
+            Account.deleted_at.is_(None),
+            Account.id.in_(account_ids),
+        )
+        predicate = RecordVisibility.for_module(principal, "accounts").filter_for(Account)
+        if predicate is not None:
+            statement = statement.where(predicate)
+        rows = (await self._session.execute(statement)).all()
+        return {row[0]: row[1] for row in rows}
 
 
 def _parse_amount(raw: str | None) -> Decimal | None:
@@ -1075,7 +1204,11 @@ def _module_for_entity(entity: ReportEntity) -> str:
 
 
 def _to_priority_response(
-    score: prioritization.PriorityScore, entity_label: str
+    score: prioritization.PriorityScore,
+    entity_label: str,
+    *,
+    facts: PriorityRecordFacts,
+    latest_recommendation: AiGeneration | None,
 ) -> PriorityScoreResponse:
     return PriorityScoreResponse(
         entity_type=score.entity_type,
@@ -1084,6 +1217,12 @@ def _to_priority_response(
         level=score.level,
         score=score.score,
         reasons=[PriorityReasonSchema(label=r.label, detail=r.detail) for r in score.reasons],
+        facts=facts,
+        latest_recommendation=(
+            AiGenerationResponse.model_validate(latest_recommendation)
+            if latest_recommendation is not None
+            else None
+        ),
     )
 
 

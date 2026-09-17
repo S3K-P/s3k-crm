@@ -71,6 +71,40 @@ class AiGenerationRepository:
         )
         return result.scalar_one_or_none()
 
+    async def latest_for_many(
+        self,
+        organization_id: uuid.UUID,
+        *,
+        entity_type: str,
+        entity_ids: Sequence[uuid.UUID],
+        feature: AiFeature,
+    ) -> dict[uuid.UUID, AiGeneration]:
+        """``latest_for`` over many records of one type, in one query.
+
+        For a screen listing many records' cached results at once — the Next
+        Best Action queue — rather than one query per row. PostgreSQL's
+        ``DISTINCT ON`` keeps the first row per ``entity_id`` in the ordering,
+        which is the newest.
+        """
+        if not entity_ids:
+            return {}
+        result = await self._session.execute(
+            select(AiGeneration)
+            .where(
+                AiGeneration.organization_id == organization_id,
+                AiGeneration.entity_type == entity_type,
+                AiGeneration.entity_id.in_(entity_ids),
+                AiGeneration.feature == feature,
+            )
+            .order_by(AiGeneration.entity_id, AiGeneration.created_at.desc())
+            .distinct(AiGeneration.entity_id)
+        )
+        return {
+            generation.entity_id: generation
+            for generation in result.scalars().all()
+            if generation.entity_id is not None
+        }
+
     async def history_for(
         self,
         organization_id: uuid.UUID,

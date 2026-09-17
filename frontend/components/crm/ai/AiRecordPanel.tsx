@@ -1,9 +1,16 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Loader2, RefreshCw, Sparkles, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { ArrowUpRight, Loader2, RefreshCw, Sparkles, Zap } from 'lucide-react';
 
 import AiConnectionNotice from '@/components/crm/ai/AiConnectionNotice';
+import FeedbackButtons from '@/components/crm/ai/AiFeedbackButtons';
+import {
+  NbaNoRecommendation,
+  NbaRecommendationBlock,
+} from '@/components/crm/ai/next-best-action/NbaRecommendation';
+import { recommendationOf } from '@/components/crm/ai/next-best-action/nba-view';
 import { useAiStatus } from '@/features/ai/useAiStatus';
 import { describeApiError } from '@/features/shared/hooks/useCollection';
 import {
@@ -21,13 +28,10 @@ import {
   getLeadSummary,
   getOpportunityNextBestAction,
   getOpportunitySummary,
-  submitAiFeedback,
   type AccountIntelligenceContent,
-  type AiFeedbackRating,
   type AiGeneration,
   type MeetingAppliedItem,
   type MeetingExtractionContent,
-  type NextBestActionContent,
   type RecordSummaryContent,
 } from '@/features/ai/ai-insights';
 
@@ -96,47 +100,6 @@ const NBA_OPS: Partial<
   OPPORTUNITY: { get: getOpportunityNextBestAction, generate: generateOpportunityNextBestAction },
   LEAD: { get: getLeadNextBestAction, generate: generateLeadNextBestAction },
 };
-
-function FeedbackButtons({ generation }: { generation: AiGeneration }) {
-  const [rating, setRating] = useState(generation.feedback_rating);
-  const [busy, setBusy] = useState(false);
-
-  async function rate(next: AiFeedbackRating) {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await submitAiFeedback(generation.id, next);
-      setRating(next);
-    } catch {
-      // Feedback is a courtesy, not a blocking action — fail silently.
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="flex items-center gap-1">
-      <button
-        type="button"
-        aria-label="Helpful"
-        aria-pressed={rating === 'UP'}
-        onClick={() => void rate('UP')}
-        className={`rounded-md p-1 transition hover:opacity-70 ${rating === 'UP' ? 'text-emerald-600' : 'txt-faint'}`}
-      >
-        <ThumbsUp className="h-3.5 w-3.5" aria-hidden="true" />
-      </button>
-      <button
-        type="button"
-        aria-label="Not helpful"
-        aria-pressed={rating === 'DOWN'}
-        onClick={() => void rate('DOWN')}
-        className={`rounded-md p-1 transition hover:opacity-70 ${rating === 'DOWN' ? 'text-rose-600' : 'txt-faint'}`}
-      >
-        <ThumbsDown className="h-3.5 w-3.5" aria-hidden="true" />
-      </button>
-    </div>
-  );
-}
 
 function GenerateButton({
   hasResult,
@@ -308,41 +271,40 @@ function NextBestActionCard({ entityType, entityId }: { entityType: EntityKind; 
     }
   }
 
-  const content = generation?.content as NextBestActionContent | undefined;
+  const recommendation = recommendationOf(generation);
 
+  /* Same recommendation block as the global Next Best Action queue, so a
+     rep moving between the queue and the record sees one thing, not two. */
   return (
     <section className="surface bd rounded-2xl border p-5">
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="txt font-display text-[13.5px] font-bold">Next best action</h3>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="txt font-display flex items-center gap-2 text-[13.5px] font-bold">
+          <Zap className="h-4 w-4" style={{ color: 'var(--accent)' }} aria-hidden="true" />
+          Next best action
+        </h3>
         <div className="flex items-center gap-2">
-          {generation && <FeedbackButtons generation={generation} />}
-          <GenerateButton hasResult={!!generation} generating={generating} onClick={() => void generate()} />
+          <Link
+            href="/ai/next-best-action"
+            className="txt-muted inline-flex items-center gap-1 text-[12px] font-semibold transition hover:text-[var(--text)]"
+          >
+            Full queue <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </Link>
+          <GenerateButton hasResult={!!recommendation} generating={generating} onClick={() => void generate()} />
         </div>
       </div>
       {error && <p className="mt-2 text-[12px] text-rose-600">{error}</p>}
       {generation === undefined && <p className="txt-muted mt-2 text-[12.5px]">Loading…</p>}
-      {generation === null && !error && (
-        <p className="txt-muted mt-2 text-[12.5px]">No recommendation yet — press Generate.</p>
-      )}
-      {content && (
-        <div className="mt-2 space-y-2 text-[13px]">
-          <div className="flex items-center gap-2">
-            <span
-              className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
-                content.urgency === 'HIGH'
-                  ? 'border-rose-500/30 bg-rose-500/10 text-rose-600'
-                  : content.urgency === 'MEDIUM'
-                    ? 'border-amber-500/30 bg-amber-500/10 text-amber-600'
-                    : 'border-[var(--border)] bg-[var(--surface-2)] txt-muted'
-              }`}
-            >
-              {content.urgency}
-            </span>
-            <p className="txt font-medium">{content.action}</p>
-          </div>
-          <p className="txt-muted text-[12.5px]">{content.why}</p>
-        </div>
-      )}
+      <div className="mt-3">
+        {recommendation ? (
+          <NbaRecommendationBlock
+            recommendation={recommendation}
+            headerAside={<FeedbackButtons key={recommendation.generation.id} generation={recommendation.generation} />}
+          />
+        ) : (
+          generation !== undefined &&
+          !error && <NbaNoRecommendation note="Press Generate to ask for one from this record’s CRM context." />
+        )}
+      </div>
     </section>
   );
 }

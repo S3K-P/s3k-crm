@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -282,6 +283,41 @@ class PriorityReason(BaseModel):
     detail: str
 
 
+class PriorityRecordFacts(BaseModel):
+    """Plain CRM fields about one ranked record, shown beside its reasons.
+
+    Read from the rows and batched queries the queue already loads, so the
+    Next Best Action screen can show what a record *is* — its account, value,
+    close date, last activity, follow-up state — without a request per row.
+    Display only: nothing here feeds the score, and nothing is inferred. A
+    field that does not apply to the record's type is left ``None``.
+    """
+
+    # --- Opportunities ---
+    account_id: uuid.UUID | None = None
+    #: ``None`` when the caller may see the deal but not its account: the name
+    #: is a read of the account, so the account's own visibility applies.
+    account_name: str | None = None
+    stage_name: str | None = None
+    deal_value: Decimal | None = None
+    currency: str | None = None
+    win_probability: int | None = None
+    expected_close_date: dt.date | None = None
+
+    # --- Leads ---
+    company: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    status: str | None = None
+    expected_deal_size: Decimal | None = None
+
+    # --- Both ---
+    #: The same "last activity" instant the score's staleness reasons use.
+    last_activity_at: dt.datetime | None = None
+    open_task_count: int = 0
+    overdue_task_count: int = 0
+
+
 class PriorityScoreResponse(BaseModel):
     entity_type: str
     entity_id: uuid.UUID
@@ -289,6 +325,11 @@ class PriorityScoreResponse(BaseModel):
     level: Literal["HIGH", "MEDIUM", "LOW"]
     score: int = Field(ge=0, le=100)
     reasons: list[PriorityReason]
+    facts: PriorityRecordFacts = Field(default_factory=PriorityRecordFacts)
+    #: The record's most recent cached Next Best Action, if one was ever
+    #: generated. Read, never generated here — listing the queue makes no
+    #: model call (§15).
+    latest_recommendation: AiGenerationResponse | None = None
 
 
 class PriorityListResponse(BaseModel):
@@ -341,6 +382,7 @@ __all__ = [
     "PriorityExplanationOutput",
     "PriorityListResponse",
     "PriorityReason",
+    "PriorityRecordFacts",
     "PriorityScoreResponse",
     "RecordSummaryOutput",
     "RelationshipHealth",
