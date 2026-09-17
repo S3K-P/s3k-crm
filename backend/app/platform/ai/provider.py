@@ -834,9 +834,17 @@ def grounding_tools(*, web_search: bool, enabled: bool) -> list[genai_types.Tool
 #: images, so that overlap costs nothing here.
 _MARKDOWN_LINK = re.compile(r"\[([^\]]*)\]\(https?://[^)\s]+\)")
 
+#: `<a href="https://…">label</a>` — the same citation, written by a brief that
+#: asks for an HTML report. Only an http(s) href is matched, so an in-document
+#: `#section` anchor survives; the label keeps any inline markup it carries.
+_HTML_LINK = re.compile(
+    r"<a\b[^>]*?\bhref\s*=\s*[\"']?https?://[^>]*>(.*?)</a\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+
 
 def strip_unverified_links(text: str) -> str:
-    """Turn every ``[label](url)`` in ungrounded output into plain ``label``.
+    """Turn every ``[label](url)`` or ``<a href>`` in ungrounded output into plain ``label``.
 
     An ungrounded call has no search tool behind it, so any URL the model
     writes came from its own recall rather than a page it actually fetched —
@@ -847,8 +855,10 @@ def strip_unverified_links(text: str) -> str:
     never invented"); this closes the same gap for links embedded in the
     prose itself, which that standard does not otherwise reach. The label
     survives because the claim it names may well be true — only the
-    unverifiable citation is removed.
+    unverifiable citation is removed. HTML anchors get the same treatment,
+    since a brief asking for an HTML report produces its citations that way.
     """
+    text = _HTML_LINK.sub(lambda match: match.group(1), text)
     return _MARKDOWN_LINK.sub(lambda match: match.group(1), text)
 
 

@@ -190,6 +190,45 @@ def test_a_non_http_scheme_is_left_alone() -> None:
     assert strip_unverified_links(text) == text
 
 
+# An HTML brief makes the model cite with anchors instead. Same standard: an
+# ungrounded href was never fetched, so it goes and its label stays.
+
+
+def test_an_html_anchor_loses_its_href() -> None:
+    text = '<td><a href="https://example.com/ar-2025.pdf" target="_blank">Annual report</a></td>'
+
+    assert strip_unverified_links(text) == "<td>Annual report</td>"
+
+
+def test_html_anchors_with_any_attribute_order_or_quoting_are_stripped() -> None:
+    text = (
+        "<li><A class='src' HREF='https://a.example'>A</A></li>"
+        "<li><a rel=noopener href=https://b.example>B</a></li>"
+    )
+
+    assert strip_unverified_links(text) == "<li>A</li><li>B</li>"
+
+
+def test_an_html_anchor_label_keeps_its_inline_markup() -> None:
+    text = '<a href="https://example.com">\n  <strong>FY25</strong> results\n</a>'
+
+    assert strip_unverified_links(text) == "\n  <strong>FY25</strong> results\n"
+
+
+def test_an_in_document_html_anchor_is_left_alone() -> None:
+    # A table of contents inside the report points at its own sections, which
+    # is navigation, not a citation.
+    text = '<a href="#compliance">Compliance &amp; Related Information</a>'
+
+    assert strip_unverified_links(text) == text
+
+
+def test_html_that_merely_starts_with_a_is_not_mistaken_for_an_anchor() -> None:
+    text = '<abbr title="Earnings">EBITDA</abbr> <article data-x="https://x.example">Body</article>'
+
+    assert strip_unverified_links(text) == text
+
+
 # ------------------------------------------------------------------
 # Whether grounding is even offered
 # ------------------------------------------------------------------

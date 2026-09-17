@@ -33,6 +33,7 @@ from app.platform.ai.service import (
     AiPromptService,
 )
 from app.products.crm.market_insights import router as market_insights_router
+from app.products.crm.market_insights.prompts import UNKNOWN_WEBSITE
 from app.products.crm.market_insights.service import MarketInsightService
 from tests.integration.conftest import ApiSession, Tenant
 
@@ -525,6 +526,60 @@ def test_the_configured_prompt_is_what_new_research_runs_under(
     start(alpha_admin, "Apcotex Industries")
 
     assert "ONLY-REGULATORY-RISK" in provider.last_system
+
+
+def test_the_default_brief_names_the_account_and_its_website(
+    alpha_admin: ApiSession, provider: StubProvider
+) -> None:
+    """``{{company_name}}`` / ``{{company_website}}`` are filled from the subject.
+
+    The website comes from the linked account — the same field the CRM context
+    block already shows this caller — and a follow-up fills it the same way.
+    """
+    account = make_account(alpha_admin, "Zephyr Chemicals", website="https://zephyr.example")
+
+    session = start(alpha_admin, "Zephyr Chemicals", uuid.UUID(account["id"]))
+
+    assert "**Company:** Zephyr Chemicals" in provider.last_system
+    assert "**Website:** https://zephyr.example" in provider.last_system
+    assert "{{" not in provider.last_system
+
+    response = alpha_admin.post(
+        f"{MARKET_INSIGHTS}/{session['id']}/messages",
+        json={"question": "Which certifications do they hold?"},
+    )
+    assert response.status_code == 200, response.text
+    assert "**Website:** https://zephyr.example" in provider.last_system
+    assert "{{" not in provider.last_system
+
+
+def test_an_external_company_asks_the_model_to_find_its_website(
+    alpha_member: ApiSession, provider: StubProvider
+) -> None:
+    start(alpha_member, "Apcotex Industries")
+
+    assert "**Company:** Apcotex Industries" in provider.last_system
+    assert f"**Website:** {UNKNOWN_WEBSITE}" in provider.last_system
+
+
+def test_an_html_report_is_stored_exactly_as_the_model_wrote_it(
+    alpha_member: ApiSession, provider: StubProvider
+) -> None:
+    """The default brief asks for an HTML document; the API must not reshape it.
+
+    The report screen and the HTML download both recognise a document by its
+    opening ``<!DOCTYPE html>``, so a byte changed here is a report shown as
+    raw markup.
+    """
+    provider.text = (
+        "<!DOCTYPE html>\n<html><head><style>@media print { @page { size: A4; } }</style>"
+        "</head><body><section><h2>Compliance &amp; Related Information</h2></section>"
+        "</body></html>"
+    )
+
+    body = start(alpha_member, "Apcotex Industries")
+
+    assert body["messages"][1]["content"] == provider.text
 
 
 def test_editing_the_prompt_does_not_alter_completed_research(

@@ -214,6 +214,7 @@ class MarketInsightService(TenantScopedService[MarketInsightSession]):
             company_name=company_name,
             is_crm_account=account is not None,
             crm_context=context.text if used_crm_context and context else None,
+            company_website=account.website if account else None,
         )
         request = opening_request(company_name)
 
@@ -313,6 +314,7 @@ class MarketInsightService(TenantScopedService[MarketInsightSession]):
             company_name=session.company_name,
             is_crm_account=session.account_id is not None,
             crm_context=None if context is None or context.is_empty else context.text,
+            company_website=account.website if account else None,
             follow_up=True,
         )
 
