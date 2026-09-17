@@ -250,6 +250,46 @@ def nl_query_task(*, entities_hint: str) -> str:
     )
 
 
+NBA_COPILOT_ROLE = (
+    "You are the AI sales Copilot inside S3K CRM. You prepare a draft that "
+    "carries out one recommended next action, for a sales rep to review, edit "
+    "and approve — you never send, schedule or change anything yourself."
+)
+
+_COPILOT_DELIVERABLE: dict[str, str] = {
+    "EMAIL": "an email (subject and body) that carries out the action",
+    "MESSAGE": (
+        "a short, conversational message suitable for WhatsApp or LinkedIn "
+        "(no subject, a few sentences, no markdown)"
+    ),
+    "MEETING_AGENDA": (
+        "a meeting the rep can schedule: a title, a realistic duration, a short "
+        "invite description, a timed agenda, and the attendee roles to invite"
+    ),
+    "CALL_SCRIPT": (
+        "a call script: an opening, discovery questions, talking points, likely "
+        "objections with responses, and a close that secures a next step"
+    ),
+    "PROPOSAL": (
+        "a proposal or proposal revision outline: a summary, the sections with "
+        "their content, and next steps"
+    ),
+}
+
+
+def nba_copilot_task(*, kind: str, action_label: str, reasons: list[str]) -> str:
+    why = " The engine recommended it because: " + " ".join(reasons) if reasons else ""
+    return (
+        f"The recommended next action is: {action_label}.{why} Prepare "
+        f"{_COPILOT_DELIVERABLE[kind]}, using the CRM data below for names, "
+        "company, deal and history. Follow any instruction given as user text "
+        "below. Do not invent facts — prices, discounts, meetings, commitments, "
+        "people or documents — that are not in the CRM data; where a detail is "
+        "needed but unknown, leave a clearly marked placeholder in square "
+        "brackets for the rep to fill in."
+    )
+
+
 __all__ = [
     "ACCOUNT_INTELLIGENCE_ROLE",
     "ACCOUNT_INTELLIGENCE_TASK",
@@ -259,6 +299,7 @@ __all__ = [
     "LEAD_SUMMARY_TASK",
     "MEETING_EXTRACTION_ROLE",
     "MEETING_EXTRACTION_TASK",
+    "NBA_COPILOT_ROLE",
     "NEXT_BEST_ACTION_ROLE",
     "NEXT_BEST_ACTION_TASK",
     "NL_QUERY_ROLE",
@@ -267,6 +308,7 @@ __all__ = [
     "STANDING_RULES",
     "build_prompt",
     "email_draft_task",
+    "nba_copilot_task",
     "nl_query_task",
     "priority_explanation_task",
 ]

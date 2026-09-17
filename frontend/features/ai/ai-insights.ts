@@ -121,14 +121,176 @@ export interface PriorityReason {
   detail: string;
 }
 
+/**
+ * Plain CRM fields about a ranked record, for display beside its reasons.
+ * Fields that do not apply to the record's type are `null`.
+ */
+export interface PriorityRecordFacts {
+  /* Opportunities */
+  account_id: string | null;
+  /** `null` when the caller may see the deal but not its account. */
+  account_name: string | null;
+  stage_name: string | null;
+  deal_value: string | null;
+  currency: string | null;
+  win_probability: number | null;
+  expected_close_date: string | null;
+  /* Leads */
+  company: string | null;
+  email: string | null;
+  phone: string | null;
+  status: string | null;
+  expected_deal_size: string | null;
+  /* Both */
+  last_activity_at: string | null;
+  open_task_count: number;
+  overdue_task_count: number;
+}
+
+export type NbaCategory = 'COMMUNICATION' | 'MEETING' | 'CONTENT' | 'INTERNAL' | 'QUALIFICATION' | 'RISK';
+export type NbaExecution = 'EMAIL' | 'CALL' | 'WHATSAPP' | 'LINKEDIN' | 'MEETING' | 'TASK' | 'NOTE' | 'RECORD';
+export type CopilotKind = 'EMAIL' | 'MESSAGE' | 'MEETING_AGENDA' | 'CALL_SCRIPT' | 'PROPOSAL';
+export type NbaRecordKind = 'OPPORTUNITY' | 'LEAD';
+
+export interface NbaSignalEvidence {
+  key: string;
+  label: string;
+  value: string;
+}
+
+/** One recommended action from the Next Best Action engine. */
+export interface NbaAction {
+  action_code: string;
+  category: NbaCategory;
+  label: string;
+  execution: NbaExecution;
+  copilot: CopilotKind | null;
+  priority: 'HIGH' | 'MEDIUM' | 'LOW';
+  /** RULE = Level 1 rules engine; PREDICTIVE = Level 2 similar-deal history. */
+  level: 'RULE' | 'PREDICTIVE';
+  reasons: string[];
+  rule_keys: string[];
+  signals: NbaSignalEvidence[];
+  timing: string | null;
+  due_at: string | null;
+  /** 0–100, only where it is measured (predictive). */
+  confidence: number | null;
+}
+
 export interface PriorityScore {
-  entity_type: string;
+  entity_type: NbaRecordKind;
   entity_id: string;
   entity_label: string;
   level: 'HIGH' | 'MEDIUM' | 'LOW';
   score: number;
   reasons: PriorityReason[];
+  facts: PriorityRecordFacts;
+  /** The most recent cached Next Best Action, if one was ever generated. */
+  latest_recommendation: AiGeneration | null;
+  /** The engine's recommended actions, best first — no model call. */
+  actions: NbaAction[];
+  /** The signal snapshot the actions were computed from. */
+  signals: Record<string, string | number | boolean | null>;
 }
+
+export interface NbaCatalog {
+  categories: NbaCategory[];
+  actions: {
+    code: string;
+    category: NbaCategory;
+    label: string;
+    execution: NbaExecution;
+    copilot: CopilotKind | null;
+    applies_to: NbaRecordKind[];
+  }[];
+  signals: { key: string; label: string; kind: string; applies_to: NbaRecordKind[]; source: string }[];
+  operators: string[];
+}
+
+export interface NbaCondition {
+  field_key: string;
+  operator: string;
+  value: unknown;
+}
+
+export interface NbaRule {
+  key: string;
+  id: string | null;
+  source: 'BUILTIN' | 'CUSTOM';
+  name: string;
+  description: string | null;
+  applies_to: NbaRecordKind | 'BOTH';
+  logic: 'AND' | 'OR';
+  conditions: NbaCondition[];
+  action_code: string;
+  action_label: string;
+  category: NbaCategory | '';
+  priority: 'HIGH' | 'MEDIUM' | 'LOW';
+  reason: string;
+  timing: string | null;
+  due_in_hours: number | null;
+  cooldown_days: number;
+  is_active: boolean;
+  is_overridden: boolean;
+}
+
+export interface NbaRuleInput {
+  name: string;
+  description?: string | null;
+  applies_to: NbaRecordKind | 'BOTH';
+  logic: 'AND' | 'OR';
+  conditions: NbaCondition[];
+  action_code: string;
+  priority: 'HIGH' | 'MEDIUM' | 'LOW';
+  reason: string;
+  timing?: string | null;
+  due_in_hours?: number | null;
+  cooldown_days?: number;
+  is_active?: boolean;
+}
+
+export interface CopilotEmailContent {
+  kind: 'EMAIL';
+  action_code: string;
+  subject: string;
+  body: string;
+}
+export interface CopilotMessageContent {
+  kind: 'MESSAGE';
+  action_code: string;
+  body: string;
+}
+export interface CopilotMeetingContent {
+  kind: 'MEETING_AGENDA';
+  action_code: string;
+  title: string;
+  duration_minutes: number;
+  description: string;
+  agenda: { topic: string; minutes: number; objective: string }[];
+  attendee_roles: string[];
+}
+export interface CopilotCallScriptContent {
+  kind: 'CALL_SCRIPT';
+  action_code: string;
+  opening: string;
+  questions: string[];
+  talking_points: string[];
+  objections: { objection: string; response: string }[];
+  close: string;
+}
+export interface CopilotProposalContent {
+  kind: 'PROPOSAL';
+  action_code: string;
+  summary: string;
+  sections: { title: string; content: string }[];
+  next_steps: string[];
+}
+export type CopilotContent =
+  | CopilotEmailContent
+  | CopilotMessageContent
+  | CopilotMeetingContent
+  | CopilotCallScriptContent
+  | CopilotProposalContent;
 
 export interface InsightItem {
   kind: string;
@@ -244,6 +406,51 @@ export const explainOpportunityPriority = (opportunityId: string) =>
   api.post<AiGeneration>(`${BASE}/priority/opportunities/${opportunityId}/explain`);
 export const explainLeadPriority = (leadId: string) =>
   api.post<AiGeneration>(`${BASE}/priority/leads/${leadId}/explain`);
+
+/* ------------------------------------------------------------------
+   Next Best Action engine — rules, history, Copilot
+   ------------------------------------------------------------------ */
+
+const NBA = `${BASE}/nba`;
+
+export const getNbaCatalog = () => api.get<NbaCatalog>(`${NBA}/catalog`);
+export const nbaForRecord = (kind: NbaRecordKind, id: string) =>
+  api.get<PriorityScore | null>(`${NBA}/${kind === 'OPPORTUNITY' ? 'opportunities' : 'leads'}/${id}`);
+
+export const listNbaRules = () => api.get<NbaRule[]>(`${NBA}/rules`);
+export const createNbaRule = (body: NbaRuleInput) => api.post<NbaRule>(`${NBA}/rules`, body);
+export const updateNbaRule = (id: string, body: Partial<NbaRuleInput>) =>
+  api.patch<NbaRule>(`${NBA}/rules/${id}`, body);
+export const deleteNbaRule = (id: string) => api.delete<void>(`${NBA}/rules/${id}`);
+export const overrideBuiltinRule = (
+  key: string,
+  body: {
+    is_active?: boolean;
+    priority?: 'HIGH' | 'MEDIUM' | 'LOW';
+    logic?: 'AND' | 'OR';
+    conditions?: NbaCondition[];
+    cooldown_days?: number;
+  },
+) => api.put<NbaRule>(`${NBA}/rules/builtin/${key}`, body);
+export const resetBuiltinRule = (key: string) => api.delete<void>(`${NBA}/rules/builtin/${key}`);
+
+export const logNbaAction = (body: {
+  entity_type: NbaRecordKind;
+  entity_id: string;
+  action_code: string;
+  outcome: 'EXECUTED' | 'DISMISSED';
+  rule_keys?: string[];
+  generation_id?: string | null;
+  note?: string | null;
+}) => api.post<{ id: string }>(`${NBA}/actions/log`, body);
+
+export const runNbaCopilot = (body: {
+  entity_type: NbaRecordKind;
+  entity_id: string;
+  action_code: string;
+  kind?: CopilotKind;
+  instruction?: string | null;
+}) => api.post<AiGeneration>(`${NBA}/copilot`, body);
 
 /* ------------------------------------------------------------------
    Insights digest (rules only, no model call)

@@ -50,13 +50,37 @@ function StatusCard({
   title,
   children,
   action,
+  banner = false,
 }: {
   icon: LucideIcon;
   tone: Tone;
   title: string;
   children: ReactNode;
   action?: ReactNode;
+  banner?: boolean;
 }) {
+  if (banner) {
+    return (
+      <div
+        role="status"
+        className="surface bd flex flex-col gap-3 rounded-2xl border px-4 py-3 sm:flex-row sm:items-start sm:justify-between"
+      >
+        <div className="flex min-w-0 items-start gap-3">
+          <div
+            className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+            style={{ background: 'var(--surface-2)' }}
+          >
+            <Icon className={`h-4 w-4 ${TONE_ICON_CLASS[tone]}`} aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            <p className="txt text-[13px] font-semibold">{title}</p>
+            <div className="txt-muted mt-0.5 space-y-1 text-[12px] leading-relaxed">{children}</div>
+          </div>
+        </div>
+        {action && <div className="shrink-0 sm:pl-2">{action}</div>}
+      </div>
+    );
+  }
   return (
     <div
       role="status"
@@ -85,6 +109,7 @@ export default function AiConnectionNotice({
   pending,
   consequence,
   hideWhenReady = false,
+  compact = false,
 }: {
   status: AiStatus | null;
   /** The status request itself failed. */
@@ -95,6 +120,8 @@ export default function AiConnectionNotice({
   consequence?: string;
   /** Render nothing while loading or when AI is ready — for screens that work regardless. */
   hideWhenReady?: boolean;
+  /** A one-row banner instead of the full card — for screens whose main content works without AI. */
+  compact?: boolean;
 }) {
   const { can } = useAuth();
   const isAdmin = can('ai', 'ADMIN');
@@ -132,7 +159,7 @@ export default function AiConnectionNotice({
   switch (availabilityOf(status.state)) {
     case 'not_configured':
       return (
-        <StatusCard icon={PlugZap} tone="neutral" title="AI is not connected" action={settingsLink}>
+        <StatusCard banner={compact} icon={PlugZap} tone="neutral" title="AI is not connected" action={settingsLink}>
           <p>
             {isAdmin
               ? describeNotConfigured(status)
@@ -145,6 +172,7 @@ export default function AiConnectionNotice({
     case 'auth_failed':
       return (
         <StatusCard
+          banner={compact}
           icon={KeyRound}
           tone="danger"
           title="The AI provider rejected its credential"
@@ -164,6 +192,7 @@ export default function AiConnectionNotice({
     case 'unavailable':
       return (
         <StatusCard
+          banner={compact}
           icon={CloudOff}
           tone="warning"
           title={status.state === 'TIMEOUT' ? 'The AI provider timed out' : 'The AI provider is not responding'}
@@ -180,6 +209,7 @@ export default function AiConnectionNotice({
       if (!pending || hideWhenReady) return null;
       return (
         <StatusCard
+          banner={compact}
           icon={CheckCircle2}
           tone={status.state === 'AVAILABLE' ? 'success' : 'neutral'}
           title={status.state === 'AVAILABLE' ? 'AI is connected' : 'AI is configured'}

@@ -37,7 +37,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import ConflictError, NotFoundError, ValidationFailedError
 from app.platform.ai.service import AiGatewayService
 from app.platform.auth.dependencies import Principal
 from app.platform.authorization.service import Action as PermissionAction
@@ -45,7 +45,12 @@ from app.products.crm.accounts.models import Account
 from app.products.crm.accounts.service import AccountService
 from app.products.crm.activities.models import Activity
 from app.products.crm.ai_insights import insights as insights_queries
-from app.products.crm.ai_insights import prioritization
+from app.products.crm.ai_insights import (
+    nba_collect,
+    nba_predictive,
+    nba_rules,
+    prioritization,
+)
 from app.products.crm.ai_insights.context import (
     CrmContext,
     build_account_context,
@@ -57,7 +62,17 @@ from app.products.crm.ai_insights.models import (
     AiFeedbackRating,
     AiGeneration,
     AiGenerationStatus,
+    NbaActionLog,
+    NbaActionOutcome,
+    NbaRule,
 )
+from app.products.crm.ai_insights.nba_catalog import (
+    ACTIONS,
+    ActionCategory,
+    CopilotKind,
+    RecordKind,
+)
+from app.products.crm.ai_insights.nba_signals import SIGNALS
 from app.products.crm.ai_insights.prompts import (
     ACCOUNT_INTELLIGENCE_ROLE,
     ACCOUNT_INTELLIGENCE_TASK,
@@ -67,6 +82,7 @@ from app.products.crm.ai_insights.prompts import (
     LEAD_SUMMARY_TASK,
     MEETING_EXTRACTION_ROLE,
     MEETING_EXTRACTION_TASK,
+    NBA_COPILOT_ROLE,
     NEXT_BEST_ACTION_ROLE,
     NEXT_BEST_ACTION_TASK,
     NL_QUERY_ROLE,
@@ -74,12 +90,23 @@ from app.products.crm.ai_insights.prompts import (
     PRIORITY_EXPLANATION_ROLE,
     build_prompt,
     email_draft_task,
+    nba_copilot_task,
     nl_query_task,
     priority_explanation_task,
 )
-from app.products.crm.ai_insights.repository import AiGenerationRepository
+from app.products.crm.ai_insights.repository import (
+    AiGenerationRepository,
+    NbaActionLogRepository,
+    NbaRuleRepository,
+)
 from app.products.crm.ai_insights.schemas import (
     AccountIntelligenceOutput,
+    AiGenerationResponse,
+    CopilotCallScriptOutput,
+    CopilotEmailOutput,
+    CopilotMeetingOutput,
+    CopilotMessageOutput,
+    CopilotProposalOutput,
     EmailDraftOutput,
     EmailDraftRequest,
     InsightItem,
@@ -87,9 +114,23 @@ from app.products.crm.ai_insights.schemas import (
     MeetingActionItem,
     MeetingAppliedItem,
     MeetingExtractionOutput,
+    NbaActionLogCreate,
+    NbaActionLogResponse,
+    NbaActionResponse,
+    NbaBuiltinOverride,
+    NbaCatalogAction,
+    NbaCatalogResponse,
+    NbaCatalogSignal,
+    NbaCondition,
+    NbaCopilotRequest,
+    NbaRuleCreate,
+    NbaRuleResponse,
+    NbaRuleUpdate,
+    NbaSignalEvidence,
     NextBestActionOutput,
     NlQueryTranslation,
     PriorityExplanationOutput,
+    PriorityRecordFacts,
     PriorityScoreResponse,
     RecordSummaryOutput,
 )
@@ -100,6 +141,7 @@ from app.products.crm.ai_insights.structured import run_structured
 from app.products.crm.common import CrmEntityType
 from app.products.crm.contacts.models import Contact
 from app.products.crm.contacts.service import ContactService
+from app.products.crm.layouts.evaluate import OPERATORS as CONDITION_OPERATORS
 from app.products.crm.leads.models import Lead, LeadStatus
 from app.products.crm.leads.service import LeadService
 from app.products.crm.notes.models import NoteVisibility
@@ -109,6 +151,7 @@ from app.products.crm.opportunities.service import OpportunityClosedError, Oppor
 from app.products.crm.reports.custom import CustomReportEngine
 from app.products.crm.reports.fields import FIELDS, MODULE_FOR_ENTITY, ReportEntity
 from app.products.crm.reports.schemas import ReportResult
+from app.products.crm.shared.service import TenantScopedService
 from app.products.crm.shared.visibility import RecordVisibility
 from app.products.crm.tasks.models import Task
 from app.products.crm.tasks.service import CLOSED_STATUSES, TaskService
@@ -129,6 +172,9 @@ class AiInsightsService:
         self._contacts = ContactService(session)
         self._tasks = TaskService(session)
         self._notes = NoteService(session)
+        self._nba_rule_rows = NbaRuleRepository(session)
+        self._nba_rule_service = NbaRuleService(session)
+        self._nba_logs = NbaActionLogRepository(session)
 
     # --- Record resolution ---------------------------------------------
 
@@ -816,8 +862,105 @@ class AiInsightsService:
             if score is not None:
                 scored.append(score)
         scored.sort(key=lambda s: s.score, reverse=True)
-        labels = {opportunity.id: opportunity.name for opportunity in opportunities}
-        return [_to_priority_response(s, labels[s.entity_id]) for s in scored[:limit]]
+        by_id = {opportunity.id: opportunity for opportunity in opportunities}
+        return await self._opportunity_responses(
+            principal, scored[:limit], by_id, stage_names, last_activity, overdue
+        )
+
+    async def _opportunity_responses(
+        self,
+        principal: Principal,
+        top: Sequence[prioritization.PriorityScore],
+        by_id: dict[uuid.UUID, Opportunity],
+        stage_names: dict[uuid.UUID, str],
+        last_activity: dict[uuid.UUID, dt.datetime],
+        overdue: dict[uuid.UUID, int],
+    ) -> list[PriorityScoreResponse]:
+        """Facts and Next Best Actions for an already-ranked page of deals.
+
+        Computed for the ranked page only — never the whole candidate set, and
+        never an input to the score.
+        """
+        top_ids = [s.entity_id for s in top]
+        if not top_ids:
+            return []
+        account_names = await self._visible_account_names(
+            principal, {by_id[entity_id].account_id for entity_id in top_ids}
+        )
+        open_tasks = await self._open_task_counts(
+            principal.organization_id, CrmEntityType.OPPORTUNITY, top_ids
+        )
+        recommendations = await self._generations.latest_for_many(
+            principal.organization_id,
+            entity_type=CrmEntityType.OPPORTUNITY.value,
+            entity_ids=top_ids,
+            feature=AiFeature.NEXT_BEST_ACTION,
+        )
+
+        now = dt.datetime.now(dt.UTC)
+        signals, open_deals = await nba_collect.opportunity_signals(
+            self._session,
+            principal,
+            [by_id[entity_id] for entity_id in top_ids],
+            open_tasks=open_tasks,
+            overdue=overdue,
+            now=now,
+        )
+        history = await nba_collect.closed_deal_history(self._session, principal, now=now)
+        rules = await self._effective_nba_rules(principal.organization_id)
+        logs = await nba_collect.recent_action_logs(
+            self._session,
+            principal.organization_id,
+            CrmEntityType.OPPORTUNITY.value,
+            top_ids,
+            now=now,
+        )
+
+        responses = []
+        for s in top:
+            opportunity = by_id[s.entity_id]
+            snapshot = signals.get(opportunity.id, {})
+            deal = open_deals.get(opportunity.id)
+            predicted: list[nba_rules.RecommendedAction] = []
+            if deal is not None:
+                similar = nba_predictive.similar_win_rate(deal.band, history)
+                snapshot["similar_deal_win_rate"] = similar[0] if similar else None
+                predicted = nba_predictive.predict(
+                    band=deal.band,
+                    done=deal.done,
+                    past_proposal=deal.past_proposal,
+                    history=history,
+                )
+            facts = PriorityRecordFacts(
+                account_id=opportunity.account_id,
+                account_name=account_names.get(opportunity.account_id),
+                stage_name=stage_names[opportunity.id],
+                deal_value=opportunity.deal_value,
+                currency=opportunity.currency,
+                win_probability=opportunity.win_probability,
+                expected_close_date=opportunity.expected_close_date,
+                last_activity_at=last_activity.get(opportunity.id),
+                open_task_count=open_tasks.get(opportunity.id, 0),
+                overdue_task_count=overdue.get(opportunity.id, 0),
+            )
+            responses.append(
+                _to_priority_response(
+                    s,
+                    opportunity.name,
+                    facts=facts,
+                    latest_recommendation=recommendations.get(opportunity.id),
+                    actions=_engine_actions(
+                        RecordKind.OPPORTUNITY,
+                        snapshot,
+                        rules,
+                        predicted,
+                        logs.get(opportunity.id, {}),
+                        now,
+                    ),
+                    signals=_public_signals(snapshot),
+                )
+            )
+        return responses
 
     async def prioritize_leads(
         self, principal: Principal, *, limit: int = 25
@@ -868,11 +1011,396 @@ class AiInsightsService:
             if score is not None:
                 scored.append(score)
         scored.sort(key=lambda s: s.score, reverse=True)
-        labels = {
-            lead.id: f"{lead.first_name} {lead.last_name}".strip() or lead.company or "Lead"
-            for lead in leads
+        by_id = {lead.id: lead for lead in leads}
+        return await self._lead_responses(principal, scored[:limit], by_id, last_activity, overdue)
+
+    async def _lead_responses(
+        self,
+        principal: Principal,
+        top: Sequence[prioritization.PriorityScore],
+        by_id: dict[uuid.UUID, Lead],
+        last_activity: dict[uuid.UUID, dt.datetime],
+        overdue: dict[uuid.UUID, int],
+    ) -> list[PriorityScoreResponse]:
+        top_ids = [s.entity_id for s in top]
+        if not top_ids:
+            return []
+        open_task_counts = await self._open_task_counts(
+            principal.organization_id, CrmEntityType.LEAD, top_ids
+        )
+        recommendations = await self._generations.latest_for_many(
+            principal.organization_id,
+            entity_type=CrmEntityType.LEAD.value,
+            entity_ids=top_ids,
+            feature=AiFeature.NEXT_BEST_ACTION,
+        )
+        now = dt.datetime.now(dt.UTC)
+        signals = await nba_collect.lead_signals(
+            self._session,
+            principal,
+            [by_id[entity_id] for entity_id in top_ids],
+            open_tasks=open_task_counts,
+            overdue=overdue,
+            now=now,
+        )
+        rules = await self._effective_nba_rules(principal.organization_id)
+        logs = await nba_collect.recent_action_logs(
+            self._session, principal.organization_id, CrmEntityType.LEAD.value, top_ids, now=now
+        )
+
+        responses = []
+        for s in top:
+            lead = by_id[s.entity_id]
+            snapshot = signals.get(lead.id, {})
+            facts = PriorityRecordFacts(
+                company=lead.company,
+                email=lead.email,
+                phone=lead.phone,
+                status=lead.status.value,
+                expected_deal_size=lead.expected_deal_size,
+                last_activity_at=last_activity.get(lead.id),
+                open_task_count=open_task_counts.get(lead.id, 0),
+                overdue_task_count=overdue.get(lead.id, 0),
+            )
+            responses.append(
+                _to_priority_response(
+                    s,
+                    f"{lead.first_name} {lead.last_name}".strip() or lead.company or "Lead",
+                    facts=facts,
+                    latest_recommendation=recommendations.get(lead.id),
+                    actions=_engine_actions(
+                        RecordKind.LEAD, snapshot, rules, [], logs.get(lead.id, {}), now
+                    ),
+                    signals=_public_signals(snapshot),
+                )
+            )
+        return responses
+
+    # --- Next Best Action: one record ------------------------------------
+
+    async def nba_for_opportunity(
+        self, principal: Principal, opportunity_id: uuid.UUID
+    ) -> PriorityScoreResponse | None:
+        """The queue entry for one deal — ``None`` once it is closed."""
+        opportunity = await self.resolve_opportunity(principal, opportunity_id)
+        score = await self.score_opportunity(principal, opportunity_id)
+        if score is None:
+            return None
+        stage_name = (
+            await self._session.execute(
+                select(PipelineStage.name).where(PipelineStage.id == opportunity.stage_id)
+            )
+        ).scalar_one_or_none()
+        ids = [opportunity.id]
+        last_activity = await self._last_activity_by_entity(
+            principal.organization_id, CrmEntityType.OPPORTUNITY, ids
+        )
+        overdue = await self._overdue_task_counts(
+            principal.organization_id, CrmEntityType.OPPORTUNITY, ids
+        )
+        responses = await self._opportunity_responses(
+            principal,
+            [score],
+            {opportunity.id: opportunity},
+            {opportunity.id: stage_name or ""},
+            last_activity,
+            overdue,
+        )
+        return responses[0] if responses else None
+
+    async def nba_for_lead(
+        self, principal: Principal, lead_id: uuid.UUID
+    ) -> PriorityScoreResponse | None:
+        """The queue entry for one lead — ``None`` once it is inactive."""
+        lead = await self.resolve_lead(principal, lead_id)
+        score = await self.score_lead(principal, lead_id)
+        if score is None:
+            return None
+        ids = [lead.id]
+        last_activity = await self._last_activity_by_entity(
+            principal.organization_id, CrmEntityType.LEAD, ids
+        )
+        overdue = await self._overdue_task_counts(
+            principal.organization_id, CrmEntityType.LEAD, ids
+        )
+        responses = await self._lead_responses(
+            principal, [score], {lead.id: lead}, last_activity, overdue
+        )
+        return responses[0] if responses else None
+
+    # --- Next Best Action: rules ------------------------------------------
+
+    async def _effective_nba_rules(self, organization_id: uuid.UUID) -> list[nba_rules.RuleDef]:
+        rows = await self._nba_rule_rows.all_live(organization_id)
+        overrides: dict[str, dict[str, Any]] = {}
+        custom: list[nba_rules.RuleDef] = []
+        for row in rows:
+            if row.builtin_key is not None:
+                overrides[row.builtin_key] = {
+                    "is_active": row.is_active,
+                    "priority": row.priority,
+                    "conditions": row.conditions,
+                    "logic": row.condition_logic,
+                    "cooldown_days": row.cooldown_days,
+                }
+            else:
+                custom.append(_custom_rule_def(row))
+        return nba_rules.effective_rules(overrides, custom)
+
+    @staticmethod
+    def nba_catalog() -> NbaCatalogResponse:
+        return NbaCatalogResponse(
+            categories=[category.value for category in ActionCategory],
+            actions=[
+                NbaCatalogAction(
+                    code=action.code,
+                    category=action.category.value,
+                    label=action.label,
+                    execution=action.execution.value,
+                    copilot=action.copilot.value if action.copilot else None,
+                    applies_to=sorted(kind.value for kind in action.applies_to),
+                )
+                for action in ACTIONS.values()
+            ],
+            signals=[
+                NbaCatalogSignal(
+                    key=signal.key,
+                    label=signal.label,
+                    kind=signal.kind,
+                    applies_to=sorted(kind.value for kind in signal.applies_to),
+                    source=signal.source,
+                )
+                for signal in SIGNALS.values()
+            ],
+            operators=sorted(CONDITION_OPERATORS),
+        )
+
+    async def list_nba_rules(self, principal: Principal) -> list[NbaRuleResponse]:
+        rows = await self._nba_rule_rows.all_live(principal.organization_id)
+        overrides = {row.builtin_key: row for row in rows if row.builtin_key is not None}
+        responses = [
+            _builtin_rule_response(rule, overrides.get(key))
+            for key, rule in nba_rules.BUILTIN_RULES.items()
+        ]
+        responses.extend(_custom_rule_response(row) for row in rows if row.builtin_key is None)
+        return responses
+
+    async def create_nba_rule(
+        self, principal: Principal, payload: NbaRuleCreate
+    ) -> NbaRuleResponse:
+        conditions = [condition.model_dump() for condition in payload.conditions]
+        _validate_rule(
+            payload.applies_to, payload.logic, conditions, payload.action_code, payload.priority
+        )
+        if await self._nba_rule_rows.name_taken(principal.organization_id, payload.name):
+            raise ConflictError("A rule with this name already exists.")
+        existing = [
+            row
+            for row in await self._nba_rule_rows.all_live(principal.organization_id)
+            if row.builtin_key is None
+        ]
+        row = await self._nba_rule_service.create(
+            organization_id=principal.organization_id,
+            actor_id=principal.user_id,
+            values={
+                "name": payload.name,
+                "description": payload.description,
+                "applies_to": payload.applies_to,
+                "condition_logic": payload.logic,
+                "conditions": conditions,
+                "action_code": payload.action_code,
+                "priority": payload.priority,
+                "reason": payload.reason,
+                "timing": payload.timing,
+                "due_in_hours": payload.due_in_hours,
+                "cooldown_days": payload.cooldown_days,
+                "is_active": payload.is_active,
+                "position": len(existing),
+            },
+        )
+        return _custom_rule_response(row)
+
+    async def _custom_rule_or_404(self, principal: Principal, rule_id: uuid.UUID) -> NbaRule:
+        row = await self._nba_rule_rows.get(rule_id, principal.organization_id)
+        if row is None or row.builtin_key is not None:
+            raise NotFoundError("Rule not found.")
+        return row
+
+    async def update_nba_rule(
+        self, principal: Principal, rule_id: uuid.UUID, payload: NbaRuleUpdate
+    ) -> NbaRuleResponse:
+        row = await self._custom_rule_or_404(principal, rule_id)
+        changes = payload.model_dump(exclude_unset=True)
+        applies_to = changes.get("applies_to", row.applies_to)
+        logic = changes.get("logic", row.condition_logic)
+        conditions = changes.get("conditions", row.conditions)
+        action_code = changes.get("action_code", row.action_code)
+        priority = changes.get("priority", row.priority)
+        _validate_rule(applies_to, logic, conditions, action_code, priority)
+        if "name" in changes and await self._nba_rule_rows.name_taken(
+            principal.organization_id, changes["name"], exclude_id=row.id
+        ):
+            raise ConflictError("A rule with this name already exists.")
+        values = {key: value for key, value in changes.items() if key not in {"logic"}}
+        if "logic" in changes:
+            values["condition_logic"] = changes["logic"]
+        updated = await self._nba_rule_service.update(
+            row, actor_id=principal.user_id, values=values
+        )
+        return _custom_rule_response(updated)
+
+    async def delete_nba_rule(self, principal: Principal, rule_id: uuid.UUID) -> None:
+        row = await self._custom_rule_or_404(principal, rule_id)
+        await self._nba_rule_service.soft_delete(row, actor_id=principal.user_id)
+
+    async def override_builtin_rule(
+        self, principal: Principal, key: str, payload: NbaBuiltinOverride
+    ) -> NbaRuleResponse:
+        rule = nba_rules.BUILTIN_RULES.get(key)
+        if rule is None:
+            raise NotFoundError("Rule not found.")
+        changes = payload.model_dump(exclude_unset=True)
+        conditions = changes.get("conditions")
+        if conditions is not None:
+            _validate_rule(
+                _applies_to_value(rule.applies_to),
+                changes.get("logic", rule.logic),
+                conditions,
+                rule.action_code,
+                changes.get("priority", rule.priority),
+            )
+        row = await self._nba_rule_rows.builtin_override(principal.organization_id, key)
+        values: dict[str, Any] = {}
+        if "is_active" in changes:
+            values["is_active"] = changes["is_active"]
+        if "priority" in changes:
+            values["priority"] = changes["priority"]
+        if "logic" in changes:
+            values["condition_logic"] = changes["logic"]
+        if conditions is not None:
+            values["conditions"] = conditions
+        if "cooldown_days" in changes:
+            values["cooldown_days"] = changes["cooldown_days"]
+        if row is None:
+            row = await self._nba_rule_service.create(
+                organization_id=principal.organization_id,
+                actor_id=principal.user_id,
+                values={
+                    "builtin_key": key,
+                    "name": rule.name,
+                    "applies_to": _applies_to_value(rule.applies_to),
+                    "condition_logic": rule.logic,
+                    "conditions": [],
+                    "action_code": rule.action_code,
+                    "priority": rule.priority,
+                    "reason": "",
+                    "cooldown_days": rule.cooldown_days,
+                    "is_active": rule.is_active,
+                    "position": rule.position,
+                    **values,
+                },
+            )
+        elif values:
+            row = await self._nba_rule_service.update(
+                row, actor_id=principal.user_id, values=values
+            )
+        return _builtin_rule_response(rule, row)
+
+    async def reset_builtin_rule(self, principal: Principal, key: str) -> None:
+        if key not in nba_rules.BUILTIN_RULES:
+            raise NotFoundError("Rule not found.")
+        row = await self._nba_rule_rows.builtin_override(principal.organization_id, key)
+        if row is not None:
+            await self._nba_rule_service.soft_delete(row, actor_id=principal.user_id)
+
+    # --- Next Best Action: acting on a recommendation ---------------------
+
+    async def _resolve_nba_record(
+        self, principal: Principal, entity_type: str, entity_id: uuid.UUID
+    ) -> Opportunity | Lead:
+        if entity_type == "OPPORTUNITY":
+            return await self.resolve_opportunity(principal, entity_id)
+        return await self.resolve_lead(principal, entity_id)
+
+    async def log_nba_action(
+        self, principal: Principal, payload: NbaActionLogCreate
+    ) -> NbaActionLogResponse:
+        """Record that a rep executed or dismissed an action on a record they can see."""
+        await self._resolve_nba_record(principal, payload.entity_type, payload.entity_id)
+        action = ACTIONS.get(payload.action_code)
+        if action is None or RecordKind(payload.entity_type) not in action.applies_to:
+            raise ValidationFailedError("That action does not apply to this record.")
+        log = await self._nba_logs.add(
+            NbaActionLog(
+                organization_id=principal.organization_id,
+                entity_type=payload.entity_type,
+                entity_id=payload.entity_id,
+                action_code=payload.action_code,
+                outcome=NbaActionOutcome(payload.outcome),
+                rule_keys=list(payload.rule_keys),
+                generation_id=payload.generation_id,
+                note=payload.note,
+                actor_id=principal.user_id,
+            )
+        )
+        return NbaActionLogResponse.model_validate(log)
+
+    async def nba_copilot(self, principal: Principal, payload: NbaCopilotRequest) -> AiGeneration:
+        """Level 3: draft what an action needs, for the rep to review and approve.
+
+        Nothing is sent, scheduled or written to the record here — the draft is
+        stored as an ``NBA_COPILOT`` generation and returned. Approval happens
+        in the CRM's own compose/schedule/task flows, under their permissions.
+        """
+        record = await self._resolve_nba_record(principal, payload.entity_type, payload.entity_id)
+        kind = RecordKind(payload.entity_type)
+        action = ACTIONS.get(payload.action_code)
+        if action is None or kind not in action.applies_to:
+            raise ValidationFailedError("That action does not apply to this record.")
+        copilot_kind = payload.kind or (action.copilot.value if action.copilot else None)
+        if copilot_kind is None:
+            raise ValidationFailedError("The Copilot has no draft for this action.")
+        schema = _COPILOT_SCHEMAS[copilot_kind]
+
+        if isinstance(record, Opportunity):
+            context = await build_opportunity_context(
+                self._session, opportunity=record, principal=principal
+            )
+            current = await self.nba_for_opportunity(principal, record.id)
+            subject = f"the deal {record.name}"
+        else:
+            context = await build_lead_context(self._session, lead=record, principal=principal)
+            current = await self.nba_for_lead(principal, record.id)
+            subject = f"the lead {record.first_name} {record.last_name}".strip()
+        reasons: list[str] = []
+        if current is not None:
+            match = next((a for a in current.actions if a.action_code == action.code), None)
+            reasons = list(match.reasons) if match else []
+
+        system = build_prompt(
+            role=NBA_COPILOT_ROLE,
+            task=nba_copilot_task(kind=copilot_kind, action_label=action.label, reasons=reasons),
+            crm_context=context.text,
+            schema=schema,
+            user_text=("Rep instruction", payload.instruction) if payload.instruction else None,
+        )
+        generation, _ = await self._generate(
+            principal,
+            feature=AiFeature.NBA_COPILOT,
+            entity_type=CrmEntityType(payload.entity_type),
+            entity_id=record.id,
+            system=system,
+            user_message=f"Prepare the draft to {action.label.lower()} for {subject}.",
+            schema=schema,
+            used_crm_context=not context.is_empty,
+        )
+        generation.content = {
+            "kind": copilot_kind,
+            "action_code": action.code,
+            **generation.content,
         }
-        return [_to_priority_response(s, labels[s.entity_id]) for s in scored[:limit]]
+        await self._generations.flush()
+        return generation
 
     # --- Single-record scoring, for the "explain" action -------------------
 
@@ -982,6 +1510,12 @@ class AiInsightsService:
         )
 
     # --- Batched signal queries for prioritization ------------------------
+    #
+    # Each excludes archived (soft-deleted) rows. A reason must be a fact the
+    # caller could check by opening the record, and archived tasks and
+    # activities are gone from the record's own timeline — so an archived
+    # overdue task is not "overdue work", and an archived call is not "last
+    # contact".
 
     async def _last_activity_by_entity(
         self, organization_id: uuid.UUID, entity_type: CrmEntityType, entity_ids: list[uuid.UUID]
@@ -997,6 +1531,7 @@ class AiInsightsService:
             )
             .where(
                 Activity.organization_id == organization_id,
+                Activity.deleted_at.is_(None),
                 Activity.related_entity_type == entity_type,
                 Activity.related_entity_id.in_(entity_ids),
             )
@@ -1014,6 +1549,7 @@ class AiInsightsService:
             select(Task.related_entity_id, func.count())
             .where(
                 Task.organization_id == organization_id,
+                Task.deleted_at.is_(None),
                 Task.related_entity_type == entity_type,
                 Task.related_entity_id.in_(entity_ids),
                 Task.status.not_in(tuple(CLOSED_STATUSES)),
@@ -1034,6 +1570,7 @@ class AiInsightsService:
             select(Task.related_entity_id)
             .where(
                 Task.organization_id == organization_id,
+                Task.deleted_at.is_(None),
                 Task.related_entity_type == entity_type,
                 Task.related_entity_id.in_(entity_ids),
                 Task.status.not_in(tuple(CLOSED_STATUSES)),
@@ -1042,6 +1579,52 @@ class AiInsightsService:
         )
         rows = (await self._session.execute(statement)).scalars().all()
         return dict.fromkeys((entity_id for entity_id in rows if entity_id is not None), True)
+
+    async def _open_task_counts(
+        self, organization_id: uuid.UUID, entity_type: CrmEntityType, entity_ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, int]:
+        """Open tasks per record — the same "open" ``_open_task_flags`` scores
+        on, counted, so the queue's follow-up state agrees with its reasons.
+        Archived tasks are gone from the record, so they are not counted.
+        """
+        if not entity_ids:
+            return {}
+        statement = (
+            select(Task.related_entity_id, func.count())
+            .where(
+                Task.organization_id == organization_id,
+                Task.deleted_at.is_(None),
+                Task.related_entity_type == entity_type,
+                Task.related_entity_id.in_(entity_ids),
+                Task.status.not_in(tuple(CLOSED_STATUSES)),
+            )
+            .group_by(Task.related_entity_id)
+        )
+        rows = (await self._session.execute(statement)).all()
+        return {row[0]: int(row[1]) for row in rows}
+
+    async def _visible_account_names(
+        self, principal: Principal, account_ids: set[uuid.UUID]
+    ) -> dict[uuid.UUID, str]:
+        """Names of the accounts the caller may see, by id.
+
+        Seeing a deal does not grant seeing its account, so the account's own
+        permission and record visibility decide — the same rule
+        ``GET /crm/accounts/{id}`` applies. An account missing here renders as
+        no name, never as a leaked one.
+        """
+        if not account_ids or not principal.has_permission("accounts", PermissionAction.VIEW):
+            return {}
+        statement = select(Account.id, Account.name).where(
+            Account.organization_id == principal.organization_id,
+            Account.deleted_at.is_(None),
+            Account.id.in_(account_ids),
+        )
+        predicate = RecordVisibility.for_module(principal, "accounts").filter_for(Account)
+        if predicate is not None:
+            statement = statement.where(predicate)
+        rows = (await self._session.execute(statement)).all()
+        return {row[0]: row[1] for row in rows}
 
 
 def _parse_amount(raw: str | None) -> Decimal | None:
@@ -1075,7 +1658,13 @@ def _module_for_entity(entity: ReportEntity) -> str:
 
 
 def _to_priority_response(
-    score: prioritization.PriorityScore, entity_label: str
+    score: prioritization.PriorityScore,
+    entity_label: str,
+    *,
+    facts: PriorityRecordFacts,
+    latest_recommendation: AiGeneration | None,
+    actions: list[NbaActionResponse] | None = None,
+    signals: dict[str, Any] | None = None,
 ) -> PriorityScoreResponse:
     return PriorityScoreResponse(
         entity_type=score.entity_type,
@@ -1084,6 +1673,203 @@ def _to_priority_response(
         level=score.level,
         score=score.score,
         reasons=[PriorityReasonSchema(label=r.label, detail=r.detail) for r in score.reasons],
+        facts=facts,
+        latest_recommendation=(
+            AiGenerationResponse.model_validate(latest_recommendation)
+            if latest_recommendation is not None
+            else None
+        ),
+        actions=actions or [],
+        signals=signals or {},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Next Best Action engine helpers
+# ---------------------------------------------------------------------------
+
+#: A dismissed action stays hidden at least this long, whatever its cooldown.
+DISMISS_COOLDOWN_DAYS = 7
+
+_COPILOT_SCHEMAS: dict[str, type[Any]] = {
+    CopilotKind.EMAIL.value: CopilotEmailOutput,
+    CopilotKind.MESSAGE.value: CopilotMessageOutput,
+    CopilotKind.MEETING_AGENDA.value: CopilotMeetingOutput,
+    CopilotKind.CALL_SCRIPT.value: CopilotCallScriptOutput,
+    CopilotKind.PROPOSAL.value: CopilotProposalOutput,
+}
+
+
+class NbaRuleService(TenantScopedService[NbaRule]):
+    """Audited create/update/archive for ``crm.nba_rules``."""
+
+    entity_name = "NBA rule"
+
+    def __init__(self, session: AsyncSession) -> None:
+        super().__init__(NbaRuleRepository(session), NbaRule)
+
+
+def _engine_actions(
+    kind: RecordKind,
+    snapshot: dict[str, Any],
+    rules: Sequence[nba_rules.RuleDef],
+    predicted: Sequence[nba_rules.RecommendedAction],
+    logs: dict[str, tuple[str, dt.datetime]],
+    now: dt.datetime,
+) -> list[NbaActionResponse]:
+    """Run the engine and drop what a rep already executed or dismissed recently."""
+    responses: list[NbaActionResponse] = []
+    for action in nba_rules.evaluate(kind, snapshot, rules, extra=predicted):
+        logged = logs.get(action.action_code)
+        if logged is not None:
+            outcome, at = logged
+            cooldown = (
+                max(action.cooldown_days, DISMISS_COOLDOWN_DAYS)
+                if outcome == NbaActionOutcome.DISMISSED.value
+                else action.cooldown_days
+            )
+            if cooldown > 0 and at >= now - dt.timedelta(days=cooldown):
+                continue
+        responses.append(
+            NbaActionResponse(
+                action_code=action.action_code,
+                category=action.category,
+                label=action.label,
+                execution=action.execution,
+                copilot=action.copilot,
+                priority=action.priority,
+                level=action.level,
+                reasons=list(action.reasons),
+                rule_keys=list(action.rule_keys),
+                signals=[
+                    NbaSignalEvidence(key=item.key, label=item.label, value=item.value)
+                    for item in action.signals
+                ],
+                timing=action.timing,
+                due_at=(
+                    now + dt.timedelta(hours=action.due_in_hours)
+                    if action.due_in_hours is not None
+                    else None
+                ),
+                confidence=action.confidence,
+            )
+        )
+    return responses
+
+
+def _public_signals(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Catalog signals only — never custom-field copies or free text."""
+    return {
+        key: value
+        for key, value in snapshot.items()
+        if key in SIGNALS and key != "recent_interaction_text"
+    }
+
+
+def _kinds(applies_to: str) -> frozenset[RecordKind]:
+    if applies_to == "BOTH":
+        return frozenset({RecordKind.OPPORTUNITY, RecordKind.LEAD})
+    return frozenset({RecordKind(applies_to)})
+
+
+def _applies_to_value(kinds: frozenset[RecordKind]) -> str:
+    return "BOTH" if len(kinds) > 1 else next(iter(kinds)).value
+
+
+def _validate_rule(
+    applies_to: str,
+    logic: str,
+    conditions: Sequence[dict[str, Any]],
+    action_code: str,
+    priority: str,
+) -> None:
+    try:
+        nba_rules.validate_rule(
+            applies_to=_kinds(applies_to),
+            logic=logic,
+            conditions=conditions,
+            action_code=action_code,
+            priority=priority,
+        )
+    except nba_rules.RuleValidationError as error:
+        raise ValidationFailedError(str(error)) from error
+
+
+def _custom_rule_def(row: NbaRule) -> nba_rules.RuleDef:
+    return nba_rules.RuleDef(
+        key=f"custom.{row.id}",
+        name=row.name,
+        applies_to=_kinds(row.applies_to),
+        conditions=tuple(row.conditions),
+        action_code=row.action_code,
+        priority=row.priority,
+        reason=row.reason,
+        logic=row.condition_logic,
+        timing=row.timing,
+        due_in_hours=row.due_in_hours,
+        cooldown_days=row.cooldown_days,
+        is_active=row.is_active,
+        source="CUSTOM",
+        rule_id=row.id,
+        position=row.position,
+    )
+
+
+def _rule_action(action_code: str) -> tuple[str, str]:
+    action = ACTIONS.get(action_code)
+    return (action.label, action.category.value) if action else (action_code, "")
+
+
+def _builtin_rule_response(rule: nba_rules.RuleDef, override: NbaRule | None) -> NbaRuleResponse:
+    conditions: list[Any] = (
+        list(override.conditions)
+        if override and override.conditions
+        else [dict(condition) for condition in rule.conditions]
+    )
+    label, category = _rule_action(rule.action_code)
+    return NbaRuleResponse(
+        key=rule.key,
+        id=override.id if override else None,
+        source="BUILTIN",
+        name=rule.name,
+        description=None,
+        applies_to=_applies_to_value(rule.applies_to),
+        logic=(override.condition_logic if override else rule.logic),
+        conditions=[NbaCondition.model_validate(dict(condition)) for condition in conditions],
+        action_code=rule.action_code,
+        action_label=label,
+        category=category,
+        priority=(override.priority if override else rule.priority),
+        reason=rule.reason,
+        timing=rule.timing,
+        due_in_hours=rule.due_in_hours,
+        cooldown_days=override.cooldown_days if override else rule.cooldown_days,
+        is_active=override.is_active if override else rule.is_active,
+        is_overridden=override is not None,
+    )
+
+
+def _custom_rule_response(row: NbaRule) -> NbaRuleResponse:
+    label, category = _rule_action(row.action_code)
+    return NbaRuleResponse(
+        key=f"custom.{row.id}",
+        id=row.id,
+        source="CUSTOM",
+        name=row.name,
+        description=row.description,
+        applies_to=row.applies_to,
+        logic=row.condition_logic,
+        conditions=[NbaCondition.model_validate(dict(condition)) for condition in row.conditions],
+        action_code=row.action_code,
+        action_label=label,
+        category=category,
+        priority=row.priority,
+        reason=row.reason,
+        timing=row.timing,
+        due_in_hours=row.due_in_hours,
+        cooldown_days=row.cooldown_days,
+        is_active=row.is_active,
+        is_overridden=False,
     )
 
 

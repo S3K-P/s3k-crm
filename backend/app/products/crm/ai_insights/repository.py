@@ -14,10 +14,11 @@ import datetime as dt
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.products.crm.ai_insights.models import AiFeature, AiGeneration
+from app.products.crm.ai_insights.models import AiFeature, AiGeneration, NbaActionLog, NbaRule
+from app.products.crm.shared.repository import TenantScopedRepository
 
 
 class AiGenerationRepository:
@@ -71,6 +72,40 @@ class AiGenerationRepository:
         )
         return result.scalar_one_or_none()
 
+    async def latest_for_many(
+        self,
+        organization_id: uuid.UUID,
+        *,
+        entity_type: str,
+        entity_ids: Sequence[uuid.UUID],
+        feature: AiFeature,
+    ) -> dict[uuid.UUID, AiGeneration]:
+        """``latest_for`` over many records of one type, in one query.
+
+        For a screen listing many records' cached results at once — the Next
+        Best Action queue — rather than one query per row. PostgreSQL's
+        ``DISTINCT ON`` keeps the first row per ``entity_id`` in the ordering,
+        which is the newest.
+        """
+        if not entity_ids:
+            return {}
+        result = await self._session.execute(
+            select(AiGeneration)
+            .where(
+                AiGeneration.organization_id == organization_id,
+                AiGeneration.entity_type == entity_type,
+                AiGeneration.entity_id.in_(entity_ids),
+                AiGeneration.feature == feature,
+            )
+            .order_by(AiGeneration.entity_id, AiGeneration.created_at.desc())
+            .distinct(AiGeneration.entity_id)
+        )
+        return {
+            generation.entity_id: generation
+            for generation in result.scalars().all()
+            if generation.entity_id is not None
+        }
+
     async def history_for(
         self,
         organization_id: uuid.UUID,
@@ -112,4 +147,48 @@ class AiGenerationRepository:
         return result.scalars().all()
 
 
-__all__ = ["AiGenerationRepository"]
+class NbaRuleRepository(TenantScopedRepository[NbaRule]):
+    """Queries over ``crm.nba_rules`` — tenant rules and built-in overrides."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        super().__init__(session, NbaRule)
+
+    async def all_live(self, organization_id: uuid.UUID) -> Sequence[NbaRule]:
+        result = await self._session.execute(
+            self._base_query(organization_id).order_by(
+                NbaRule.position.asc(), NbaRule.created_at.asc()
+            )
+        )
+        return result.scalars().all()
+
+    async def builtin_override(self, organization_id: uuid.UUID, key: str) -> NbaRule | None:
+        result = await self._session.execute(
+            self._base_query(organization_id).where(NbaRule.builtin_key == key)
+        )
+        return result.scalar_one_or_none()
+
+    async def name_taken(
+        self, organization_id: uuid.UUID, name: str, *, exclude_id: uuid.UUID | None = None
+    ) -> bool:
+        statement = self._base_query(organization_id).where(
+            NbaRule.builtin_key.is_(None), func.lower(NbaRule.name) == name.lower()
+        )
+        if exclude_id is not None:
+            statement = statement.where(NbaRule.id != exclude_id)
+        result = await self._session.execute(statement.limit(1))
+        return result.scalar_one_or_none() is not None
+
+
+class NbaActionLogRepository:
+    """Append-only writes to ``crm.nba_action_logs``."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add(self, log: NbaActionLog) -> NbaActionLog:
+        self._session.add(log)
+        await self._session.flush()
+        return log
+
+
+__all__ = ["AiGenerationRepository", "NbaActionLogRepository", "NbaRuleRepository"]
