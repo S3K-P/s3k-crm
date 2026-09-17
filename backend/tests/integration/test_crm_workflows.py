@@ -505,3 +505,94 @@ def test_a_live_lead_source_name_is_still_rejected(as_alpha_admin: ApiSession) -
 
     assert duplicate.status_code == 409, duplicate.text
     assert duplicate.json()["error"]["code"] == "duplicate_lead_source"
+
+
+# --- Activities and meeting detail -------------------------------------------
+
+
+def test_a_meeting_omitting_its_type_gets_the_documented_default(
+    as_alpha_admin: ApiSession,
+) -> None:
+    """An omitted ``meeting_type`` must become VIDEO, not a 500.
+
+    ``MeetingDetail.meeting_type`` declares ``VIDEO`` as its default, but the
+    create route dumps with ``model_dump(exclude_unset=True)`` — right for
+    PATCH, where it distinguishes "not sent" from "set to null", and fatal on
+    create, where it drops any field the client left out before the service
+    ever sees it. NULL then reached a NOT NULL column and asyncpg raised
+    ``NotNullViolationError``, surfacing as a 500. The column now carries the
+    same default the schema advertises.
+    """
+    account_id = as_alpha_admin.post(
+        "/crm/accounts", json={"name": "Meeting Defaults Ltd"}
+    ).json()["id"]
+
+    created = as_alpha_admin.post(
+        "/crm/activities",
+        json={
+            "type": "MEETING",
+            "subject": "Discovery call",
+            "related_entity_type": "ACCOUNT",
+            "related_entity_id": account_id,
+            "meeting": {"start_time": "2026-09-10T14:00:00Z"},
+        },
+    )
+
+    assert created.status_code == 201, created.text
+    assert created.json()["meeting"]["meeting_type"] == "VIDEO"
+
+
+def test_an_explicit_meeting_type_is_still_honoured(as_alpha_admin: ApiSession) -> None:
+    """The default must not shadow a type the client actually chose."""
+    account_id = as_alpha_admin.post(
+        "/crm/accounts", json={"name": "In Person Ltd"}
+    ).json()["id"]
+
+    created = as_alpha_admin.post(
+        "/crm/activities",
+        json={
+            "type": "MEETING",
+            "subject": "Site visit",
+            "related_entity_type": "ACCOUNT",
+            "related_entity_id": account_id,
+            "meeting": {"start_time": "2026-09-10T14:00:00Z", "meeting_type": "IN_PERSON"},
+        },
+    )
+
+    assert created.status_code == 201, created.text
+    assert created.json()["meeting"]["meeting_type"] == "IN_PERSON"
+
+
+def test_patching_a_meetings_time_does_not_reset_its_type(
+    as_alpha_admin: ApiSession,
+) -> None:
+    """The default must never overwrite a type already on the row.
+
+    This is why ``exclude_unset=True`` has to stay on the PATCH path: dropping
+    it there to fix the create path would make every partial update resend
+    ``meeting_type`` as VIDEO, quietly rewriting an IN_PERSON meeting the
+    caller never touched.
+    """
+    account_id = as_alpha_admin.post(
+        "/crm/accounts", json={"name": "Rescheduling Ltd"}
+    ).json()["id"]
+    created = as_alpha_admin.post(
+        "/crm/activities",
+        json={
+            "type": "MEETING",
+            "subject": "Site visit",
+            "related_entity_type": "ACCOUNT",
+            "related_entity_id": account_id,
+            "meeting": {"start_time": "2026-09-10T14:00:00Z", "meeting_type": "IN_PERSON"},
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    moved = as_alpha_admin.patch(
+        f"/crm/activities/{created.json()['id']}",
+        json={"meeting": {"start_time": "2026-09-11T09:00:00Z"}},
+    )
+
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["meeting"]["meeting_type"] == "IN_PERSON"
+    assert moved.json()["meeting"]["start_time"].startswith("2026-09-11T09:00")

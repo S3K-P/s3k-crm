@@ -112,6 +112,8 @@ class Meeting(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     meeting_type: Mapped[MeetingType] = mapped_column(
         Enum(MeetingType, name="meeting_type", schema=CRM_SCHEMA, native_enum=True),
         nullable=False,
+        default=MeetingType.VIDEO,
+        server_default=MeetingType.VIDEO.value,
     )
     start_time: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     end_time: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
