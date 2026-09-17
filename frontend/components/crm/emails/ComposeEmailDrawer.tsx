@@ -31,7 +31,7 @@ import type { CrmEntityType } from '@/features/crm/tasks';
 
    - **"Queued", not "Sent".** The request returns before anything
      reaches a relay. Saying "Sent" would be a claim the product
-     cannot back up the first time SMTP is down.
+     cannot back up the first time Microsoft Graph is unavailable.
    - **Unresolved placeholders are shown before sending.** A
      template rendered against a record that has no phone number
      leaves `{{record.phone}}` in the body on purpose; the warning

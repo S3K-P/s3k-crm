@@ -35,7 +35,7 @@ regression suite is green.
 | Transactional outbox (`FOR UPDATE SKIP LOCKED`, stall reclaim) | `86a2d77`, `app/platform/events/` | `test_outbox.py` |
 | ARQ worker + cron drain | `86a2d77`, `app/worker.py`, `backend/scripts/worker.sh` | `test_outbox.py` |
 | Retries, exponential backoff + jitter, dead-letter status | `86a2d77`, `app/platform/events/service.py` | `test_outbox.py` |
-| Email provider (SMTP / console / null) | `86a2d77`, `app/platform/email/provider.py` | `test_email_delivery.py` |
+| Email provider (SMTP / console / null — since replaced by Microsoft Graph / console / null) | `86a2d77`, `app/platform/email/provider.py` | `test_email_delivery.py` |
 | **Invitation** delivery | `86a2d77`, `organizations/router.py::_request_invitation_email` | `test_email_delivery.py` |
 | Scheduled jobs (reminder poller API → worker; `notifications_scheduler_enabled` defaults `False`) | `86a2d77` | `test_horizontal_scaling.py` |
 | Horizontal scaling (`numReplicas` 1 → 2; `pg_advisory_xact_lock` in `migrations/env.py`) | `86a2d77`, `app/core/database.py::MIGRATION_LOCK_KEY` | `test_horizontal_scaling.py` |

@@ -87,7 +87,7 @@ class _Mailbox:
 
     Everything else the reminder email touches — the outbox, the dispatcher,
     the delivery log, the member directory — is real, because those are where
-    the behaviour lives. There is no SMTP server in CI and a test suite that
+    the behaviour lives. There is no Microsoft Graph tenant in CI and a test suite that
     sent real mail would be a defect.
     """
 

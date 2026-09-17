@@ -33,6 +33,7 @@ from app.products.crm.contacts.models import Contact
 from app.products.crm.leads.models import Lead, LeadStatus
 from app.products.crm.opportunities.models import Opportunity, PipelineStage
 from app.products.crm.shared.pagination import PageParams
+from app.products.crm.shared.record_notifications import LEAD_QUALIFIED, notify_record_event
 from app.products.crm.shared.repository import TenantScopedRepository
 from app.products.crm.shared.service import TenantScopedService
 from app.products.crm.shared.visibility import RecordVisibility
@@ -654,6 +655,25 @@ class LeadService(TenantScopedService[Lead]):
                 "lost_reason": lead.lost_reason,
             },
         )
+        if new_status is LeadStatus.QUALIFIED:
+            # P4-W27-BE-03: the owner learns their lead is ready to work,
+            # unless they qualified it themselves.
+            await notify_record_event(
+                self._session,
+                organization_id=lead.organization_id,
+                recipient_id=lead.owner_id,
+                actor_id=actor_id,
+                kind=LEAD_QUALIFIED,
+                title=f"Lead qualified: {lead.full_name}",
+                message=(
+                    f"Your lead {lead.full_name}"
+                    + (f" ({lead.company})" if lead.company else "")
+                    + " has been qualified."
+                ),
+                entity_type="lead",
+                entity_id=lead.id,
+                record_path=f"/leads/{lead.id}",
+            )
         return lead
 
     async def assign_owner(

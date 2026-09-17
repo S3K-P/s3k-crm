@@ -21,6 +21,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.products.crm.common import CrmEntityType, Priority
 from app.products.crm.shared.pagination import MAX_PAGE_SIZE, PageParams
+from app.products.crm.shared.record_notifications import (
+    TASK_ASSIGNED,
+    TASK_COMPLETED,
+    notify_record_event,
+)
 from app.products.crm.shared.relations import validate_related_entity
 from app.products.crm.shared.repository import TenantScopedRepository
 from app.products.crm.shared.service import TenantScopedService
@@ -162,9 +167,11 @@ class TaskService(TenantScopedService[Task]):
         if payload.get("status") in CLOSED_STATUSES:
             payload["completed_at"] = dt.datetime.now(dt.UTC)
 
-        return await self.create(
+        task = await self.create(
             organization_id=organization_id, actor_id=actor_id, values=payload
         )
+        await self._notify_assigned(task, actor_id=actor_id)
+        return task
 
     async def update_task(
         self,
@@ -188,18 +195,66 @@ class TaskService(TenantScopedService[Task]):
             )
 
         new_status = payload.get("status")
+        previous_status = task.status
+        previous_assignee = task.assigned_to_id
         if new_status is not None and new_status != task.status:
             payload["completed_at"] = (
                 dt.datetime.now(dt.UTC) if new_status in CLOSED_STATUSES else None
             )
 
-        return await self.update(task, actor_id=actor_id, values=payload)
+        updated = await self.update(task, actor_id=actor_id, values=payload)
+
+        if updated.assigned_to_id is not None and updated.assigned_to_id != previous_assignee:
+            await self._notify_assigned(updated, actor_id=actor_id)
+        if (
+            updated.status is TaskStatus.COMPLETED
+            and previous_status is not TaskStatus.COMPLETED
+        ):
+            await self._notify_completed(updated, actor_id=actor_id)
+        return updated
 
     async def set_status(
         self, task: Task, *, status: TaskStatus, actor_id: uuid.UUID | None
     ) -> Task:
         """Move a task to ``status``, stamping or clearing completion."""
         return await self.update_task(task, actor_id=actor_id, values={"status": status})
+
+    # --- Notifications (P4-W27-BE-03) ----------------------------------------
+
+    async def _notify_assigned(self, task: Task, *, actor_id: uuid.UUID | None) -> None:
+        """Tell the assignee a task is now theirs, unless they gave it to themselves."""
+        due = (
+            f" It is due {task.due_date.strftime('%d %B %Y at %H:%M UTC')}."
+            if task.due_date is not None
+            else ""
+        )
+        await notify_record_event(
+            self._session,
+            organization_id=task.organization_id,
+            recipient_id=task.assigned_to_id,
+            actor_id=actor_id,
+            kind=TASK_ASSIGNED,
+            title=f"Task assigned to you: {task.title}",
+            message=f'You have been assigned the task "{task.title}".{due}',
+            entity_type="task",
+            entity_id=task.id,
+            record_path="/tasks",
+        )
+
+    async def _notify_completed(self, task: Task, *, actor_id: uuid.UUID | None) -> None:
+        """Tell whoever created a task that somebody else completed it."""
+        await notify_record_event(
+            self._session,
+            organization_id=task.organization_id,
+            recipient_id=task.created_by_id,
+            actor_id=actor_id,
+            kind=TASK_COMPLETED,
+            title=f"Task completed: {task.title}",
+            message=f'The task "{task.title}" you created has been completed.',
+            entity_type="task",
+            entity_id=task.id,
+            record_path="/tasks",
+        )
 
 
 __all__ = ["CLOSED_STATUSES", "TaskService"]

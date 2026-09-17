@@ -174,3 +174,88 @@ def test_api_prefix_must_be_absolute(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(ValidationError, match="API_PREFIX"):
         Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+# --- Email: Microsoft Graph is the only transport -----------------------------
+
+GRAPH_ENV = {
+    "MICROSOFT_TENANT_ID": "tenant",
+    "MICROSOFT_CLIENT_ID": "client",
+    "MICROSOFT_CLIENT_SECRET": "secret-value",
+    "MICROSOFT_GRAPH_SENDER_EMAIL": "notifications@s3k.example.com",
+}
+
+
+@pytest.fixture
+def _no_graph_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in (*GRAPH_ENV, "EMAIL_PROVIDER"):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.mark.usefixtures("_no_graph_env")
+def test_email_is_unconfigured_by_default_and_boot_still_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for key, value in VALID_ENV.items():
+        monkeypatch.setenv(key, value)
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.email_provider == "null"
+    assert settings.graph_email_configured is False
+
+
+@pytest.mark.usefixtures("_no_graph_env")
+@pytest.mark.parametrize("missing", list(GRAPH_ENV))
+def test_graph_provider_refuses_to_start_without_every_setting(
+    monkeypatch: pytest.MonkeyPatch, missing: str
+) -> None:
+    for key, value in {**VALID_ENV, **GRAPH_ENV}.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.delenv(missing)
+    monkeypatch.setenv("EMAIL_PROVIDER", "graph")
+
+    with pytest.raises(ValidationError, match="EMAIL_PROVIDER=graph"):
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+@pytest.mark.usefixtures("_no_graph_env")
+def test_graph_provider_starts_with_every_setting_and_hides_the_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for key, value in {**VALID_ENV, **GRAPH_ENV}.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("EMAIL_PROVIDER", "graph")
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.graph_email_configured is True
+    assert "secret-value" not in repr(settings)
+    assert "secret-value" not in str(settings.model_dump())
+
+
+@pytest.mark.usefixtures("_no_graph_env")
+@pytest.mark.parametrize("value", ["smtp", "sendgrid", "resend", "ses"])
+def test_no_other_email_transport_can_be_selected(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    for key, env_value in VALID_ENV.items():
+        monkeypatch.setenv(key, env_value)
+    monkeypatch.setenv("EMAIL_PROVIDER", value)
+
+    with pytest.raises(ValidationError, match="email_provider"):
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+@pytest.mark.usefixtures("_no_graph_env")
+@pytest.mark.parametrize("environment", ["staging", "production"])
+def test_the_console_provider_is_refused_outside_development(
+    monkeypatch: pytest.MonkeyPatch, environment: str
+) -> None:
+    for key, value in VALID_ENV.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    monkeypatch.setenv("EMAIL_PROVIDER", "console")
+
+    with pytest.raises(ValidationError, match="EMAIL_PROVIDER=console"):
+        Settings(_env_file=None)  # type: ignore[call-arg]

@@ -43,6 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.core.exceptions import AppError, NotFoundError, ValidationFailedError
 from app.platform.audit.service import Action as AuditAction
+from app.platform.auth.dependencies import Principal
 from app.platform.documents.service import (
     attachment_count,
     attachment_total_bytes,
@@ -58,6 +59,10 @@ from app.products.crm.emails.models import (
     EmailStatus,
     EmailTemplate,
     EmailThread,
+)
+from app.products.crm.emails.record_access import (
+    assert_record_readable,
+    assert_template_usable,
 )
 from app.products.crm.emails.repository import EmailRepository
 from app.products.crm.emails.templating import (
@@ -318,12 +323,18 @@ class EmailService(TenantScopedService[EmailMessage]):
         sender_address: str,
         sender_name: str | None,
         values: dict[str, Any],
+        principal: Principal | None = None,
     ) -> EmailMessage:
         """Write a draft, or write and enqueue a message.
 
         The thread is resolved before the message exists, so a message is
         never briefly threadless — every read path can assume ``thread_id`` is
         set, and none of them needs a null branch.
+
+        ``principal`` is the person composing. When supplied — every HTTP path
+        and every workflow action supplies one — the linked record must be one
+        they may open and the template one they may use (see
+        ``record_access.py``); tenant scoping alone is not enough.
         """
         payload = dict(values)
         send_now = bool(payload.pop("send", False))
@@ -338,6 +349,16 @@ class EmailService(TenantScopedService[EmailMessage]):
             entity_id=related_id,
             organization_id=organization_id,
         )
+        if principal is not None:
+            await assert_record_readable(
+                self._session,
+                principal=principal,
+                entity_type=related_type,
+                entity_id=related_id,
+            )
+            await assert_template_usable(
+                self._session, principal=principal, template_id=payload.get("template_id")
+            )
 
         parent = None
         if reply_to_message_id is not None:
@@ -400,14 +421,20 @@ class EmailService(TenantScopedService[EmailMessage]):
         *,
         actor_id: uuid.UUID | None,
         values: dict[str, Any],
+        principal: Principal | None = None,
     ) -> EmailMessage:
         """Edit an unsent message.
 
         Raises:
             MessageNotEditableError: it has already been sent or queued.
+            NotFoundError: a template the editor may not use.
         """
         self._require_draft(message, MessageNotEditableError)
         payload = dict(values)
+        if principal is not None and "template_id" in payload:
+            await assert_template_usable(
+                self._session, principal=principal, template_id=payload["template_id"]
+            )
         # The conversation, the record and the identity of the sender are
         # fixed at composition. Moving a message between threads or records
         # after the fact rewrites history on both.
@@ -508,11 +535,14 @@ class EmailService(TenantScopedService[EmailMessage]):
         sender_name: str | None,
         sender_email: str | None,
         organization_name: str | None,
+        principal: Principal | None = None,
     ) -> dict[str, Any]:
         """Fill a template's placeholders from one record.
 
         The link is validated first, so a template cannot be used to probe for
-        records in another tenant by rendering against a guessed id.
+        records in another tenant by rendering against a guessed id — nor, when
+        ``principal`` is supplied, to read fields of a record inside the tenant
+        that the caller is not allowed to open.
         """
         await validate_related_entity(
             self._session,
@@ -520,6 +550,13 @@ class EmailService(TenantScopedService[EmailMessage]):
             entity_id=entity_id,
             organization_id=organization_id,
         )
+        if principal is not None:
+            await assert_record_readable(
+                self._session,
+                principal=principal,
+                entity_type=entity_type,
+                entity_id=entity_id,
+            )
         variables = await resolve_variables(
             self._session,
             organization_id=organization_id,

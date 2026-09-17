@@ -43,6 +43,7 @@ from app.core.exceptions import AppError, ConflictError
 from app.core.tenant import get_tenant_context
 from app.platform.audit.service import AUTH_MODULE, Action, AuditService, Status
 from app.platform.auth.models import (
+    EmailVerificationToken,
     PasswordResetToken,
     Session,
     User,
@@ -57,7 +58,7 @@ from app.platform.auth.security import (
     validate_password_policy,
 )
 from app.platform.email.service import request_email
-from app.platform.email.templates import PASSWORD_RESET
+from app.platform.email.templates import EMAIL_VERIFICATION, PASSWORD_RESET
 from app.platform.organizations.repository import OrganizationRepository
 
 logger = structlog.get_logger(__name__)
@@ -93,6 +94,19 @@ class InvalidResetTokenError(AppError):
     status_code = status.HTTP_400_BAD_REQUEST
     code = "invalid_reset_token"
     message = "This password reset link is no longer valid. Please request a new one."
+
+
+class InvalidVerificationTokenError(AppError):
+    """The presented email-verification token cannot be used.
+
+    One error for unknown, spent, expired and superseded, for the reason
+    :class:`InvalidResetTokenError` gives: the holder's next step is the same
+    in every case — ask for a new link.
+    """
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    code = "invalid_verification_token"
+    message = "This verification link is no longer valid. Please request a new one."
 
 
 class AuthenticationError(AppError):
@@ -940,6 +954,128 @@ class AuthService:
             )
         return account
 
+    # --- Email verification --------------------------------------------------
+
+    async def request_email_verification(self, user: User) -> bool:
+        """Email ``user`` a link that proves they control their address.
+
+        Returns whether a link was issued: ``False`` for an address that is
+        already verified, which is a no-op rather than an error so a double
+        click on "resend" is harmless. The caller is the signed-in account
+        holder — or signup, on their behalf — so unlike the password reset
+        there is nothing to enumerate and the answer can be honest.
+
+        Outstanding links are spent first, so only the newest one works. The
+        email joins the outbox in the caller's transaction: a rollback takes
+        the link with it.
+        """
+        if user.email_verified_at is not None:
+            return False
+
+        now = dt.datetime.now(dt.UTC)
+        await self._repository.spend_outstanding_verification_tokens(user.id, at=now)
+
+        secret = RefreshTokenFactory.issue()
+        expires_at = now + dt.timedelta(
+            seconds=self._settings.email_verification_ttl_seconds
+        )
+        await self._repository.add_email_verification_token(
+            EmailVerificationToken(
+                user_id=user.id,
+                email=user.email,
+                token_hash=secret.digest,
+                expires_at=expires_at,
+            )
+        )
+        # Untenanted, like the password reset: an address belongs to the
+        # identity, which may be in several organizations or in none yet.
+        request_email(
+            self._repository.session,
+            organization_id=None,
+            to_address=user.email,
+            template=EMAIL_VERIFICATION,
+            context={
+                "verify_url": (
+                    f"{self._settings.public_app_url.rstrip('/')}"
+                    f"/verify-email?token={secret.value}"
+                ),
+                "expires_on": expires_at.strftime("%d %B %Y at %H:%M UTC"),
+            },
+        )
+        logger.info("email_verification_requested", user_id=str(user.id))
+        return True
+
+    async def confirm_email_verification(self, *, token: str) -> User:
+        """Spend a verification token and mark its address verified.
+
+        Deliberately needs no session: the link is opened from an inbox,
+        often on another device. Holding the secret is the whole proof, and
+        confirming grants nothing beyond the flag.
+
+        Raises:
+            InvalidVerificationTokenError: unknown, spent, expired, issued for
+                an address the account no longer has, or for an account that
+                is no longer usable.
+        """
+        stored = await self._repository.get_email_verification_token(
+            RefreshTokenFactory.digest(token)
+        )
+        now = dt.datetime.now(dt.UTC)
+        if stored is None or not stored.is_redeemable_at(now):
+            logger.info(
+                "email_verification_token_rejected",
+                reason=(
+                    "unknown"
+                    if stored is None
+                    else "spent"
+                    if stored.used_at is not None
+                    else "expired"
+                ),
+            )
+            raise InvalidVerificationTokenError
+
+        account = await self._repository.get_user(stored.user_id)
+        await self._repository.spend_outstanding_verification_tokens(
+            stored.user_id, at=now
+        )
+        if account is None or not account.is_active or account.email != stored.email:
+            logger.warning("email_verification_for_changed_or_unusable_account")
+            raise InvalidVerificationTokenError
+
+        await self.mark_email_verified(account, at=now)
+        return account
+
+    async def mark_email_verified(
+        self, account: User, *, at: dt.datetime | None = None
+    ) -> bool:
+        """Record that ``account`` controls its address. Idempotent.
+
+        Also called when an invitation sent to the address is redeemed by the
+        account holding it, which proves the same thing a verification link
+        does. Returns whether anything changed.
+        """
+        if account.email_verified_at is not None:
+            return False
+        now = at or dt.datetime.now(dt.UTC)
+        account.email_verified_at = now
+        await self._repository.spend_outstanding_verification_tokens(account.id, at=now)
+        await self._repository.session.flush()
+        logger.info("email_verified", user_id=str(account.id))
+
+        organization_id = await self._organizations.default_organization_id(account.id)
+        if self._audit is not None and organization_id is not None:
+            await self._audit.record(
+                organization_id=organization_id,
+                action=Action.EMAIL_VERIFIED,
+                module=USERS_MODULE,
+                actor_id=account.id,
+                entity_type="USER",
+                entity_id=account.id,
+                entity_label=account.email,
+                details={"self_service": True},
+            )
+        return True
+
     async def update_profile(
         self,
         *,
@@ -1063,6 +1199,7 @@ __all__ = [
     "AuthService",
     "AuthenticationError",
     "InvalidResetTokenError",
+    "InvalidVerificationTokenError",
     "IssuedTokens",
     "NoOrganizationError",
 ]
