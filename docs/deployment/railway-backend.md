@@ -92,6 +92,14 @@ claims rows with `FOR UPDATE SKIP LOCKED`), but one is enough. Root Directory **
 build context is the backend tree, so a repo-root context cannot find
 `pyproject.toml` or `uv.lock`.
 
+**No room for a worker service?** The Railway free plan caps the number of
+services, and a project with the API, the frontend, PostgreSQL and Redis is
+already at that cap. Set `EMBEDDED_WORKER=true` on `s3k-crm` and `start.sh`
+also runs the worker inside each API container, restarting it if it exits.
+Remove that variable as soon as `s3k-crm-worker` exists, because the API
+replicas would otherwise keep draining the outbox as well. They would do no
+harm, but no good either.
+
 The container binds `$PORT`, which Railway assigns — never a fixed 8000.
 
 ---

@@ -29,6 +29,27 @@ PORT="${PORT:-8000}"
 echo "entrypoint: applying database migrations"
 alembic upgrade head
 
+# EMBEDDED_WORKER=true runs the outbox worker inside this container, beside
+# the API, for a deployment that cannot have a separate `s3k-crm-worker`
+# service (the Railway free plan's service cap). Off by default: where the
+# worker service exists this must stay off, or the API replicas become extra
+# workers for nothing. Safe with several replicas — the outbox claims rows with
+# FOR UPDATE SKIP LOCKED and ARQ's cron jobs are unique per tick. The loop
+# restarts the worker if it exits, since nothing else supervises it here; it
+# dies with the container when uvicorn stops.
+case "${EMBEDDED_WORKER:-false}" in
+  true|1)
+    echo "entrypoint: starting the embedded outbox worker"
+    (
+      while true; do
+        arq app.worker.WorkerSettings || true
+        echo "entrypoint: embedded outbox worker exited; restarting in 5s" >&2
+        sleep 5
+      done
+    ) &
+    ;;
+esac
+
 echo "entrypoint: starting uvicorn on 0.0.0.0:${PORT}"
 # --proxy-headers with a trusting --forwarded-allow-ips is correct here and
 # only here: the container is reachable exclusively through the platform's own
