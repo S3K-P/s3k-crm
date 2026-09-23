@@ -161,7 +161,7 @@ export default function JourneyDealsDrawer({
                 <div className="txt font-display shrink-0 text-[16px] font-extrabold tracking-[-0.02em]">
                   {deal.deal_value === null
                     ? '—'
-                    : formatMoney(deal.deal_value, deal.currency)}
+                    : formatMoney(deal.deal_value)}
                 </div>
               </div>
 

@@ -33,7 +33,7 @@ export default function JourneyHero({
   progress,
   onOpenClosing,
 }: JourneyHeroProps) {
-  const pipelineText = formatMoney(String(totals.pipelineValue * progress), totals.currency);
+  const pipelineText = formatMoney(String(totals.pipelineValue * progress));
   // No goal model in the CRM, so no percentage — see `use-journey-data.ts`.
   const goalText = totals.goalPct === null ? null : `${Math.round(totals.goalPct * progress)}%`;
 

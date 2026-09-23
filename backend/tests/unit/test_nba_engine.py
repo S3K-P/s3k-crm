@@ -305,7 +305,7 @@ def test_reasons_render_known_values_and_blank_unknown_ones() -> None:
         "A {deal_value} deal, {days_to_close} days past, {missing}",
         {"deal_value": 2_500_000.0, "days_to_close": -3},
     )
-    assert text == "A 2,500,000 deal, 3 days past, —"
+    assert text == "A ₹25,00,000 deal, 3 days past, —"
 
 
 # --- Signal derivations -------------------------------------------------------

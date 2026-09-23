@@ -175,8 +175,8 @@ class DashboardRepository:
 
         ``deal_value`` is per-row and carries its own currency, so a total is
         only meaningful when they all agree. Returning the set lets the caller
-        say so rather than silently adding euros to dollars and stamping a
-        ``$`` on the result.
+        say so rather than silently adding euros to rupees and stamping a
+        ``₹`` on the result.
         """
         result = await self._session.execute(
             self._scoped(

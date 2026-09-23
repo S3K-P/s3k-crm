@@ -104,7 +104,7 @@ export default function SalesIntelligenceSnapshot({ data }: SalesIntelligenceSna
         >
           <LineChart
             data={data.revenueForecast}
-            formatValue={value => `$${value.toFixed(2)}M`}
+            formatValue={value => `₹${value.toFixed(2)}M`}
             caption="Monthly revenue against forecast over the last six months"
             primaryLabel="Actual"
             compareLabel="Forecast"

@@ -21,7 +21,6 @@ def _opportunity(**overrides: object) -> dict[str, object]:
     kwargs: dict[str, object] = {
         "opportunity_id": OPP_ID,
         "deal_value": None,
-        "currency": "INR",
         "win_probability": None,
         "expected_close_date": None,
         "stage_name": "Negotiation",
@@ -91,7 +90,7 @@ def test_every_reason_names_a_real_crm_fact_not_a_generic_claim() -> None:
 
     assert score is not None
     reason_by_label = {r.label: r.detail for r in score.reasons}
-    assert "2,500,000" in reason_by_label["Large deal"]
+    assert "₹25,00,000" in reason_by_label["Large deal"]
     assert "2 overdue task(s)" in reason_by_label["Overdue task(s)"]
     # The stage is always included, even when it contributes no points.
     assert reason_by_label["Stage"] == "Negotiation"

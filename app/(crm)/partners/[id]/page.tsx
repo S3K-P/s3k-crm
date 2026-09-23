@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { 
   ArrowLeft, ArrowUpRight, Building2, Calendar, ChevronRight, 
-  DollarSign, Globe, Target, Users, Mail, Phone, Clock,
+  IndianRupee, Globe, Target, Users, Mail, Phone, Clock,
   Sparkles, Handshake, BarChart3, Presentation, Briefcase
 } from 'lucide-react';
 import { mockPartners, mockPartnerLeads } from '@/features/crm/partners/mock-data';
@@ -33,9 +33,9 @@ export default function PartnerDetailsPage({ params }: { params: { id: string } 
     { label: 'Converted Leads', value: partner.convertedOpportunities, icon: Handshake },
     { label: 'Won Deals', value: partner.wonDeals, icon: Briefcase },
     { label: 'Conversion %', value: `${partner.conversionRate}%`, icon: BarChart3 },
-    { label: 'Revenue Generated', value: `$${(partner.revenueGenerated / 1000).toFixed(0)}k`, icon: DollarSign },
-    { label: 'Pipeline Value', value: `$${(partner.totalPipelineValue / 1000).toFixed(0)}k`, icon: Presentation },
-    { label: 'Avg Deal Size', value: `$${(partner.averageDealSize / 1000).toFixed(0)}k`, icon: DollarSign },
+    { label: 'Revenue Generated', value: `₹${(partner.revenueGenerated / 1000).toFixed(0)}k`, icon: IndianRupee },
+    { label: 'Pipeline Value', value: `₹${(partner.totalPipelineValue / 1000).toFixed(0)}k`, icon: Presentation },
+    { label: 'Avg Deal Size', value: `₹${(partner.averageDealSize / 1000).toFixed(0)}k`, icon: IndianRupee },
   ];
 
   return (
@@ -269,7 +269,7 @@ export default function PartnerDetailsPage({ params }: { params: { id: string } 
                   <Target className="w-3 h-3" /> Jul 18, 4:45 PM
                 </div>
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  Closed $45k deal with Enterprise Inc. via referral.
+                  Closed ₹45k deal with Enterprise Inc. via referral.
                 </p>
               </div>
             </div>

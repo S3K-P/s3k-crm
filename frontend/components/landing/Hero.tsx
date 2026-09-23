@@ -84,7 +84,7 @@ export function Hero() {
                       <BarChart3 className="w-4 h-4 text-brand-blue" />
                     </div>
                     <div>
-                      <div className="text-2xl font-bold text-white">$2.4M</div>
+                      <div className="text-2xl font-bold text-white">₹2.4M</div>
                       <div className="text-sm text-gray-400">Pipeline</div>
                     </div>
                   </div>
@@ -137,7 +137,7 @@ export function Hero() {
             </div>
             <div>
               <div className="text-sm font-semibold text-white">Opportunity Won</div>
-              <div className="text-xs text-gray-400">Acme Corp ($45k)</div>
+              <div className="text-xs text-gray-400">Acme Corp (₹45k)</div>
             </div>
           </motion.div>
 

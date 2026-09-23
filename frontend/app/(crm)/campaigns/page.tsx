@@ -33,6 +33,7 @@ import {
   type CampaignType,
 } from '@/features/crm/campaigns';
 import { useEffect } from 'react';
+import { formatCurrency } from '@/lib/currency';
 
 /* ============================================================
    CAMPAIGNS
@@ -79,11 +80,7 @@ function formatMoney(value: string | null): string {
   if (value === null || value === '') return '—';
   const amount = Number(value);
   if (Number.isNaN(amount)) return value;
-  return amount.toLocaleString(undefined, {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  });
+  return formatCurrency(amount);
 }
 
 function formatPercent(value: string | null): string {

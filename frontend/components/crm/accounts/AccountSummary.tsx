@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { CalendarClock, CheckSquare, DollarSign, TrendingUp, User, Users } from 'lucide-react';
+import { CalendarClock, CheckSquare, IndianRupee, TrendingUp, User, Users } from 'lucide-react';
 
 import KpiCard from '@/components/crm/cards/KpiCard';
 import { describeApiError } from '@/features/shared/hooks/useCollection';
 import { getAccountOverview, type AccountOverview } from '@/features/crm/accounts';
+import { formatCurrency } from '@/lib/currency';
 
 /* ============================================================
    ACCOUNT SUMMARY
@@ -17,19 +18,8 @@ import { getAccountOverview, type AccountOverview } from '@/features/crm/account
    caller may see).
    ============================================================ */
 
-function money(value: string, currency: string | null): string {
-  const amount = Number(value);
-  if (Number.isNaN(amount)) return '—';
-  if (currency === null) return amount.toLocaleString();
-  try {
-    return amount.toLocaleString(undefined, {
-      style: 'currency',
-      currency,
-      maximumFractionDigits: 0,
-    });
-  } catch {
-    return `${currency} ${amount.toLocaleString()}`;
-  }
+function money(value: string): string {
+  return formatCurrency(value);
 }
 
 function formatWhen(iso: string): string {
@@ -89,17 +79,17 @@ export default function AccountSummary({
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       <KpiCard
         label="Open pipeline"
-        value={money(overview.open_pipeline_value, overview.open_pipeline_currency)}
+        value={money(overview.open_pipeline_value)}
         delta={`${overview.open_deals_count} open deal${overview.open_deals_count === 1 ? '' : 's'}`}
         icon={TrendingUp}
         iconGradient="from-sky-500 to-blue-600"
       />
       <KpiCard
         label="Won revenue"
-        value={money(overview.won_revenue, overview.won_revenue_currency)}
+        value={money(overview.won_revenue)}
         delta={`${overview.won_deals_count} won deal${overview.won_deals_count === 1 ? '' : 's'}`}
         trend={overview.won_deals_count > 0 ? 'up' : 'flat'}
-        icon={DollarSign}
+        icon={IndianRupee}
         iconGradient="from-emerald-500 to-teal-600"
       />
       <KpiCard

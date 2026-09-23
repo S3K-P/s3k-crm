@@ -29,6 +29,7 @@ from app.platform.auth.dependencies import Principal
 from app.products.crm.blueprints.enforcement import BlueprintGuard
 from app.products.crm.blueprints.models import BlueprintField
 from app.products.crm.common import CrmEntityType
+from app.products.crm.currency import format_money
 from app.products.crm.opportunities.models import (
     Opportunity,
     OpportunityStageHistory,
@@ -360,7 +361,7 @@ class OpportunityService(TenantScopedService[Opportunity]):
         if stage.is_won:
             # P4-W27-BE-03: the owner hears the deal closed, unless they closed it.
             value = (
-                f" worth {opportunity.currency} {opportunity.deal_value:,.2f}"
+                f" worth {format_money(opportunity.deal_value, decimals=2)}"
                 if opportunity.deal_value is not None
                 else ""
             )

@@ -95,10 +95,10 @@ export default function NbaQueueCard({
 
   const value = isDeal
     ? facts.deal_value !== null
-      ? formatMoney(facts.deal_value, facts.currency)
+      ? formatMoney(facts.deal_value)
       : null
     : facts.expected_deal_size !== null
-      ? formatMoney(facts.expected_deal_size, null)
+      ? formatMoney(facts.expected_deal_size)
       : null;
 
   return (

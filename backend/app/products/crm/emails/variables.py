@@ -33,6 +33,7 @@ from app.products.crm.accounts.models import Account
 from app.products.crm.campaigns.models import Campaign
 from app.products.crm.common import CrmEntityType
 from app.products.crm.contacts.models import Contact
+from app.products.crm.currency import CRM_CURRENCY
 from app.products.crm.leads.models import Lead
 from app.products.crm.opportunities.models import Opportunity
 
@@ -160,7 +161,8 @@ async def resolve_variables(
         value = getattr(record, field, None)
         if value is None:
             continue
-        text = _stringify(value)
+        # Money is shown in the CRM display currency, not the stored code.
+        text = CRM_CURRENCY if field == "currency" else _stringify(value)
         if text:
             variables[f"record.{field}"] = text
     return variables

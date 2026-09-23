@@ -9,6 +9,7 @@
 
 import { humanize } from '@/components/crm/shared/statusVariants';
 import { api } from '@/lib/api-client';
+import { formatCurrency } from '@/lib/currency';
 
 /** How a value should be formatted. Mirrors the backend `ColumnType`. */
 export type ColumnType =
@@ -90,10 +91,9 @@ export function byCategory(reports: ReportSummary[]): [string, ReportSummary[]][
 /**
  * Render one cell.
  *
- * Currency is deliberately not given a symbol here. Deal values carry their
- * own currency per row (see `Opportunity.currency`), and the reports that
- * total them can span more than one — stamping a `$` on a mixed total would
- * be a confident lie. The dashboard makes the same call for the same reason.
+ * Currency renders in the CRM's display currency (INR — see lib/currency),
+ * the same as every other money figure in the product. Amounts are shown as
+ * stored, never converted.
  */
 export function formatCell(value: ReportCell, type: ColumnType): string {
   if (value === null || value === undefined) return '—';
@@ -103,7 +103,7 @@ export function formatCell(value: ReportCell, type: ColumnType): string {
       // as it does on the leads list.
       return humanize(String(value));
     case 'CURRENCY':
-      return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(Number(value));
+      return formatCurrency(Number(value));
     case 'NUMBER':
       return new Intl.NumberFormat('en-US').format(Number(value));
     case 'PERCENT':

@@ -9,6 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.products.crm.currency import CRM_CURRENCY
 from app.products.crm.shared.schemas import CustomFieldValues
 
 
@@ -19,7 +20,7 @@ class OpportunityCreate(BaseModel):
     primary_contact_id: uuid.UUID | None = None
     owner_id: uuid.UUID | None = None
     deal_value: Decimal | None = Field(default=None, ge=0)
-    currency: str = Field(default="USD", min_length=3, max_length=3)
+    currency: str = Field(default=CRM_CURRENCY, min_length=3, max_length=3)
     win_probability: int | None = Field(default=None, ge=0, le=100)
     expected_close_date: dt.date | None = None
     forecast_category: str | None = Field(default=None, max_length=64)

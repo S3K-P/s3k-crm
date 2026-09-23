@@ -1,7 +1,7 @@
 /* ============================================================
    AI MODULE FORMATTERS
    Small, module-scoped formatting helpers. Currency follows the
-   existing CRM convention (USD, no decimals — see Opportunities).
+   CRM-wide display currency (INR, no decimals — see lib/currency).
 
    Every helper is deterministic and timezone-pinned so server and
    client render identical strings (no hydration mismatches).
@@ -17,24 +17,9 @@ function toUtcDate(iso: string): Date {
   return new Date(`${iso.slice(0, 10)}T00:00:00Z`);
 }
 
-/** $1,250,000 */
-export function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  }).format(value);
-}
-
-/** $1.25M / $480K — for KPI tiles and chart axes */
-export function formatCompactCurrency(value: number): string {
-  if (Math.abs(value) >= 1_000_000) {
-    const millions = value / 1_000_000;
-    return `$${millions.toFixed(millions >= 10 ? 1 : 2).replace(/\.0+$/, '')}M`;
-  }
-  if (Math.abs(value) >= 1_000) return `$${Math.round(value / 1_000)}K`;
-  return `$${value}`;
-}
+/** ₹12,50,000 / ₹1.25Cr — the CRM-wide INR formatters, re-exported so the
+ *  AI module keeps its own import path. */
+export { formatCompactCurrency, formatCurrency } from '@/lib/currency';
 
 /** 12 Sep 2026 */
 export function formatDate(iso: string): string {

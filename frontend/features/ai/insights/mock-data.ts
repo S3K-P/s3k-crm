@@ -636,7 +636,7 @@ export const QUERY_ROUTES: QueryRoute[] = [
     keywords: ['at risk', 'risk', 'deals at risk', 'attention', 'need attention', 'slipping', 'stalled', 'cold', 'gone cold', 'no response'],
     reportId: 'insight-vertex',
     focusNote:
-      'Five opportunities currently carry high or critical risk. Focused on Vertex Manufacturing — the largest exposure at $725,000 with a close date inside nine days.',
+      'Five opportunities currently carry high or critical risk. Focused on Vertex Manufacturing — the largest exposure at ₹725,000 with a close date inside nine days.',
   },
   {
     keywords: ['pipeline health', 'pipeline', 'forecast', 'health'],
@@ -648,7 +648,7 @@ export const QUERY_ROUTES: QueryRoute[] = [
     keywords: ['closing this month', 'high-value', 'high value', 'weekly', 'weekly summary', 'sales summary', 'largest', 'biggest'],
     reportId: 'insight-brightpath',
     focusNote:
-      'Focused on Brightpath Healthcare — the largest opportunity closing in the current period at $1,150,000.',
+      'Focused on Brightpath Healthcare — the largest opportunity closing in the current period at ₹1,150,000.',
   },
 ];
 
@@ -695,10 +695,10 @@ export function buildSalesIntelligenceSnapshot(): SalesIntelligenceSnapshot {
   // Grouped by deal-size band rather than industry: the working set spans
   // more than twenty industries, which fragments a donut into noise.
   const BANDS: { label: string; min: number; max: number }[] = [
-    { label: 'Under $250K', min: 0, max: 250_000 },
-    { label: '$250K – $500K', min: 250_000, max: 500_000 },
-    { label: '$500K – $750K', min: 500_000, max: 750_000 },
-    { label: '$750K and above', min: 750_000, max: Number.POSITIVE_INFINITY },
+    { label: 'Under ₹250K', min: 0, max: 250_000 },
+    { label: '₹250K – ₹500K', min: 250_000, max: 500_000 },
+    { label: '₹500K – ₹750K', min: 500_000, max: 750_000 },
+    { label: '₹750K and above', min: 750_000, max: Number.POSITIVE_INFINITY },
   ];
 
   const opportunityDistribution: SeriesPoint[] = BANDS.map(band => ({
@@ -713,21 +713,21 @@ export function buildSalesIntelligenceSnapshot(): SalesIntelligenceSnapshot {
       {
         id: 'open-pipeline',
         label: 'Open Pipeline',
-        value: `$${(pipelineValue / 1_000_000).toFixed(2)}M`,
+        value: `₹${(pipelineValue / 1_000_000).toFixed(2)}M`,
         delta: `${open.length} active opportunities`,
         trend: 'up',
       },
       {
         id: 'weighted',
         label: 'Weighted Forecast',
-        value: `$${(weighted / 1_000_000).toFixed(2)}M`,
+        value: `₹${(weighted / 1_000_000).toFixed(2)}M`,
         delta: 'Probability-adjusted',
         trend: 'up',
       },
       {
         id: 'at-risk',
         label: 'Value At Risk',
-        value: `$${(atRisk.reduce((t, r) => t + r.expectedRevenue, 0) / 1_000_000).toFixed(2)}M`,
+        value: `₹${(atRisk.reduce((t, r) => t + r.expectedRevenue, 0) / 1_000_000).toFixed(2)}M`,
         delta: `${atRisk.length} opportunities flagged`,
         trend: 'down',
       },

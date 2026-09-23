@@ -29,6 +29,7 @@ import {
 } from '@/features/crm/campaigns';
 import { listLeads, type Lead } from '@/features/crm/leads';
 import { listContacts, type Contact } from '@/features/crm/contacts';
+import { formatCurrency } from '@/lib/currency';
 
 /* ============================================================
    CAMPAIGN DETAIL
@@ -68,11 +69,7 @@ function formatMoney(value: string | null): string {
   if (value === null || value === '') return '—';
   const amount = Number(value);
   if (Number.isNaN(amount)) return value;
-  return amount.toLocaleString(undefined, {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 0,
-  });
+  return formatCurrency(amount);
 }
 
 export default function CampaignDetailPage() {

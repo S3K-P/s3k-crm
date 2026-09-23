@@ -31,6 +31,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 from app.core.models import TenantMixin, TimestampMixin, UUIDPrimaryKeyMixin
 from app.products.crm.common import CRM_SCHEMA, CrmEntityMixin, CustomFieldValuesMixin, searchable
+from app.products.crm.currency import CRM_CURRENCY
 
 
 class Pipeline(Base, CrmEntityMixin):
@@ -146,7 +147,7 @@ class Opportunity(Base, CrmEntityMixin, CustomFieldValuesMixin):
     )
     deal_value: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     currency: Mapped[str] = mapped_column(
-        String(3), nullable=False, default="USD", server_default="USD"
+        String(3), nullable=False, default=CRM_CURRENCY, server_default=CRM_CURRENCY
     )
     win_probability: Mapped[int | None] = mapped_column(Integer, nullable=True)
     expected_close_date: Mapped[dt.date | None] = mapped_column(nullable=True)
