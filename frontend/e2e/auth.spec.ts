@@ -22,7 +22,7 @@ test.describe('authentication', () => {
   }) => {
     await page.goto('/login');
     await page.getByLabel('Email').fill(tenant.rep.email);
-    await page.getByLabel('Password').fill('DefinitelyWrong!9');
+    await page.getByLabel('Password', { exact: true }).fill('DefinitelyWrong!9');
     await page.getByRole('button', { name: 'Sign in' }).click();
 
     await expect(page.getByRole('alert')).toBeVisible();

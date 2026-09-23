@@ -22,7 +22,7 @@ export function seed(): SeedResult {
 export async function signIn(page: Page, person: SeededPerson): Promise<void> {
   await page.goto('/login');
   await page.getByLabel('Email').fill(person.email);
-  await page.getByLabel('Password').fill(person.password);
+  await page.getByLabel('Password', { exact: true }).fill(person.password);
   await page.getByRole('button', { name: 'Sign in' }).click();
 
   // S3K is a platform with products in it, so signing in lands on the app

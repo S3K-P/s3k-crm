@@ -98,7 +98,7 @@ test.describe('two-factor authentication', () => {
 
     await page.goto('/login');
     await page.getByLabel('Email').fill(tenant.rep.email);
-    await page.getByLabel('Password').fill(tenant.rep.password);
+    await page.getByLabel('Password', { exact: true }).fill(tenant.rep.password);
     await page.getByRole('button', { name: 'Sign in' }).click();
 
     await expect(page.getByRole('heading', { name: 'Enter your code' })).toBeVisible();
@@ -118,7 +118,7 @@ test.describe('two-factor authentication', () => {
     await signOut(page);
     await page.goto('/login');
     await page.getByLabel('Email').fill(tenant.rep.email);
-    await page.getByLabel('Password').fill(tenant.rep.password);
+    await page.getByLabel('Password', { exact: true }).fill(tenant.rep.password);
     await page.getByRole('button', { name: 'Sign in' }).click();
 
     const [recoveryCode] = recoveryCodes;
@@ -131,7 +131,7 @@ test.describe('two-factor authentication', () => {
     await signOut(page);
     await page.goto('/login');
     await page.getByLabel('Email').fill(tenant.rep.email);
-    await page.getByLabel('Password').fill(tenant.rep.password);
+    await page.getByLabel('Password', { exact: true }).fill(tenant.rep.password);
     await page.getByRole('button', { name: 'Sign in' }).click();
     await page.getByLabel('Code').fill(recoveryCode);
     await page.getByRole('button', { name: 'Verify' }).click();

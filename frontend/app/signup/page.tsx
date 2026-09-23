@@ -8,6 +8,7 @@ import { AlertCircle, Loader2, Lock, Mail, User } from 'lucide-react';
 import OnboardingShell from '@/components/platform/OnboardingShell';
 import { useAuth } from '@/context/AuthContext';
 import { ApiError } from '@/lib/api-client';
+import PasswordInput from '@/components/auth/PasswordInput';
 import { LOGIN_PATH } from '@/lib/api-config';
 
 /* ============================================================
@@ -181,10 +182,9 @@ function SignupForm() {
           icon={<Lock className="txt-faint h-4 w-4" aria-hidden="true" />}
           hint={`At least ${MIN_PASSWORD_LENGTH} characters.`}
         >
-          <input
+          <PasswordInput
             id="password"
             name="password"
-            type="password"
             autoComplete="new-password"
             required
             minLength={MIN_PASSWORD_LENGTH}

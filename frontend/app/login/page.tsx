@@ -8,6 +8,7 @@ import { AlertCircle, KeyRound, Loader2, Lock, Mail } from 'lucide-react';
 import BrandLogo from '@/components/brand/BrandLogo';
 import { useAuth } from '@/context/AuthContext';
 import { ApiError } from '@/lib/api-client';
+import PasswordInput from '@/components/auth/PasswordInput';
 import { POST_LOGIN_PATH } from '@/lib/api-config';
 import { PLATFORM_BRAND } from '@/config/site';
 
@@ -279,10 +280,9 @@ function LoginForm() {
                   className="txt-faint pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2"
                   aria-hidden="true"
                 />
-                <input
+                <PasswordInput
                   id="password"
                   name="password"
-                  type="password"
                   autoComplete="current-password"
                   required
                   value={password}

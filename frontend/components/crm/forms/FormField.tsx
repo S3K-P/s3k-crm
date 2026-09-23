@@ -1,3 +1,4 @@
+import PasswordInput from '@/components/auth/PasswordInput';
 import { cn } from '@/lib/utils';
 
 /* ============================================================
@@ -76,6 +77,22 @@ export function FormInput({ hasError, className, ...props }: InputProps) {
       )}
       {...props}
     />
+  );
+}
+
+/** FormInput for secrets: same styling, plus a show/hide toggle. */
+export function FormPasswordInput({ hasError, className, ...props }: Omit<InputProps, 'type'>) {
+  return (
+    <span className="relative block">
+      <PasswordInput
+        className={cn(
+          'ctl w-full px-3.5 py-2.5 text-sm outline-none transition-colors focus:border-[var(--accent)]',
+          hasError && 'border-red-500 focus:border-red-500',
+          className,
+        )}
+        {...props}
+      />
+    </span>
   );
 }
 

@@ -7,6 +7,7 @@ import { AlertCircle, ArrowLeft, Check, KeyRound, Loader2, Lock } from 'lucide-r
 
 import AuthCard from '@/components/platform/AuthCard';
 import { ApiError, apiRequest } from '@/lib/api-client';
+import PasswordInput from '@/components/auth/PasswordInput';
 import { LOGIN_PATH } from '@/lib/api-config';
 
 /* ============================================================
@@ -168,10 +169,9 @@ function ResetPasswordForm() {
               className="txt-faint pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2"
               aria-hidden="true"
             />
-            <input
+            <PasswordInput
               id="password"
               name="new-password"
-              type="password"
               autoComplete="new-password"
               required
               autoFocus
@@ -212,10 +212,9 @@ function ResetPasswordForm() {
               className="txt-faint pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2"
               aria-hidden="true"
             />
-            <input
+            <PasswordInput
               id="confirmation"
               name="confirm-password"
-              type="password"
               autoComplete="new-password"
               required
               value={confirmation}
