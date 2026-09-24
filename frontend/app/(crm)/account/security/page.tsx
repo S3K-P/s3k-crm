@@ -5,7 +5,7 @@ import { Check, Copy, KeyRound, Loader2, ShieldCheck, ShieldOff } from 'lucide-r
 
 import SectionHeader from '@/components/crm/shared/SectionHeader';
 import { ListError } from '@/components/crm/shared/ListStates';
-import FormField, { FormInput } from '@/components/crm/forms/FormField';
+import FormField, { FormInput, FormPasswordInput } from '@/components/crm/forms/FormField';
 import { notifyError, notifySuccess } from '@/components/crm/feedback/notify';
 import { describeApiError } from '@/features/shared/hooks/useCollection';
 import {
@@ -251,8 +251,7 @@ export default function AccountSecurityPage() {
                 hint="Confirms it's really you, even from an already-signed-in session."
                 error={disableError ?? undefined}
               >
-                <FormInput
-                  type="password"
+                <FormPasswordInput
                   autoFocus
                   value={disablePassword}
                   onChange={(event) => setDisablePassword(event.target.value)}

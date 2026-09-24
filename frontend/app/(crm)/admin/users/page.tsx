@@ -16,7 +16,7 @@ import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
 import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess } from '@/components/crm/feedback/notify';
-import FormField, { FormInput, FormSelect } from '@/components/crm/forms/FormField';
+import FormField, { FormInput, FormPasswordInput, FormSelect } from '@/components/crm/forms/FormField';
 import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
@@ -748,8 +748,7 @@ export default function AdminUsersPage() {
                     : undefined
                 }
               >
-                <FormInput
-                  type="password"
+                <FormPasswordInput
                   value={newUser.password}
                   onChange={(event) => setNewUser({ ...newUser, password: event.target.value })}
                   autoComplete="new-password"

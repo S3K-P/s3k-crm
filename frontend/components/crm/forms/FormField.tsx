@@ -1,3 +1,8 @@
+'use client';
+
+import { createContext, useContext, useId } from 'react';
+
+import PasswordInput from '@/components/auth/PasswordInput';
 import { cn } from '@/lib/utils';
 
 /* ============================================================
@@ -17,7 +22,16 @@ import { cn } from '@/lib/utils';
    Wrapping gives implicit association, which needs no id and so
    cannot be forgotten at a call site. `htmlFor` is still honoured
    for the case where a control has to live outside the label.
+
+   The one cost of wrapping: a label's accessible name is built
+   from *all* of its content, so a second control inside it (the
+   show/hide button in FormPasswordInput) leaks its own name into
+   the field's — "Current password Show password". The label text
+   therefore carries an id, published through context, which such
+   an input can name itself by with aria-labelledby.
    ============================================================ */
+
+const FormFieldLabelContext = createContext<string | undefined>(undefined);
 
 interface FormFieldProps {
   label: string;
@@ -38,14 +52,15 @@ export default function FormField({
   children,
   className,
 }: FormFieldProps) {
+  const labelId = useId();
   return (
     <div className={cn('space-y-1.5', className)}>
       <label htmlFor={htmlFor} className="block space-y-1.5">
-        <span className="txt block text-[13px] font-semibold">
+        <span id={labelId} className="txt block text-[13px] font-semibold">
           {label}
           {required && <span className="ml-0.5 text-red-500">*</span>}
         </span>
-        {children}
+        <FormFieldLabelContext.Provider value={labelId}>{children}</FormFieldLabelContext.Provider>
       </label>
       {hint && !error && (
         <p className="txt-faint text-[11px]">{hint}</p>
@@ -76,6 +91,24 @@ export function FormInput({ hasError, className, ...props }: InputProps) {
       )}
       {...props}
     />
+  );
+}
+
+/** FormInput for secrets: same styling, plus a show/hide toggle. */
+export function FormPasswordInput({ hasError, className, ...props }: Omit<InputProps, 'type'>) {
+  const labelId = useContext(FormFieldLabelContext);
+  return (
+    <span className="relative block">
+      <PasswordInput
+        aria-labelledby={labelId}
+        className={cn(
+          'ctl w-full px-3.5 py-2.5 text-sm outline-none transition-colors focus:border-[var(--accent)]',
+          hasError && 'border-red-500 focus:border-red-500',
+          className,
+        )}
+        {...props}
+      />
+    </span>
   );
 }
 
