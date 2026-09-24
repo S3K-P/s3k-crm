@@ -37,6 +37,7 @@ import { listContacts, type Contact } from '@/features/crm/contacts';
 import { listStages, type PipelineStage } from '@/features/crm/opportunities';
 import { listLeadSources, type LeadSource } from '@/features/crm/lead-sources';
 import { listMembers, type OrganizationMember } from '@/features/admin/users';
+import { formatCurrency } from '@/lib/currency';
 
 /* ============================================================
    LEAD DETAIL
@@ -635,12 +636,7 @@ export default function LeadDetailPage() {
             <Field
               label="Expected deal size"
               value={
-                lead.expected_deal_size
-                  ? Number(lead.expected_deal_size).toLocaleString(undefined, {
-                      style: 'currency',
-                      currency: 'USD',
-                    })
-                  : null
+                lead.expected_deal_size ? formatCurrency(lead.expected_deal_size) : null
               }
             />
             {lead.lost_reason && <Field label="Reason" value={lead.lost_reason} />}

@@ -283,7 +283,7 @@ async def test_winning_a_colleagues_opportunity_notifies_its_owner(
             "stage_id": first["id"],
             "owner_id": str(alpha.member.user_id),
             "deal_value": "12500.00",
-            "currency": "USD",
+            "currency": "INR",
         },
     )
     assert opportunity.status_code == 201, opportunity.text
@@ -301,7 +301,8 @@ async def test_winning_a_colleagues_opportunity_notifies_its_owner(
     await _drain(session_factory)
     (message,) = provider.sent
     assert message.subject == "Opportunity won: Zephyr rollout"
-    assert "USD 12,500.00" in message.text_body
+    # Rendered in the CRM display currency; the stored amount is not converted.
+    assert "₹12,500.00" in message.text_body
     assert f"/opportunities/{opportunity_id}" in message.text_body
 
 

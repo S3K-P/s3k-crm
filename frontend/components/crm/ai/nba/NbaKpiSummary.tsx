@@ -1,4 +1,4 @@
-import { AlertTriangle, BadgeCheck, CalendarClock, DollarSign, Flame } from 'lucide-react';
+import { AlertTriangle, BadgeCheck, CalendarClock, IndianRupee, Flame } from 'lucide-react';
 import KpiCard from '@/components/crm/cards/KpiCard';
 import { daysFromToday, formatCompactCurrency } from '@/features/ai/shared/format';
 import type { NbaRecord } from '@/features/ai/next-best-action/types';
@@ -64,7 +64,7 @@ export default function NbaKpiSummary({ records }: NbaKpiSummaryProps) {
         value={formatCompactCurrency(expectedRevenue)}
         delta="Across open recommendations"
         trend="up"
-        icon={DollarSign}
+        icon={IndianRupee}
         iconGradient="from-emerald-500 to-green-600"
       />
       <KpiCard

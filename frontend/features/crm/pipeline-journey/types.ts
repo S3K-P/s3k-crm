@@ -5,11 +5,8 @@
    "what needs attention" queue.
 
    Money arrives here already formatted, by `formatMoney` in the
-   dashboard feature, which renders each amount in the currency
-   the organization's own deals are denominated in. It is not
-   ₹-specific: an earlier revision hardcoded the symbol and the
-   crore unit at every render site, which asserted a currency on
-   behalf of every tenant.
+   dashboard feature, which renders every amount in the CRM's
+   display currency (INR — see lib/currency).
 
    Several fields are `number | null`. Null is not "zero" — it
    means the CRM cannot currently compute that figure, and the UI
@@ -52,7 +49,7 @@ export interface JourneyDeal {
   account: string;
   /** Opportunity name */
   name: string;
-  /** Deal value, formatted in the record's own currency */
+  /** Deal value, formatted in the CRM's display currency */
   value: string;
   /** Owning rep, or a weighting note in forecast cuts */
   owner: string;
@@ -148,16 +145,13 @@ export interface AttentionItem {
 /** Headline counters the hero and KPI row animate up to on mount. */
 export interface JourneyTotals {
   /**
-   * Total open pipeline, as a raw amount in {@link JourneyTotals.currency}.
+   * Total open pipeline, as a raw amount.
    *
    * Raw rather than pre-formatted because the hero and KPI row animate it
-   * upward on mount and need a number to interpolate. It was previously
-   * "crore", with the ₹ symbol and the unit hardcoded at every render site —
-   * which quietly asserted that every tenant bills in rupees.
+   * upward on mount and need a number to interpolate; `formatMoney` renders
+   * it in the CRM's display currency.
    */
   pipelineValue: number;
-  /** ISO code the pipeline total is denominated in, or `null` when mixed. */
-  currency: string | null;
   /** Open opportunities across every stage */
   openDeals: number;
   /**

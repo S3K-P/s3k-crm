@@ -23,7 +23,6 @@ interface JourneyKpiRowProps {
 }
 
 const ICONS: Record<JourneyKpi['id'], LucideIcon> = {
-  // Currency-neutral: the pipeline is not necessarily denominated in rupees.
   pipeline: Wallet,
   deals: Target,
   winRate: TrendingUp,
@@ -44,11 +43,11 @@ const ICONS: Record<JourneyKpi['id'], LucideIcon> = {
 const SPLIT_COLORS = ['#8b5cf6', '#a78bfa', '#c4b5fd', '#ddd6fe', '#34d399'];
 
 export default function JourneyKpiRow({ kpis, totals, split, progress }: JourneyKpiRowProps) {
-  // Formatted in the organization's own currency rather than a hardcoded
-  // ₹/crore. `null` figures render as an em dash: the card still explains
-  // what it would show, but never states a number nobody computed.
+  // Formatted in the CRM's display currency. `null` figures render as an em
+  // dash: the card still explains what it would show, but never states a
+  // number nobody computed.
   const values: Record<JourneyKpi['id'], string> = {
-    pipeline: formatMoney(String(totals.pipelineValue * progress), totals.currency),
+    pipeline: formatMoney(String(totals.pipelineValue * progress)),
     deals: String(Math.round(totals.openDeals * progress)),
     winRate:
       totals.winRatePct === null ? '—' : `${Math.round(totals.winRatePct * progress)}%`,

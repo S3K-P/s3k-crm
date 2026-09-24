@@ -344,7 +344,7 @@ export default function NbaExplainDrawer({
                 <Fact label="Stage" value={stage} />
                 <Fact
                   label="Deal value"
-                  value={facts.deal_value !== null ? formatMoney(facts.deal_value, facts.currency) : null}
+                  value={facts.deal_value !== null ? formatMoney(facts.deal_value) : null}
                 />
                 <Fact
                   label="Win probability"
@@ -358,7 +358,7 @@ export default function NbaExplainDrawer({
                 <Fact label="Status" value={stage} />
                 <Fact
                   label="Expected deal size"
-                  value={facts.expected_deal_size !== null ? formatMoney(facts.expected_deal_size, null) : null}
+                  value={facts.expected_deal_size !== null ? formatMoney(facts.expected_deal_size) : null}
                 />
                 <Fact label="Email" value={facts.email} />
                 <Fact label="Phone" value={facts.phone} />

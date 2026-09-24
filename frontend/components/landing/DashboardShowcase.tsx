@@ -80,7 +80,7 @@ export function DashboardShowcase() {
                     </div>
                     <div className="flex-1 h-32 bg-brand-blue/20 rounded-2xl border border-brand-blue/30 p-6 flex flex-col justify-end relative overflow-hidden">
                        <div className="absolute top-0 right-0 w-32 h-32 bg-brand-blue/30 blur-2xl rounded-full -mr-10 -mt-10" />
-                       <div className="text-3xl font-bold text-white mb-1">$4.2M</div>
+                       <div className="text-3xl font-bold text-white mb-1">₹4.2M</div>
                        <div className="text-sm text-brand-blue/80">Closed Revenue</div>
                     </div>
                  </div>

@@ -74,8 +74,8 @@ def test_overview_reflects_real_contacts_and_deals(as_alpha_admin: ApiSession) -
     account_id = _account(as_alpha_admin)
     _contact(as_alpha_admin, account_id, "Priya", "Shah")
     _contact(as_alpha_admin, account_id, "Rahul", "Sharma")
-    _deal(as_alpha_admin, account_id, "Platform rollout", deal_value="150000", currency="USD")
-    _deal(as_alpha_admin, account_id, "Small add-on", deal_value="20000", currency="USD")
+    _deal(as_alpha_admin, account_id, "Platform rollout", deal_value="150000", currency="INR")
+    _deal(as_alpha_admin, account_id, "Small add-on", deal_value="20000", currency="INR")
 
     overview = as_alpha_admin.get(f"/crm/accounts/{account_id}/overview")
 
@@ -84,14 +84,14 @@ def test_overview_reflects_real_contacts_and_deals(as_alpha_admin: ApiSession) -
     assert body["contacts_count"] == 2
     assert body["open_deals_count"] == 2
     assert Decimal(body["open_pipeline_value"]) == Decimal("170000.00")
-    assert body["open_pipeline_currency"] == "USD"
+    assert body["open_pipeline_currency"] == "INR"
     assert body["won_deals_count"] == 0
     assert Decimal(body["won_revenue"]) == Decimal(0)
 
 
 def test_won_revenue_counts_only_closed_won_deals(as_alpha_admin: ApiSession) -> None:
     account_id = _account(as_alpha_admin)
-    deal_id = _deal(as_alpha_admin, account_id, "Won deal", deal_value="50000", currency="USD")
+    deal_id = _deal(as_alpha_admin, account_id, "Won deal", deal_value="50000", currency="INR")
     won_stage = _stage_id(as_alpha_admin, "Closed Won")
 
     moved = as_alpha_admin.post(f"/crm/opportunities/{deal_id}/stage", json={"stage_id": won_stage})
@@ -102,7 +102,7 @@ def test_won_revenue_counts_only_closed_won_deals(as_alpha_admin: ApiSession) ->
     body = overview.json()
     assert body["won_deals_count"] == 1
     assert Decimal(body["won_revenue"]) == Decimal("50000.00")
-    assert body["won_revenue_currency"] == "USD"
+    assert body["won_revenue_currency"] == "INR"
     # A won deal is no longer open pipeline.
     assert body["open_deals_count"] == 0
 

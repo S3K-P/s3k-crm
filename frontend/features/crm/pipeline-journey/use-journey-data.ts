@@ -104,7 +104,6 @@ function describe(error: unknown): string {
 
 const EMPTY_TOTALS: JourneyTotals = {
   pipelineValue: 0,
-  currency: null,
   openDeals: 0,
   winRatePct: null,
   goalPct: null,
@@ -182,7 +181,6 @@ function blank(
 
 function build(loaded: Loaded, reload: () => void): JourneyData {
   const summary = loaded.summary!;
-  const currency = summary.pipeline_currency;
   const pipelineValue = Number(summary.pipeline_total) || 0;
   const openDeals = summary.kpis.open_opportunities;
 
@@ -212,7 +210,7 @@ function build(loaded: Loaded, reload: () => void): JourneyData {
       id: stage.stage_id,
       label: stage.name,
       count: stage.count,
-      value: formatMoney(String(stage.value), currency),
+      value: formatMoney(String(stage.value)),
       conversion: null,
       movement: null,
     })),
@@ -230,7 +228,6 @@ function build(loaded: Loaded, reload: () => void): JourneyData {
     status: hasPipeline ? 'ready' : 'empty',
     totals: {
       pipelineValue,
-      currency,
       openDeals,
       winRatePct: null,
       goalPct: null,
@@ -238,7 +235,7 @@ function build(loaded: Loaded, reload: () => void): JourneyData {
     hero: heroFor(summary),
     kpis: kpisFor(summary),
     stages,
-    funnelStats: funnelStatsFor(summary, probability, currency),
+    funnelStats: funnelStatsFor(summary, probability),
     goal: null,
     momentum: [],
     attention: [],
@@ -317,7 +314,6 @@ function kpisFor(summary: DashboardSummary): JourneyKpi[] {
 function funnelStatsFor(
   summary: DashboardSummary,
   probability: Map<string, number | null>,
-  currency: string | null,
 ): JourneyFunnelStat[] {
   const weighted = summary.pipeline.reduce((total, stage) => {
     const chance = probability.get(stage.stage_id);
@@ -340,7 +336,7 @@ function funnelStatsFor(
     stats.push({
       id: 'forecast',
       label: 'Weighted forecast',
-      value: formatMoney(String(weighted), currency),
+      value: formatMoney(String(weighted)),
     });
   }
 
@@ -348,7 +344,7 @@ function funnelStatsFor(
     stats.push({
       id: 'average',
       label: 'Avg. deal size',
-      value: formatMoney(String(average), currency),
+      value: formatMoney(String(average)),
     });
   }
 

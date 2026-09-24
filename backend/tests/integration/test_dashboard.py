@@ -452,13 +452,13 @@ def test_the_total_is_denominated_when_every_open_deal_agrees(
 def test_a_mixed_currency_pipeline_reports_no_single_currency(
     as_alpha_admin: ApiSession,
 ) -> None:
-    """Adding euros to dollars and stamping ``$`` on the result is a lie.
+    """Adding euros to rupees and stamping ``₹`` on the result is a lie.
 
     The API declines to name a currency; the UI shows the bare figure and says
     the deals are mixed.
     """
     _opportunity(
-        as_alpha_admin, name="Deal A", value="50000.00", stage="Qualification", currency="USD"
+        as_alpha_admin, name="Deal A", value="50000.00", stage="Qualification", currency="INR"
     )
     _opportunity(
         as_alpha_admin, name="Deal B", value="10000.00", stage="Proposal", currency="EUR"

@@ -37,6 +37,7 @@ from app.platform.authorization.service import Action as PermissionAction
 from app.products.crm.accounts.models import Account
 from app.products.crm.common import CrmEntityType
 from app.products.crm.contacts.models import Contact
+from app.products.crm.currency import format_money
 from app.products.crm.leads.models import Lead, LeadSource
 from app.products.crm.opportunities.models import Opportunity, PipelineStage
 from app.products.crm.shared.timeline import (
@@ -291,7 +292,12 @@ def _account_lines(account: Account) -> list[str]:
             ("Industry", account.industry),
             ("Website", account.website),
             ("Company size", account.company_size),
-            ("Annual revenue", account.annual_revenue),
+            (
+                "Annual revenue",
+                format_money(account.annual_revenue)
+                if account.annual_revenue is not None
+                else None,
+            ),
             ("Status", account.status.value),
             ("Health score", account.health_score),
             ("Source", account.source),
@@ -311,9 +317,7 @@ def _opportunity_lines(opportunity: Opportunity, *, stage_name: str | None) -> l
             ("Stage", stage_name),
             (
                 "Deal value",
-                f"{opportunity.currency} {opportunity.deal_value:,.0f}"
-                if opportunity.deal_value
-                else None,
+                format_money(opportunity.deal_value) if opportunity.deal_value else None,
             ),
             (
                 "Win probability",
@@ -351,7 +355,7 @@ def _lead_lines(lead: Lead, *, source_name: str | None) -> list[str]:
             ("Product interest", lead.product_interest),
             (
                 "Expected deal size",
-                f"{lead.expected_deal_size:,.0f}" if lead.expected_deal_size else None,
+                format_money(lead.expected_deal_size) if lead.expected_deal_size else None,
             ),
             ("Lost reason", lead.lost_reason),
         ]
@@ -411,7 +415,7 @@ async def _opportunities(
     for opportunity, stage_name in (await session.execute(statement)).all():
         parts = [f"- {opportunity.name}", f"stage {stage_name}"]
         if opportunity.deal_value is not None:
-            parts.append(f"{opportunity.currency} {opportunity.deal_value:,.0f}")
+            parts.append(format_money(opportunity.deal_value))
         if opportunity.win_probability is not None:
             parts.append(f"{opportunity.win_probability}% to win")
         if opportunity.expected_close_date is not None:

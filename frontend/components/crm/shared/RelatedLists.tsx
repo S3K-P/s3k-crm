@@ -20,6 +20,7 @@ import {
   type Opportunity,
   type PipelineStage,
 } from '@/features/crm/opportunities';
+import { formatCurrency } from '@/lib/currency';
 
 /* ============================================================
    RELATED LISTS
@@ -279,13 +280,7 @@ export function AccountOpportunitiesPanel({ accountId }: { accountId: string }) 
     stages.find((stage) => stage.id === stageId)?.name ?? 'Unknown stage';
 
   const formatMoney = (opportunity: Opportunity): string =>
-    opportunity.deal_value
-      ? Number(opportunity.deal_value).toLocaleString(undefined, {
-          style: 'currency',
-          currency: opportunity.currency,
-          maximumFractionDigits: 0,
-        })
-      : '—';
+    opportunity.deal_value ? formatCurrency(opportunity.deal_value) : '—';
 
   const columns: ColumnDef<Opportunity>[] = [
     {
@@ -432,13 +427,7 @@ export function ContactOpportunitiesPanel({ contactId }: { contactId: string }) 
                   </p>
                 </div>
                 <span className="txt shrink-0 text-[12.5px] font-semibold tabular-nums">
-                  {opportunity.deal_value
-                    ? Number(opportunity.deal_value).toLocaleString(undefined, {
-                        style: 'currency',
-                        currency: opportunity.currency,
-                        maximumFractionDigits: 0,
-                      })
-                    : '—'}
+                  {opportunity.deal_value ? formatCurrency(opportunity.deal_value) : '—'}
                 </span>
                 <ArrowRight className="txt-faint h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               </button>

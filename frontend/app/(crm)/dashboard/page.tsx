@@ -4,7 +4,7 @@ import { useMemo, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import {
   UserPlus, CalendarDays, Target, Building2,
-  Users, CheckCircle2, DollarSign, ClipboardList,
+  Users, CheckCircle2, IndianRupee, ClipboardList,
   ArrowRight, AlertTriangle, RefreshCw, Scale, Trophy, Percent,
 } from 'lucide-react';
 import SectionHeader from '@/components/crm/shared/SectionHeader';
@@ -162,7 +162,7 @@ export default function DashboardPage() {
     return {
       tasks: data.tasks.map((task) => toTaskItem(task, now)),
       meetings: data.meetings.map((meeting) => toMeetingItem(meeting, now)),
-      pipeline: toPipelineStages(data.pipeline, data.pipeline_currency),
+      pipeline: toPipelineStages(data.pipeline),
       activities: data.activities.map((activity) => toActivityEntry(activity, now)),
     };
   }, [data]);
@@ -216,9 +216,9 @@ export default function DashboardPage() {
             />
             <KpiCard
               href="/opportunities" label="Pipeline Value"
-              value={formatMoney(kpis.pipeline_value, data.pipeline_currency)}
-              delta={data.pipeline_currency ? 'Open deals only' : 'Mixed currencies'}
-              icon={DollarSign} iconGradient="from-amber-500 to-orange-500"
+              value={formatMoney(kpis.pipeline_value)}
+              delta="Open deals only"
+              icon={IndianRupee} iconGradient="from-amber-500 to-orange-500"
             />
             <KpiCard
               href="/meetings" label="Meetings Today" value={String(kpis.meetings_today)}
@@ -232,13 +232,13 @@ export default function DashboardPage() {
             {/* Checkpoint 5 */}
             <KpiCard
               href="/opportunities" label="Weighted Pipeline"
-              value={formatMoney(kpis.weighted_pipeline_value, data.pipeline_currency)}
+              value={formatMoney(kpis.weighted_pipeline_value)}
               delta="By win probability"
               icon={Scale} iconGradient="from-cyan-500 to-teal-600"
             />
             <KpiCard
               href="/opportunities" label="Won Revenue"
-              value={formatMoney(kpis.won_revenue, data.pipeline_currency)}
+              value={formatMoney(kpis.won_revenue)}
               delta="Last 30 days"
               icon={Trophy} iconGradient="from-yellow-500 to-amber-600"
             />
@@ -311,7 +311,7 @@ export default function DashboardPage() {
                         Total Pipeline Value
                       </span>
                       <span className="txt font-display text-[20px] font-extrabold tracking-tight">
-                        {formatMoney(data.pipeline_total, data.pipeline_currency)}
+                        {formatMoney(data.pipeline_total)}
                       </span>
                     </div>
                   </>
@@ -371,7 +371,7 @@ export default function DashboardPage() {
                     }),
                     value: Number(point.value),
                   }))}
-                  formatValue={(value) => formatMoney(String(value), data.pipeline_currency)}
+                  formatValue={(value) => formatMoney(String(value))}
                   caption="Won revenue by month, last 6 months"
                   primaryLabel="Won revenue"
                 />
@@ -388,7 +388,7 @@ export default function DashboardPage() {
                     label: entry.owner,
                     value: Number(entry.value),
                   }))}
-                  formatValue={(value) => formatMoney(String(value), data.pipeline_currency)}
+                  formatValue={(value) => formatMoney(String(value))}
                   caption="Open pipeline value by owner"
                 />
               )}

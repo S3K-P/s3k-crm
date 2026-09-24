@@ -26,6 +26,7 @@ import {
   qualificationStage,
   type Lead,
 } from '@/features/crm/qualification';
+import { formatCurrency } from '@/lib/currency';
 
 /* ============================================================
    QUALIFICATION REVIEW
@@ -243,13 +244,7 @@ export default function QualificationDetailPage() {
             <Field
               label="Expected deal size"
               value={
-                lead.expected_deal_size
-                  ? Number(lead.expected_deal_size).toLocaleString(undefined, {
-                      style: 'currency',
-                      currency: 'USD',
-                      maximumFractionDigits: 0,
-                    })
-                  : null
+                lead.expected_deal_size ? formatCurrency(lead.expected_deal_size) : null
               }
             />
             {lead.lost_reason && <Field label="Disqualified because" value={lead.lost_reason} />}

@@ -1,7 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { 
-  Search, Plus, Handshake, Users, Target, DollarSign, 
+  Search, Plus, Handshake, Users, Target, IndianRupee, 
   Filter, MoreHorizontal, ArrowUpRight
 } from 'lucide-react';
 import { mockPartners } from '@/features/crm/partners/mock-data';
@@ -21,7 +21,7 @@ export default function PartnersPage() {
     { label: 'Total Partners', value: mockPartners.length, icon: Handshake, gradient: 'from-violet-500 to-purple-500' },
     { label: 'Active Leads', value: mockPartners.reduce((acc, p) => acc + p.activeLeads, 0), icon: Users, gradient: 'from-blue-500 to-cyan-500' },
     { label: 'Converted Leads', value: mockPartners.reduce((acc, p) => acc + p.convertedOpportunities, 0), icon: Target, gradient: 'from-emerald-500 to-teal-500' },
-    { label: 'Revenue Generated', value: `$${(mockPartners.reduce((acc, p) => acc + p.revenueGenerated, 0) / 1000000).toFixed(1)}M`, icon: DollarSign, gradient: 'from-orange-500 to-amber-500' },
+    { label: 'Revenue Generated', value: `₹${(mockPartners.reduce((acc, p) => acc + p.revenueGenerated, 0) / 1000000).toFixed(1)}M`, icon: IndianRupee, gradient: 'from-orange-500 to-amber-500' },
   ];
 
   return (

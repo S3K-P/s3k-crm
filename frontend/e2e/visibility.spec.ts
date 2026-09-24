@@ -36,11 +36,15 @@ test.describe('record visibility', () => {
   test('the same report totals differently for each of them', async ({ page, tenant }) => {
     // The property the whole reporting layer rests on: a shared report is a
     // question, and the answer belongs to whoever asked it.
+    // A currency total carries the CRM's display currency, so an empty one
+    // reads "₹0" rather than a bare "0" (see `frontend/lib/currency.ts`).
+    const EMPTY_TOTAL = '₹0';
+
     await signIn(page, tenant.manager);
     await page.goto('/reports');
     await page.getByRole('button', { name: 'Pipeline by stage' }).click();
     const managerTotal = page.locator('tfoot tr td').last();
-    await expect(managerTotal).not.toHaveText('0');
+    await expect(managerTotal).not.toHaveText(EMPTY_TOTAL);
     const managerValue = await managerTotal.textContent();
 
     await signOut(page);
@@ -50,8 +54,8 @@ test.describe('record visibility', () => {
     await page.getByRole('button', { name: 'Pipeline by stage' }).click();
     const repTotal = page.locator('tfoot tr td').last();
 
-    await expect(repTotal).toHaveText('0');
-    expect(managerValue).not.toBe('0');
+    await expect(repTotal).toHaveText(EMPTY_TOTAL);
+    expect(managerValue).not.toBe(EMPTY_TOTAL);
   });
 
   test('a rep cannot reach a colleague’s deal by typing its URL', async ({ page, tenant }) => {

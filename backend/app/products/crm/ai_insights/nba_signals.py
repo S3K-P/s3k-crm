@@ -33,6 +33,7 @@ from decimal import Decimal
 from typing import Any
 
 from app.products.crm.ai_insights.nba_catalog import BOTH, DEALS, RecordKind
+from app.products.crm.currency import format_money
 
 
 @dataclass(frozen=True, slots=True)
@@ -513,7 +514,7 @@ def display_value(key: str, value: Any) -> str:
     number = to_number(value)
     if number is not None and SIGNALS.get(key) is not None and SIGNALS[key].kind == "number":
         if key == "deal_value" or key == "expected_deal_size":
-            return f"{number:,.0f}"
+            return format_money(Decimal(str(number)))
         return f"{number:.0f}"
     return str(value)
 

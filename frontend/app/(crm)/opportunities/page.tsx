@@ -41,6 +41,7 @@ import {
   type OpportunityInput,
   type PipelineStage,
 } from '@/features/crm/opportunities';
+import { formatCurrency } from '@/lib/currency';
 
 /* ============================================================
    OPPORTUNITIES
@@ -70,20 +71,8 @@ const EMPTY_FORM: OpportunityInput = {
 
 type ViewMode = 'table' | 'kanban';
 
-function formatMoney(value: string | null, currency: string): string {
-  if (value === null) return '—';
-  const amount = Number(value);
-  if (Number.isNaN(amount)) return '—';
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: 'currency',
-      currency,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  } catch {
-    // An unknown ISO code must not blank the column.
-    return `${currency} ${amount.toLocaleString()}`;
-  }
+function formatMoney(value: string | null): string {
+  return formatCurrency(value);
 }
 
 function OpportunitiesPageContent() {
@@ -436,7 +425,7 @@ function OpportunitiesPageContent() {
         editable: (row) => mayEdit && !isClosed(row),
         editType: 'number',
         render: (row) => (
-          <span className="tabular-nums">{formatMoney(row.deal_value, row.currency)}</span>
+          <span className="tabular-nums">{formatMoney(row.deal_value)}</span>
         ),
       },
       {
@@ -699,7 +688,7 @@ function OpportunitiesPageContent() {
                 {opportunity.name}
               </button>
               <p className="txt-muted mt-0.5 text-[12px]">
-                {formatMoney(opportunity.deal_value, opportunity.currency)}
+                {formatMoney(opportunity.deal_value)}
               </p>
               {mayEdit && !isClosed(opportunity) && (
                 <FilterSelect

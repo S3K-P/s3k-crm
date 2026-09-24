@@ -24,6 +24,8 @@ import uuid
 from dataclasses import dataclass, field
 from decimal import Decimal
 
+from app.products.crm.currency import format_money
+
 PriorityLevel = str  # "HIGH" | "MEDIUM" | "LOW"
 
 HIGH_THRESHOLD = 70
@@ -64,7 +66,6 @@ def score_opportunity(
     *,
     opportunity_id: uuid.UUID,
     deal_value: Decimal | None,
-    currency: str,
     win_probability: int | None,
     expected_close_date: dt.date | None,
     stage_name: str,
@@ -87,12 +88,12 @@ def score_opportunity(
         if deal_value >= LARGE_DEAL_VALUE:
             score += 25
             reasons.append(
-                PriorityReason("Large deal", f"{currency} {deal_value:,.0f} in this opportunity")
+                PriorityReason("Large deal", f"{format_money(deal_value)} in this opportunity")
             )
         elif deal_value >= MEDIUM_DEAL_VALUE:
             score += 12
             reasons.append(
-                PriorityReason("Mid-size deal", f"{currency} {deal_value:,.0f} in this opportunity")
+                PriorityReason("Mid-size deal", f"{format_money(deal_value)} in this opportunity")
             )
 
     if expected_close_date is not None:
@@ -185,7 +186,9 @@ def score_lead(
         if expected_deal_size >= LARGE_DEAL_VALUE:
             score += 20
             reasons.append(
-                PriorityReason("Large expected deal", f"{expected_deal_size:,.0f} expected")
+                PriorityReason(
+                    "Large expected deal", f"{format_money(expected_deal_size)} expected"
+                )
             )
         elif expected_deal_size >= MEDIUM_DEAL_VALUE:
             score += 10

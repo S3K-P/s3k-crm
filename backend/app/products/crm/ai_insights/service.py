@@ -849,7 +849,6 @@ class AiInsightsService:
             score = prioritization.score_opportunity(
                 opportunity_id=opportunity.id,
                 deal_value=opportunity.deal_value,
-                currency=opportunity.currency,
                 win_probability=opportunity.win_probability,
                 expected_close_date=opportunity.expected_close_date,
                 stage_name=stage_names[opportunity.id],
@@ -1427,7 +1426,6 @@ class AiInsightsService:
         return prioritization.score_opportunity(
             opportunity_id=opportunity.id,
             deal_value=opportunity.deal_value,
-            currency=opportunity.currency,
             win_probability=opportunity.win_probability,
             expected_close_date=opportunity.expected_close_date,
             stage_name=stage_name or "",

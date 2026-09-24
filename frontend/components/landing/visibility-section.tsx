@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertCircle, Calendar, Clock, DollarSign, Target, TrendingUp } from 'lucide-react';
+import { AlertCircle, Calendar, Clock, IndianRupee, Target, TrendingUp } from 'lucide-react';
 
 export function VisibilitySection() {
   return (
@@ -24,10 +24,10 @@ export function VisibilitySection() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="p-4 rounded-xl border border-gray-100 bg-gray-50/50">
                   <div className="flex items-center gap-2 text-gray-500 mb-2">
-                    <DollarSign className="w-4 h-4" />
+                    <IndianRupee className="w-4 h-4" />
                     <span className="text-xs font-semibold">Pipeline Value</span>
                   </div>
-                  <div className="text-2xl font-bold text-navy-900">$4,250,000</div>
+                  <div className="text-2xl font-bold text-navy-900">₹4,250,000</div>
                 </div>
                 <div className="p-4 rounded-xl border border-gray-100 bg-brand-lavender/50">
                   <div className="flex items-center gap-2 text-brand-violet mb-2">
