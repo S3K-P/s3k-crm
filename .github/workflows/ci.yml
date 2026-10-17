@@ -398,6 +398,10 @@ jobs:
       # a forwarded header here would let the suite's own requests choose their
       # bucket and prove nothing.
       TRUSTED_PROXY_HOPS: '0'
+      # Without it, mfa.spec.ts's "Enable two-factor authentication" button
+      # hits a real 503 mfa_not_configured and the suite never sees a secret
+      # to enroll with. Same throwaway key as the backend-tests job.
+      MFA_ENCRYPTION_KEY: SaPMkSDDVfXcFkZVIV1E1T0bEgLXbEfZPGzGrPqtU4M=
 
     steps:
       - uses: actions/checkout@v4
