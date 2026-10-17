@@ -22,13 +22,15 @@ from collections.abc import Sequence
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import ColumnElement, Select, case, func, or_, select, true
+from sqlalchemy import ColumnElement, Select, case, func, literal, or_, select, true, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.products.crm.accounts.models import Account
 from app.products.crm.activities.models import Activity, ActivityStatus, ActivityType, Meeting
 from app.products.crm.common import CrmEntityType, Priority
 from app.products.crm.contacts.models import Contact
+from app.products.crm.dashboard.models import HomeDashboardLayout
+from app.products.crm.dashboard.schemas import RecentRecordEntry, RecentRecordType
 from app.products.crm.leads.models import Lead, LeadStatus
 from app.products.crm.opportunities.models import Opportunity, PipelineStage
 from app.products.crm.shared.visibility import RecordVisibility
@@ -44,6 +46,7 @@ CLOSING_SOON_DAYS = 30
 TASK_LIMIT = 6
 MEETING_LIMIT = 5
 ACTIVITY_LIMIT = 8
+RECENT_RECORDS_LIMIT = 10
 
 _CLOSED_TASK_STATUSES = (TaskStatus.COMPLETED, TaskStatus.CANCELLED)
 
@@ -212,6 +215,39 @@ class DashboardRepository:
                 Opportunity,
             )
         )
+
+    async def count_and_sum_won_this_month(
+        self,
+        organization_id: uuid.UUID,
+        *,
+        month_start: dt.datetime,
+        now: dt.datetime,
+        visibility: RecordVisibility | None = None,
+    ) -> tuple[int, Decimal, str | None]:
+        """``(count, total_value, currency)`` for deals won this calendar month.
+
+        ``currency`` is ``None`` on the same rule as ``open_pipeline_currencies``:
+        a total spanning more than one currency has no single symbol that
+        would be true of all of it.
+        """
+        base = self._scoped(
+            select(Opportunity.deal_value, Opportunity.currency).where(
+                Opportunity.organization_id == organization_id,
+                Opportunity.deleted_at.is_(None),
+                Opportunity.won_at.is_not(None),
+                Opportunity.won_at >= month_start,
+                Opportunity.won_at <= now,
+            ),
+            visibility,
+            Opportunity,
+        )
+        result = await self._session.execute(base)
+        rows = result.all()
+        count = len(rows)
+        total = sum((Decimal(str(value)) for value, _currency in rows), Decimal(0))
+        currencies = sorted({str(currency) for _value, currency in rows})
+        currency = currencies[0] if len(currencies) == 1 else None
+        return count, total, currency
 
     async def count_meetings_today(
         self, organization_id: uuid.UUID, *, day_start: dt.datetime, day_end: dt.datetime
@@ -517,6 +553,80 @@ class DashboardRepository:
         )
         return result.scalars().all()
 
+    # --- Recent records ------------------------------------------------------
+
+    async def recent_records(
+        self,
+        organization_id: uuid.UUID,
+        *,
+        limit: int = RECENT_RECORDS_LIMIT,
+        lead_visibility: RecordVisibility | None = None,
+        contact_visibility: RecordVisibility | None = None,
+        opportunity_visibility: RecordVisibility | None = None,
+    ) -> Sequence[RecentRecordEntry]:
+        """Leads, contacts and opportunities touched most recently, newest first.
+
+        "Touched" means created or updated — the data model has no activity
+        log to draw a richer verb from, so the two timestamps every row
+        already carries are what this reports, never a history it does not
+        have.
+        """
+        lead_select = self._scoped(
+            select(
+                literal(RecentRecordType.LEAD.value).label("type"),
+                Lead.id.label("id"),
+                func.coalesce(
+                    Lead.company, func.concat(Lead.first_name, " ", Lead.last_name)
+                ).label("label"),
+                Lead.created_at.label("created_at"),
+                Lead.updated_at.label("updated_at"),
+            ).where(Lead.organization_id == organization_id, Lead.deleted_at.is_(None)),
+            lead_visibility,
+            Lead,
+        )
+        contact_select = self._scoped(
+            select(
+                literal(RecentRecordType.CONTACT.value).label("type"),
+                Contact.id.label("id"),
+                func.concat(Contact.first_name, " ", Contact.last_name).label("label"),
+                Contact.created_at.label("created_at"),
+                Contact.updated_at.label("updated_at"),
+            ).where(Contact.organization_id == organization_id, Contact.deleted_at.is_(None)),
+            contact_visibility,
+            Contact,
+        )
+        opportunity_select = self._scoped(
+            select(
+                literal(RecentRecordType.OPPORTUNITY.value).label("type"),
+                Opportunity.id.label("id"),
+                Opportunity.name.label("label"),
+                Opportunity.created_at.label("created_at"),
+                Opportunity.updated_at.label("updated_at"),
+            ).where(
+                Opportunity.organization_id == organization_id,
+                Opportunity.deleted_at.is_(None),
+            ),
+            opportunity_visibility,
+            Opportunity,
+        )
+
+        union = union_all(lead_select, contact_select, opportunity_select).subquery()
+        touched_at = func.greatest(union.c.created_at, union.c.updated_at)
+        result = await self._session.execute(
+            select(union, touched_at.label("touched_at")).order_by(touched_at.desc()).limit(limit)
+        )
+        return [
+            RecentRecordEntry(
+                type=RecentRecordType(row.type),
+                id=row.id,
+                label=row.label,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+                touched_at=row.touched_at,
+            )
+            for row in result.all()
+        ]
+
     # --- Label resolution --------------------------------------------------
 
     async def resolve_related_labels(
@@ -570,12 +680,46 @@ class DashboardRepository:
 
         return labels
 
+    # --- Home dashboard layout preference -------------------------------------
+
+    async def get_home_layout(
+        self, organization_id: uuid.UUID, user_id: uuid.UUID
+    ) -> HomeDashboardLayout | None:
+        """The caller's saved home-dashboard layout, or ``None`` if unset."""
+        result = await self._session.execute(
+            select(HomeDashboardLayout).where(
+                HomeDashboardLayout.organization_id == organization_id,
+                HomeDashboardLayout.user_id == user_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def save_home_layout(
+        self,
+        organization_id: uuid.UUID,
+        user_id: uuid.UUID,
+        *,
+        cards: list[dict[str, object]],
+    ) -> HomeDashboardLayout:
+        """Create or overwrite the caller's layout — a user has at most one."""
+        existing = await self.get_home_layout(organization_id, user_id)
+        if existing is not None:
+            existing.cards = cards
+            await self._session.flush()
+            return existing
+
+        layout = HomeDashboardLayout(organization_id=organization_id, user_id=user_id, cards=cards)
+        self._session.add(layout)
+        await self._session.flush()
+        return layout
+
 
 __all__ = [
     "ACTIVITY_LIMIT",
     "CLOSING_SOON_DAYS",
     "MEETING_LIMIT",
     "NEW_LEAD_WINDOW_DAYS",
+    "RECENT_RECORDS_LIMIT",
     "TASK_LIMIT",
     "DashboardRepository",
 ]

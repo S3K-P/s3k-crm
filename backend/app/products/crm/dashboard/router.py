@@ -51,6 +51,9 @@ from app.products.crm.dashboard.schemas import (
     DashboardResponse,
     DashboardSummary,
     DashboardUpdate,
+    HomeLayout,
+    HomeLayoutUpdate,
+    RecentRecordEntry,
 )
 from app.products.crm.dashboard.service import DashboardService
 from app.products.crm.shared.pagination import Page, PageParams, page_params
@@ -97,6 +100,55 @@ async def get_dashboard_summary(
     """
     return await service.summary(
         principal.organization_id, scope=DashboardScope.for_principal(principal)
+    )
+
+
+@router.get("/recent-records", response_model=list[RecentRecordEntry])
+async def get_recent_records(
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
+    service: ServiceDep,
+) -> list[RecentRecordEntry]:
+    """Leads, contacts and opportunities touched most recently, newest first.
+
+    Backs the "Recent Records" card on the fixed home dashboard. Scoped the
+    same way the summary is: a rep sees the records they may open, a manager
+    or administrator holding ``VIEW_ALL`` sees the organization's.
+    """
+    return await service.recent_records(
+        principal.organization_id, scope=DashboardScope.for_principal(principal)
+    )
+
+
+@router.get("/layout", response_model=HomeLayout)
+async def get_home_dashboard_layout(
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.VIEW))],
+    service: ServiceDep,
+) -> HomeLayout:
+    """The caller's own saved card order and visibility for the home dashboard.
+
+    Not to be confused with ``PUT /boards/{id}/layout`` below, which reorders
+    the tiles of one user-built dashboard. This is the fixed home screen's
+    "Customize dashboard" preference: a personal setting, not CRM data —
+    there is nothing here for ``VIEW_ALL`` to widen, and the lookup is just
+    ``(organization_id, user_id)``, both already known from the principal.
+    """
+    return await service.get_home_layout(principal.organization_id, principal.user_id)
+
+
+@router.put("/layout", response_model=HomeLayout)
+async def put_home_dashboard_layout(
+    payload: HomeLayoutUpdate,
+    principal: Annotated[Principal, Depends(require_permission(MODULE, PermissionAction.EDIT))],
+    service: ServiceDep,
+) -> HomeLayout:
+    """Replace the caller's saved home-dashboard layout.
+
+    Whole-resource replace, matching the ``PUT`` convention this API uses
+    elsewhere — there is exactly one layout per user per organization, so
+    there is nothing partial to PATCH.
+    """
+    return await service.save_home_layout(
+        principal.organization_id, principal.user_id, cards=payload.cards
     )
 
 

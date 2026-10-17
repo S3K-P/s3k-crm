@@ -1,9 +1,12 @@
 """Tables behind configurable dashboards.
 
-This module now holds two things that sound alike and are not:
+This module now holds three things that sound alike and are not:
 
 * ``GET /crm/dashboard/summary`` (``service.py``, ``repository.py``) — the
   fixed home screen every organization gets. No rows, no configuration.
+* ``HomeDashboardLayout``, below — one user's card order/visibility
+  preference *for that fixed home screen*'s "Customize dashboard" feature.
+  Still no report data, just nine booleans-and-a-position.
 * ``Dashboard`` and ``DashboardComponent``, below — dashboards a user builds,
   each a arrangement of saved reports.
 
@@ -36,11 +39,15 @@ from sqlalchemy import (
     Text,
     Uuid,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.core.models import TenantMixin, TimestampMixin, UUIDPrimaryKeyMixin
 from app.products.crm.common import CRM_SCHEMA, CrmEntityMixin
 from app.products.crm.reports.models import ShareScope
+
+PLATFORM_SCHEMA = "platform"
 
 #: Grid width of a dashboard row. Twelve because it divides by 2, 3, 4 and 6,
 #: so halves, thirds and quarters are all expressible without fractions.
@@ -151,9 +158,53 @@ class DashboardComponent(Base, CrmEntityMixin):
     width: Mapped[int] = mapped_column(Integer, nullable=False, default=6, server_default="6")
 
 
+class HomeDashboardLayout(Base, UUIDPrimaryKeyMixin, TimestampMixin, TenantMixin):
+    """One user's saved card order and visibility for the fixed home dashboard.
+
+    Not related to :class:`Dashboard` above — this is the "Customize
+    dashboard" preference for ``GET /crm/dashboard/summary``'s fixed home
+    screen, not a user-built report dashboard. Lives in ``platform`` (per the
+    ``TenantMixin`` + RLS convention every tenant-scoped table follows)
+    alongside other per-user-per-org rows such as ``team_memberships``, since
+    it is a preference rather than CRM domain data.
+
+    ``user_id`` is a real foreign key, ``ON DELETE CASCADE``, unlike the
+    owner/author columns CRM records carry: a layout *is* that user's
+    preference and has no reason to outlive them.
+    """
+
+    __tablename__ = "dashboard_layouts"
+    __table_args__ = (
+        Index(
+            "uq_dashboard_layouts_user_id_organization_id",
+            "user_id",
+            "organization_id",
+            unique=True,
+        ),
+        {"schema": PLATFORM_SCHEMA},
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(
+            f"{PLATFORM_SCHEMA}.users.id",
+            ondelete="CASCADE",
+            name="fk_dashboard_layouts_user_id_users",
+        ),
+        nullable=False,
+    )
+    #: Ordered list of ``{"card_type": str, "visible": bool}`` objects — the
+    #: whole of what "Customize dashboard" lets a user change. Validated by
+    #: the service against :class:`~app.products.crm.dashboard.schemas.HomeCardType`
+    #: before it is ever written, so a row in this column is always a list of
+    #: known card types in some order, never arbitrary JSON.
+    cards: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False)
+
+
 __all__ = [
     "DASHBOARD_GRID_COLUMNS",
     "ComponentDisplay",
     "Dashboard",
     "DashboardComponent",
+    "HomeDashboardLayout",
 ]

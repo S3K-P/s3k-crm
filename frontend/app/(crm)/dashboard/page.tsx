@@ -1,74 +1,54 @@
 'use client';
 
-import { useMemo, useSyncExternalStore } from 'react';
+import { useMemo, useState, useSyncExternalStore, type HTMLAttributes } from 'react';
 import Link from 'next/link';
+import { AlertTriangle, LayoutGrid, RefreshCw, Settings2 } from 'lucide-react';
+
+import DiscoveryBanner from '@/components/crm/dashboard/DiscoveryBanner';
+import DashboardKpiStrip from '@/components/crm/dashboard/DashboardKpiStrip';
+import DashboardCardGrid from '@/components/crm/dashboard/DashboardCardGrid';
+import TodoBar from '@/components/crm/dashboard/TodoBar';
+import MyLeadsCard from '@/components/crm/dashboard/cards/MyLeadsCard';
+import MyDealsCard from '@/components/crm/dashboard/cards/MyDealsCard';
+import MyContactsCard from '@/components/crm/dashboard/cards/MyContactsCard';
+import PipelineByStageCard from '@/components/crm/dashboard/cards/PipelineByStageCard';
+import TasksFollowUpsCard from '@/components/crm/dashboard/cards/TasksFollowUpsCard';
+import RecentRecordsCard from '@/components/crm/dashboard/cards/RecentRecordsCard';
+import ActivityTimelineCard from '@/components/crm/dashboard/cards/ActivityTimelineCard';
+import UpcomingMeetingsCard from '@/components/crm/dashboard/cards/UpcomingMeetingsCard';
+import QuickActionsCard from '@/components/crm/dashboard/cards/QuickActionsCard';
 import {
-  UserPlus, CalendarDays, Target, Building2,
-  Users, CheckCircle2, IndianRupee, ClipboardList,
-  ArrowRight, AlertTriangle, RefreshCw, Scale, Trophy, Percent, LayoutGrid,
-} from 'lucide-react';
-import SectionHeader from '@/components/crm/shared/SectionHeader';
-import KpiCard from '@/components/crm/cards/KpiCard';
-import TaskCard from '@/components/crm/cards/TaskCard';
-import MeetingCard from '@/components/crm/cards/MeetingCard';
-import PipelineStageCard from '@/components/crm/cards/PipelineStageCard';
-import ActivityItem from '@/components/crm/cards/ActivityItem';
-import QuickActionButton from '@/components/crm/cards/QuickActionButton';
-import { BarChart, LineChart } from '@/components/crm/charts/MiniCharts';
-import {
-  formatMoney,
-  toActivityEntry,
-  toMeetingItem,
   toPipelineStages,
-  toTaskItem,
   useDashboardSummary,
+  useHomeDashboardLayout,
+  type HomeCardType,
 } from '@/features/crm/dashboard';
 
 /* ============================================================
    DASHBOARD PAGE
 
-   Every figure on this page comes from
-   `GET /api/v1/crm/dashboard/summary`, scoped by the backend to
-   the organization the signed-in user is currently acting in.
+   The KPI strip, pipeline, tasks and activity feed all come from
+   `GET /crm/dashboard/summary`, scoped by the backend to the
+   organization the signed-in user is currently acting in. My
+   Leads/Deals/Contacts fetch directly from the existing list
+   endpoints, filtered to the signed-in user. Recent Records and
+   the saved card layout have their own small endpoints.
 
-   There is no local sample data and no fallback: when the API
-   cannot be reached the page says so. A dashboard that quietly
-   substitutes invented numbers is worse than one that is
+   This replaces the previous fixed-grid home page. The separate
+   user-built "configurable dashboards" feature (saved-report
+   boards, at `/dashboards`) is untouched — the link to it just
+   moved from the page header's old "Customize dashboard" button
+   (which this page's own, different "Customize dashboard" now
+   means something else) to the "My Dashboards" link below, so it
+   is not orphaned.
+
+   There is no local sample data and no fallback: when a request
+   fails, that card (or the page) says so. A dashboard that
+   quietly substitutes invented numbers is worse than one that is
    visibly broken.
-
-   **Where a tile leads.** Every figure is a link into the
-   module it was counted from, and a link carries a filter only
-   where that filter selects *the same rows the figure counted*
-   — "Qualified" opens `/leads?status=QUALIFIED` because the KPI
-   is exactly that status. Where no such filter exists the link
-   goes to the plain list: "New Leads" counts a 30-day creation
-   window and the leads list cannot express one, so narrowing it
-   by status would put a different set of rows under a number
-   that did not count them. The same rule that forbids invented
-   figures forbids links that misdescribe them.
-   ============================================================ */
-
-/** Static navigation, not data — these are links, not metrics. */
-const QUICK_ACTIONS = [
-  { label: 'Add New Lead',        icon: UserPlus,     href: '/leads' },
-  { label: 'Schedule Meeting',    icon: CalendarDays, href: '/meetings' },
-  { label: 'Create Opportunity',  icon: Target,       href: '/opportunities' },
-  { label: 'Add Account',         icon: Building2,    href: '/accounts' },
-];
-
-/* ============================================================
-   THE VIEWER'S CLOCK
-
-   The greeting and the date line depend on the reader's local
-   time, which the server does not share — rendering them during
-   SSR guarantees a hydration mismatch across a time-zone
-   boundary. `useSyncExternalStore` is the sanctioned way to say
-   "this value does not exist on the server": it yields `null`
-   there and a stable client time after hydration.
    ============================================================ */
 
 const subscribeToNothing = () => () => {};
-
 let clientClock: Date | null = null;
 const readClientClock = (): Date => (clientClock ??= new Date());
 const readServerClock = (): null => null;
@@ -77,47 +57,31 @@ function useClientClock(): Date | null {
   return useSyncExternalStore(subscribeToNothing, readClientClock, readServerClock);
 }
 
-/* ============================================================
-   SHARED BITS
-   ============================================================ */
-
-function Panel({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div className={`surface bd rounded-2xl border p-[18px] ${className ?? ''}`}>{children}</div>;
+function greeting(now: Date | null): string {
+  if (!now) return 'Welcome back';
+  const hour = now.getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
 }
 
-function EmptyNote({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="txt-faint px-1 py-6 text-center text-[12.5px] font-medium">{children}</p>
-  );
+function Panel({ children }: { children: React.ReactNode }) {
+  return <div className="surface bd flex flex-col items-center gap-3 rounded-2xl border p-12 text-center">{children}</div>;
 }
-
-function Skeleton({ className }: { className: string }) {
-  return (
-    <div
-      className={`motion-safe:animate-pulse rounded-xl ${className}`}
-      style={{ background: 'var(--surface-2)' }}
-    />
-  );
-}
-
-/* ============================================================
-   NON-DATA STATES
-   ============================================================ */
 
 function LoadingDashboard() {
   return (
     <div className="space-y-6" aria-busy="true" aria-live="polite">
       <span className="sr-only">Loading your dashboard…</span>
-      <div className="grid grid-cols-2 gap-3.5 md:grid-cols-3 xl:grid-cols-6">
-        {Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-[106px]" />)}
+      <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
+        {Array.from({ length: 4 }, (_, i) => (
+          <div key={i} className="h-[106px] animate-pulse rounded-2xl" style={{ background: 'var(--surface-2)' }} />
+        ))}
       </div>
-      <div className="grid gap-[18px] lg:grid-cols-2">
-        <Skeleton className="h-[320px]" />
-        <Skeleton className="h-[320px]" />
-      </div>
-      <div className="grid gap-[18px] lg:grid-cols-[1.5fr_1fr]">
-        <Skeleton className="h-[300px]" />
-        <Skeleton className="h-[300px]" />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 6 }, (_, i) => (
+          <div key={i} className="h-[260px] animate-pulse rounded-2xl" style={{ background: 'var(--surface-2)' }} />
+        ))}
       </div>
     </div>
   );
@@ -125,7 +89,7 @@ function LoadingDashboard() {
 
 function ErrorDashboard({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <Panel className="flex flex-col items-center gap-3 py-12 text-center">
+    <Panel>
       <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-pink-500 to-rose-500">
         <AlertTriangle className="h-5 w-5 text-white" aria-hidden="true" />
       </div>
@@ -145,307 +109,148 @@ function ErrorDashboard({ message, onRetry }: { message: string; onRetry: () => 
   );
 }
 
-/* ============================================================
-   PAGE
-   ============================================================ */
-
 export default function DashboardPage() {
   const { status, data, error, reload } = useDashboardSummary();
+  const layout = useHomeDashboardLayout();
+  const [isCustomizing, setIsCustomizing] = useState(false);
 
   const now = useClientClock();
 
-  const view = useMemo(() => {
-    // `data` only ever arrives client-side, so this — and the clock it reads —
-    // never runs during SSR.
-    if (!data) return null;
-    const now = new Date();
-    return {
-      tasks: data.tasks.map((task) => toTaskItem(task, now)),
-      meetings: data.meetings.map((meeting) => toMeetingItem(meeting, now)),
-      pipeline: toPipelineStages(data.pipeline),
-      activities: data.activities.map((activity) => toActivityEntry(activity, now)),
-    };
+  const pipelineStages = useMemo(() => {
+    if (!data) return [];
+    return toPipelineStages(data.pipeline);
   }, [data]);
 
-  const kpis = data?.kpis;
+  function renderCard(cardType: HomeCardType, dragHandleProps: HTMLAttributes<HTMLButtonElement>) {
+    const shared = {
+      isCustomizing,
+      onRemove: () => layout.setVisible(cardType, false),
+      dragHandleProps,
+    };
+
+    switch (cardType) {
+      case 'MY_LEADS':
+        return <MyLeadsCard key={cardType} {...shared} />;
+      case 'MY_DEALS':
+        return <MyDealsCard key={cardType} {...shared} />;
+      case 'MY_CONTACTS':
+        return <MyContactsCard key={cardType} {...shared} />;
+      case 'PIPELINE_BY_STAGE':
+        return (
+          <PipelineByStageCard
+            key={cardType}
+            {...shared}
+            status={status}
+            stages={pipelineStages}
+            total={data?.pipeline_total ?? '0'}
+            fetchedAt={now}
+          />
+        );
+      case 'TASKS_FOLLOW_UPS':
+        return (
+          <TasksFollowUpsCard
+            key={cardType}
+            {...shared}
+            status={status}
+            tasks={data?.tasks ?? []}
+            fetchedAt={now}
+            now={now ?? new Date()}
+          />
+        );
+      case 'RECENT_RECORDS':
+        return <RecentRecordsCard key={cardType} {...shared} />;
+      case 'ACTIVITY_TIMELINE':
+        return (
+          <ActivityTimelineCard
+            key={cardType}
+            {...shared}
+            status={status}
+            activities={data?.activities ?? []}
+            fetchedAt={now}
+            now={now ?? new Date()}
+          />
+        );
+      case 'UPCOMING_MEETINGS':
+        return (
+          <UpcomingMeetingsCard
+            key={cardType}
+            {...shared}
+            status={status}
+            meetings={data?.meetings ?? []}
+            fetchedAt={now}
+            now={now ?? new Date()}
+          />
+        );
+      case 'QUICK_ACTIONS':
+        return <QuickActionsCard key={cardType} {...shared} />;
+    }
+  }
 
   return (
-    <div className="space-y-6 p-6 lg:p-8">
-
+    <div className="space-y-5 p-6 lg:p-8">
       {/* ── Page Header ── */}
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1
-            className="font-display text-[22px] font-extrabold leading-tight tracking-tight"
-            style={{ color: 'var(--text)' }}
-          >
+          <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight" style={{ color: 'var(--text)' }}>
             {greeting(now)} 👋
           </h1>
           <p className="txt-muted mt-0.5 text-[13px] font-medium">
             Here&apos;s what&apos;s happening with your sales pipeline today
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <p className="txt-faint text-[12.5px] font-medium">
-            {now?.toLocaleDateString('en-US', {
-              weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-            }) ?? ''}
-          </p>
+        <div className="flex shrink-0 items-center gap-2.5">
           <Link
             href="/dashboards"
             className="ctl bd flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[12.5px] font-semibold transition hover:opacity-80"
           >
             <LayoutGrid className="h-3.5 w-3.5" />
-            Customize dashboard
+            My Dashboards
           </Link>
+          <button
+            type="button"
+            onClick={() => setIsCustomizing((v) => !v)}
+            className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-[12.5px] font-semibold transition ${isCustomizing ? 'text-white' : ''}`}
+            style={
+              isCustomizing
+                ? { background: 'var(--accent)', borderColor: 'var(--accent)' }
+                : { background: 'var(--surface-2)', borderColor: 'var(--border)' }
+            }
+          >
+            <Settings2 className="h-4 w-4" />
+            {isCustomizing ? 'Done customizing' : 'Customize dashboard'}
+          </button>
         </div>
       </div>
 
-      {status === 'error' && error !== null && (
-        <ErrorDashboard message={error} onRetry={reload} />
-      )}
-      {(status === 'loading' || (status === 'ready' && view === null)) && <LoadingDashboard />}
+      <DiscoveryBanner />
 
-      {status === 'ready' && view !== null && kpis && data && (
+      {status === 'error' && error !== null && <ErrorDashboard message={error} onRetry={reload} />}
+      {status === 'loading' && <LoadingDashboard />}
+
+      {status === 'ready' && data && (
         <>
-          {/* ── KPI Cards ── */}
-          <div className="grid grid-cols-2 gap-3.5 md:grid-cols-3 xl:grid-cols-6">
-            <KpiCard
-              variant="neutral"
-              href="/leads" label="New Leads" value={String(kpis.new_leads)}
-              delta="Last 30 days" icon={Users}
-            />
-            <KpiCard
-              variant="neutral"
-              href="/leads?status=QUALIFIED" label="Qualified" value={String(kpis.qualified_leads)}
-              icon={CheckCircle2}
-            />
-            <KpiCard
-              variant="neutral"
-              href="/opportunities" label="Open Opps" value={String(kpis.open_opportunities)}
-              delta={`${kpis.opportunities_closing_soon} closing soon`}
-              icon={Target}
-            />
-            <KpiCard
-              variant="neutral"
-              href="/opportunities" label="Pipeline Value"
-              value={formatMoney(kpis.pipeline_value)}
-              delta="Open deals only"
-              icon={IndianRupee}
-            />
-            <KpiCard
-              variant="neutral"
-              href="/meetings" label="Meetings Today" value={String(kpis.meetings_today)}
-              icon={CalendarDays}
-            />
-            <KpiCard
-              variant="neutral"
-              href="/tasks" label="Tasks Due" value={String(kpis.tasks_due)}
-              delta={`${kpis.tasks_due_high_priority} high priority`}
-              icon={ClipboardList}
-            />
-            {/* Checkpoint 5 */}
-            <KpiCard
-              variant="neutral"
-              href="/opportunities" label="Weighted Pipeline"
-              value={formatMoney(kpis.weighted_pipeline_value)}
-              delta="By win probability"
-              icon={Scale}
-            />
-            <KpiCard
-              variant="neutral"
-              href="/opportunities" label="Won Revenue"
-              value={formatMoney(kpis.won_revenue)}
-              delta="Last 30 days"
-              icon={Trophy}
-            />
-            <KpiCard
-              variant="neutral"
-              href="/leads" label="Lead Conversion" value={`${kpis.lead_conversion_rate}%`}
-              delta="All-time"
-              icon={Percent}
-            />
-          </div>
+          <DashboardKpiStrip kpis={data.kpis} />
 
-          {/* ── Middle Row: Tasks + Meetings ── */}
-          <div className="grid gap-[18px] lg:grid-cols-2">
-            <Panel>
-              <SectionHeader
-                title="Open Tasks"
-                action={
-                  <Link href="/tasks" className="text-[12.5px] font-semibold hover:opacity-80" style={{ color: 'var(--accent)' }}>
-                    View all →
-                  </Link>
-                }
-              />
-              <div className="space-y-2">
-                {view.tasks.length === 0
-                  ? <EmptyNote>Nothing open. Tasks you create will appear here.</EmptyNote>
-                  : view.tasks.map((task) => <TaskCard key={task.id} task={task} />)}
-              </div>
-            </Panel>
-
-            <Panel>
-              <SectionHeader
-                title="Upcoming Meetings"
-                action={
-                  <Link href="/meetings?status=PLANNED" className="text-[12.5px] font-semibold hover:opacity-80" style={{ color: 'var(--accent)' }}>
-                    View all →
-                  </Link>
-                }
-              />
-              <div className="space-y-2">
-                {view.meetings.length === 0
-                  ? <EmptyNote>No meetings scheduled.</EmptyNote>
-                  : view.meetings.map((meeting) => <MeetingCard key={meeting.id} meeting={meeting} />)}
-              </div>
-            </Panel>
-          </div>
-
-          {/* ── Pipeline + Activities + Quick Actions ── */}
-          <div className="grid gap-[18px] lg:grid-cols-[1.5fr_1fr]">
-            <div className="space-y-[18px]">
-              <Panel>
-                <SectionHeader
-                  title="Sales Pipeline"
-                  action={
-                    <Link href="/opportunities" className="text-[12.5px] font-semibold hover:opacity-80" style={{ color: 'var(--accent)' }}>
-                      View pipeline →
-                    </Link>
-                  }
-                />
-                {view.pipeline.length === 0 ? (
-                  <EmptyNote>No open pipeline stages are configured.</EmptyNote>
-                ) : (
-                  <>
-                    <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
-                      {view.pipeline.map((stage) => (
-                        <PipelineStageCard key={stage.id} stage={stage} />
-                      ))}
-                    </div>
-
-                    <div className="bd mt-4 flex items-center justify-between border-t pt-3.5">
-                      <span className="txt-muted text-[13px] font-semibold">
-                        Total Pipeline Value
-                      </span>
-                      <span className="txt font-display text-[20px] font-extrabold tracking-tight">
-                        {formatMoney(data.pipeline_total)}
-                      </span>
-                    </div>
-                  </>
-                )}
-              </Panel>
-
-              <Panel>
-                <SectionHeader title="Quick Actions" />
-                <div className="grid grid-cols-2 gap-2.5">
-                  {QUICK_ACTIONS.map((action) => (
-                    <QuickActionButton
-                      key={action.label}
-                      label={action.label}
-                      icon={action.icon}
-                      href={action.href}
-                    />
-                  ))}
-                </div>
-              </Panel>
+          {layout.status === 'loading' ? (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {Array.from({ length: 6 }, (_, i) => (
+                <div key={i} className="h-[260px] animate-pulse rounded-2xl" style={{ background: 'var(--surface-2)' }} />
+              ))}
             </div>
+          ) : (
+            <DashboardCardGrid
+              visibleCards={layout.visibleCards}
+              hiddenCards={layout.hiddenCards}
+              isCustomizing={isCustomizing}
+              onReorder={layout.reorderVisible}
+              onShow={(cardType) => layout.setVisible(cardType, true)}
+              renderCard={renderCard}
+            />
+          )}
 
-            <Panel>
-              <SectionHeader
-                title="Recent Activities"
-                action={
-                  <Link href="/meetings" className="flex items-center gap-1 text-[12.5px] font-semibold hover:opacity-80" style={{ color: 'var(--accent)' }}>
-                    All activities <ArrowRight className="h-3 w-3" />
-                  </Link>
-                }
-              />
-              <div>
-                {view.activities.length === 0
-                  ? <EmptyNote>No activity recorded yet.</EmptyNote>
-                  : view.activities.map((activity, i) => (
-                    <ActivityItem
-                      key={activity.id}
-                      activity={activity}
-                      variant="neutral"
-                      showConnector={i < view.activities.length - 1}
-                    />
-                  ))}
-              </div>
-            </Panel>
-          </div>
-
-          {/* ── Checkpoint 5: Revenue trend + Pipeline by owner + Lead source ── */}
-          <div className="grid gap-[18px] lg:grid-cols-3">
-            <Panel>
-              <SectionHeader title="Revenue Trend" />
-              {data.revenue_trend.every((point) => Number(point.value) === 0) ? (
-                <EmptyNote>No won deals in the last 6 months.</EmptyNote>
-              ) : (
-                <LineChart
-                  data={data.revenue_trend.map((point) => ({
-                    label: new Date(`${point.month}T00:00:00Z`).toLocaleDateString('en-US', {
-                      month: 'short',
-                    }),
-                    value: Number(point.value),
-                  }))}
-                  formatValue={(value) => formatMoney(String(value))}
-                  caption="Won revenue by month, last 6 months"
-                  primaryLabel="Won revenue"
-                />
-              )}
-            </Panel>
-
-            <Panel>
-              <SectionHeader title="Pipeline by Owner" />
-              {data.pipeline_by_owner.length === 0 ? (
-                <EmptyNote>No open pipeline yet.</EmptyNote>
-              ) : (
-                <BarChart
-                  data={data.pipeline_by_owner.slice(0, 6).map((entry) => ({
-                    label: entry.owner,
-                    value: Number(entry.value),
-                  }))}
-                  formatValue={(value) => formatMoney(String(value))}
-                  caption="Open pipeline value by owner"
-                />
-              )}
-            </Panel>
-
-            <Panel>
-              <SectionHeader
-                title="Lead Source Performance"
-                action={
-                  <Link href="/leads" className="text-[12.5px] font-semibold hover:opacity-80" style={{ color: 'var(--accent)' }}>
-                    View leads →
-                  </Link>
-                }
-              />
-              {data.lead_source_performance.length === 0 ? (
-                <EmptyNote>No leads recorded yet.</EmptyNote>
-              ) : (
-                <BarChart
-                  data={data.lead_source_performance.slice(0, 6).map((entry) => ({
-                    label: entry.source,
-                    value: entry.leads,
-                  }))}
-                  formatValue={(value) => value.toLocaleString('en-US')}
-                  caption="Leads by source"
-                />
-              )}
-            </Panel>
-          </div>
+          <TodoBar tasks={data.tasks} now={now ?? new Date()} />
         </>
       )}
-
     </div>
   );
-}
-
-function greeting(now: Date | null): string {
-  if (!now) return 'Welcome back';
-  const hour = now.getHours();
-  if (hour < 12) return 'Good morning';
-  if (hour < 17) return 'Good afternoon';
-  return 'Good evening';
 }

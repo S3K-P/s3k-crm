@@ -13,6 +13,7 @@ field is absent rather than invented — see the module docstring in
 from __future__ import annotations
 
 import datetime as dt
+import enum
 import uuid
 from decimal import Decimal
 
@@ -53,6 +54,14 @@ class DashboardKpis(BaseModel):
     #: Checkpoint 5. Share of this caller's live leads that have converted,
     #: 0-100, all-time.
     lead_conversion_rate: float
+    #: Opportunities whose ``won_at`` falls within the current calendar month.
+    deals_won_this_month: int
+    #: Summed ``deal_value`` of ``deals_won_this_month``. Zero when there are none.
+    deals_won_this_month_value: Decimal
+    #: ISO code the figure above is denominated in, or ``None`` when this
+    #: month's wins span more than one currency — see ``pipeline_currency``
+    #: for why a mixed total is reported bare rather than mislabeled.
+    deals_won_this_month_currency: str | None
 
 
 class PipelineStageSummary(BaseModel):
@@ -149,6 +158,110 @@ class DashboardSummary(BaseModel):
     pipeline_by_owner: list[OwnerPipelineSummary]
     #: Checkpoint 5. How each lead source is performing, by volume.
     lead_source_performance: list[LeadSourcePerformance]
+
+
+# ---------------------------------------------------------------------------
+# Home dashboard: Recent Records and the per-user card layout
+#
+# Not to be confused with the "Configurable dashboards" section below —
+# these back the fixed home screen's "Recent Records" card and its
+# "Customize dashboard" card-visibility/order preference, not the
+# user-built report dashboards the ``Dashboard``/``DashboardComponent``
+# models and the rest of this file are about.
+# ---------------------------------------------------------------------------
+
+
+class RecentRecordType(enum.StrEnum):
+    """The three record kinds the "Recent Records" card draws from."""
+
+    LEAD = "LEAD"
+    CONTACT = "CONTACT"
+    OPPORTUNITY = "OPPORTUNITY"
+
+
+class RecentRecordEntry(BaseModel):
+    """One lead, contact or opportunity, newest touch first.
+
+    ``touched_at`` is whichever of ``created_at``/``updated_at`` is later —
+    the one real "last touched" instant the existing columns can support. Both
+    are also returned so the UI can say "added" vs. "updated" rather than
+    inventing a change log the data model does not have.
+    """
+
+    type: RecentRecordType
+    id: uuid.UUID
+    label: str
+    created_at: dt.datetime
+    updated_at: dt.datetime
+    touched_at: dt.datetime
+
+
+class HomeCardType(enum.StrEnum):
+    """Every card the fixed home dashboard can show, for its customizable layout."""
+
+    MY_LEADS = "MY_LEADS"
+    MY_DEALS = "MY_DEALS"
+    MY_CONTACTS = "MY_CONTACTS"
+    PIPELINE_BY_STAGE = "PIPELINE_BY_STAGE"
+    TASKS_FOLLOW_UPS = "TASKS_FOLLOW_UPS"
+    RECENT_RECORDS = "RECENT_RECORDS"
+    ACTIVITY_TIMELINE = "ACTIVITY_TIMELINE"
+    #: Not in the approved mockup — kept available but hidden by default (see
+    #: ``DEFAULT_HIDDEN_HOME_CARD_TYPES``) rather than dropped outright, so a
+    #: user who wants either back can add it from the "Add Card" picker.
+    UPCOMING_MEETINGS = "UPCOMING_MEETINGS"
+    QUICK_ACTIONS = "QUICK_ACTIONS"
+
+
+#: The layout every user starts with until they save one of their own — every
+#: card, in the order the approved mockup shows them, with the two
+#: hidden-by-default cards appended at the end.
+DEFAULT_HOME_CARD_ORDER: tuple[HomeCardType, ...] = (
+    HomeCardType.MY_LEADS,
+    HomeCardType.MY_DEALS,
+    HomeCardType.MY_CONTACTS,
+    HomeCardType.PIPELINE_BY_STAGE,
+    HomeCardType.TASKS_FOLLOW_UPS,
+    HomeCardType.RECENT_RECORDS,
+    HomeCardType.ACTIVITY_TIMELINE,
+    HomeCardType.UPCOMING_MEETINGS,
+    HomeCardType.QUICK_ACTIONS,
+)
+
+#: Cards present in the catalogue but not part of the approved mockup's
+#: default view. A brand-new user, and any existing user whose saved layout
+#: predates a card being added to the catalogue (see
+#: ``DashboardService.get_home_layout``), both start with these hidden rather
+#: than surprised by a card appearing unasked.
+DEFAULT_HIDDEN_HOME_CARD_TYPES: frozenset[HomeCardType] = frozenset(
+    {HomeCardType.UPCOMING_MEETINGS, HomeCardType.QUICK_ACTIONS}
+)
+
+
+class HomeCardConfig(BaseModel):
+    """One card's position (implicit in list order) and visibility."""
+
+    card_type: HomeCardType
+    visible: bool
+
+
+class HomeLayout(BaseModel):
+    """A user's saved card order and visibility for their home dashboard."""
+
+    cards: list[HomeCardConfig]
+
+
+class HomeLayoutUpdate(BaseModel):
+    """What a user may change about their own home-dashboard layout.
+
+    Every known card type must appear exactly once. That is enforced in the
+    service, not here, because validating "did you include all nine and
+    nothing else" needs the catalogue in ``HomeCardType`` — doing it in the
+    schema would mean a new card type could be added without the server
+    noticing a saved layout that predates it.
+    """
+
+    cards: list[HomeCardConfig]
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +381,8 @@ class DashboardData(BaseModel):
 
 
 __all__ = [
+    "DEFAULT_HIDDEN_HOME_CARD_TYPES",
+    "DEFAULT_HOME_CARD_ORDER",
     "DashboardActivity",
     "DashboardComponentCreate",
     "DashboardComponentData",
@@ -283,8 +398,14 @@ __all__ = [
     "DashboardSummary",
     "DashboardTask",
     "DashboardUpdate",
+    "HomeCardConfig",
+    "HomeCardType",
+    "HomeLayout",
+    "HomeLayoutUpdate",
     "LeadSourcePerformance",
     "OwnerPipelineSummary",
     "PipelineStageSummary",
+    "RecentRecordEntry",
+    "RecentRecordType",
     "RevenueMonth",
 ]
