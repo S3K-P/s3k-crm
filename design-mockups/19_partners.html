@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>S3K CRM — Partners</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared/tokens.css">
+<link rel="stylesheet" href="shared/shell.css">
+<link rel="stylesheet" href="shared/views.css">
+</head>
+<body>
+
+<div class="app-shell" id="app-shell" data-shell>
+  <div class="app-main-col">
+    <main class="app-content" id="page-content">
+
+      <div class="list-head">
+        <div class="page-head">
+          <div class="page-head-left">
+            <div class="page-icon-tile">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m11 17 2 2a1 1 0 1 0 3-3"/><path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.42.25L21 4"/><path d="m21 3 1 11h-2"/><path d="M3 4h8"/><path d="m7 18-1.5-1.5"/><path d="M3 15h2.5l2 2"/></svg>
+            </div>
+            <div><h1 class="page-title">Partners</h1><p class="page-subtitle">Channel, alliance and referral partners</p></div>
+          </div>
+          <button class="btn btn-primary btn-sm" data-open="#partner-modal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14"/></svg>New Partner</button>
+        </div>
+        <div class="kpi-strip">
+          <div class="kpi-tile"><div class="l">Total Partners</div><div class="v">6</div></div>
+          <div class="kpi-tile"><div class="l">Active Leads</div><div class="v">39</div></div>
+          <div class="kpi-tile"><div class="l">Converted Leads</div><div class="v">28</div></div>
+          <div class="kpi-tile"><div class="l">Revenue Generated</div><div class="v">₹6.8 Cr</div></div>
+        </div>
+        <p style="padding:10px 24px 0;font-size:11.5px;color:var(--faint);">PROPOSED location — the only existing Partners prototype lives outside <code style="background:var(--surface-2);padding:1px 5px;border-radius:4px;">frontend/app/(crm)</code> and is read-only. This is a from-scratch design in the real design system, grounded in that prototype's field shape.</p>
+        <div class="list-meta"><b>6 items</b><span class="sep">•</span>Sorted by <b>Revenue Generated</b><span class="sep">•</span>Updated 2 min ago</div>
+      </div>
+
+      <div class="toolbar">
+        <div class="input-icon-wrap toolbar-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input class="input" id="list-search" placeholder="Search this list…"></div>
+        <button class="btn btn-secondary btn-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>Filters</button>
+      </div>
+
+      <div class="dt-wrap">
+        <div class="dt-scroll">
+        <table class="dt">
+          <thead><tr><th class="sortable">Partner Name</th><th>Type</th><th>Territory</th><th>Manager</th><th style="text-align:center;">Leads Gen.</th><th style="text-align:center;">Converted</th><th>Revenue</th><th>Status</th><th style="width:70px;"></th></tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="partner-modal">
+  <div class="modal contact-form-root" data-form-root style="max-width:600px;">
+    <div class="modal-header"><div><div style="font-weight:700;font-size:15.5px;">New Partner</div></div><button class="btn btn-ghost btn-icon" data-close="#partner-modal" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-body">
+      <div class="error-summary" data-error-summary><b>We couldn't save this partner.</b><ul data-error-list></ul></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div style="grid-column:1/-1;"><label class="field-label">Partner Name <span class="req">*</span></label><input class="input" data-field="name"></div>
+        <div><label class="field-label">Type</label><select class="input" data-field="type"><option>Channel Partner</option><option>Alliance Partner</option><option>Referral Partner</option><option>Strategic Partner</option></select></div>
+        <div><label class="field-label">Territory</label><select class="input" data-field="territory"><option>North India</option><option>South India</option><option>East India</option><option>West India</option></select></div>
+        <div><label class="field-label">Assigned Manager</label><select class="input" data-field="assignedManager"><option>Rohan Mehta</option><option>Priya Nair</option><option>Meera Pillai</option></select></div>
+        <div><label class="field-label">Status</label><select class="input" data-field="status"><option>Pending</option><option>Onboarding</option><option>Active</option><option>Inactive</option></select></div>
+        <div style="grid-column:1/-1;"><label class="field-label">Linked Account <span class="badge badge-proposed">Proposed</span></label><input class="input" data-field="linkedAccount" placeholder="If this partner is also a customer"></div>
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" data-close="#partner-modal">Cancel</button><button class="btn btn-primary" id="partner-save">Save</button></div>
+  </div>
+</div>
+
+<script src="shared/app.js"></script>
+<script src="shared/shell.js"></script>
+<script src="shared/form-helpers.js"></script>
+<script src="shared/partners-data.js"></script>
+<script>
+  S3K.mountShell({ active: 'partners', breadcrumb: ['S3K CRM', 'Partners'] });
+  function statusVariant(s) { return { Active: 'success', Onboarding: 'info', Pending: 'warning', Inactive: 'neutral' }[s] || 'neutral'; }
+
+  var tbody = document.getElementById('tbody');
+  tbody.innerHTML = S3K_PARTNERS.map(function (p) {
+    return '<tr data-id="' + p.id + '">' +
+      '<td class="cell-name"><div class="name-cell"><div class="avatar avatar-sm" style="background:var(--surface-3);color:var(--accent);border-radius:9px;">' + p.name.split(' ').map(function(w){return w[0];}).slice(0,2).join('') + '</div><a href="20_partner_detail.html">' + p.name + '</a></div></td>' +
+      '<td data-label="Type"><span class="badge badge-accent">' + p.type + '</span></td>' +
+      '<td data-label="Territory">' + p.territory + '</td>' +
+      '<td data-label="Manager">' + p.assignedManager + '</td>' +
+      '<td data-label="Leads Gen." style="text-align:center;">' + p.totalLeadsGenerated + '</td>' +
+      '<td data-label="Converted" style="text-align:center;">' + p.convertedOpportunities + '</td>' +
+      '<td data-label="Revenue" style="font-weight:600;">' + p.revenueGenerated + '</td>' +
+      '<td data-label="Status"><span class="badge badge-' + statusVariant(p.status) + '"><span class="badge-dot"></span>' + p.status + '</span></td>' +
+      '<td><div class="row-actions"><button aria-label="Edit" onclick="event.stopPropagation();document.getElementById(\'partner-modal\').classList.add(\'is-open\')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div></td></tr>';
+  }).join('');
+  tbody.addEventListener('click', function (e) { var tr = e.target.closest('tr'); if (tr && !e.target.closest('.row-actions') && !e.target.closest('a')) window.location.href = '20_partner_detail.html'; });
+  document.getElementById('list-search').addEventListener('input', function (e) { var q = e.target.value.toLowerCase(); tbody.querySelectorAll('tr').forEach(function (tr) { tr.style.display = tr.textContent.toLowerCase().indexOf(q) > -1 ? '' : 'none'; }); });
+
+  var root = document.querySelector('#partner-modal .contact-form-root');
+  document.getElementById('partner-save').addEventListener('click', function () {
+    S3K.trySaveForm(root, [{ selector: '[data-field="name"]', label: 'Partner Name is required' }], { successMessage: 'Partner saved successfully', onSuccess: function () { document.getElementById('partner-modal').classList.remove('is-open'); } });
+  });
+</script>
+</body>
+</html>

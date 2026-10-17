@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Building2, GitMerge, Loader2, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
-import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
+import Modal from '@/components/crm/dialogs/Modal';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess, notifyWarning } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
@@ -25,6 +25,7 @@ import CustomFieldInputs from '@/components/crm/forms/CustomFieldInputs';
 import { changedValues, type CustomFieldValues } from '@/features/crm/custom-fields';
 import { usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
+import { listMembers, type OrganizationMember } from '@/features/admin/users';
 import {
   ACCOUNT_STATUSES,
   archiveAccount,
@@ -67,8 +68,14 @@ const EMPTY_FORM: AccountInput = {
   website: '',
   phone: '',
   company_size: '',
+  annual_revenue: '',
+  owner_id: '',
+  source: '',
   status: 'ACTIVE',
+  address_line1: '',
   city: '',
+  state: '',
+  postal_code: '',
   country: '',
   description: '',
 };
@@ -86,6 +93,7 @@ export default function AccountsPage() {
   // somebody holding both — the same pair the endpoint demands. Hiding it
   // protects nothing on its own; it stops offering a button that would 403.
   const mayMerge = mayEdit && mayDelete;
+  const mayViewMembers = can('users', 'VIEW');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [mergeOpen, setMergeOpen] = useState(false);
 
@@ -116,6 +124,26 @@ export default function AccountsPage() {
     { errorMessage: 'Something went wrong loading accounts.' },
   );
 
+  /* ---- Owner options for the picker ---- */
+  const [members, setMembers] = useState<OrganizationMember[]>([]);
+  useEffect(() => {
+    if (!mayViewMembers) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await listMembers();
+        if (!cancelled) {
+          setMembers(result.data.filter((member) => member.status === 'ACTIVE'));
+        }
+      } catch {
+        // Non-fatal — owner picker stays empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mayViewMembers]);
+
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Custom values are held apart from `form` because they are keyed by tenant
   // data: folding them into a typed `AccountInput` would mean giving that
@@ -144,8 +172,14 @@ export default function AccountsPage() {
       website: row.website ?? '',
       phone: row.phone ?? '',
       company_size: row.company_size ?? '',
+      annual_revenue: row.annual_revenue ?? '',
+      owner_id: row.owner_id ?? '',
+      source: row.source ?? '',
       status: row.status,
+      address_line1: row.address_line1 ?? '',
       city: row.city ?? '',
+      state: row.state ?? '',
+      postal_code: row.postal_code ?? '',
       country: row.country ?? '',
       description: row.description ?? '',
     });
@@ -162,8 +196,14 @@ export default function AccountsPage() {
       website: form.website?.trim() || null,
       phone: form.phone?.trim() || null,
       company_size: form.company_size?.trim() || null,
+      annual_revenue: form.annual_revenue || null,
+      owner_id: form.owner_id || null,
+      source: form.source?.trim() || null,
       status: form.status,
+      address_line1: form.address_line1?.trim() || null,
       city: form.city?.trim() || null,
+      state: form.state?.trim() || null,
+      postal_code: form.postal_code?.trim() || null,
       country: form.country?.trim() || null,
       description: form.description?.trim() || null,
       // Only what the user actually touched. Sending the whole document would
@@ -289,8 +329,8 @@ export default function AccountsPage() {
     <div className="flex h-full flex-col space-y-6 p-6 lg:p-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3.5">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-amber-500 to-orange-500">
-            <Building2 className="h-5 w-5 text-white" />
+          <div className="surface-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]">
+            <Building2 className="h-5 w-5" style={{ color: 'var(--accent)' }} />
           </div>
           <div>
             <h1 className="font-display txt text-[22px] font-extrabold">Accounts</h1>
@@ -448,7 +488,7 @@ export default function AccountsPage() {
         />
       )}
 
-      <SlideDrawer
+      <Modal
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         title={editing ? 'Edit account' : 'New account'}
@@ -504,13 +544,48 @@ export default function AccountsPage() {
               placeholder="+1 555 123 4567"
             />
           </FormField>
-          <FormField label="Company size">
-            <FormInput
-              value={form.company_size ?? ''}
-              onChange={(event) => setForm({ ...form, company_size: event.target.value })}
-              placeholder="100-500"
-            />
-          </FormField>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Company size">
+              <FormInput
+                value={form.company_size ?? ''}
+                onChange={(event) => setForm({ ...form, company_size: event.target.value })}
+                placeholder="100-500"
+              />
+            </FormField>
+            <FormField label="Annual revenue">
+              <FormInput
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.annual_revenue ?? ''}
+                onChange={(event) => setForm({ ...form, annual_revenue: event.target.value })}
+              />
+            </FormField>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField
+              label="Account owner"
+              hint={!mayViewMembers ? 'You do not have permission to browse members.' : undefined}
+            >
+              <FormSelect
+                value={form.owner_id ?? ''}
+                onChange={(event) => setForm({ ...form, owner_id: event.target.value })}
+                placeholder="Unassigned"
+                disabled={!mayViewMembers}
+                options={members.map((member) => ({
+                  value: member.user_id,
+                  label: member.full_name?.trim() || member.email,
+                }))}
+              />
+            </FormField>
+            <FormField label="Source">
+              <FormInput
+                value={form.source ?? ''}
+                onChange={(event) => setForm({ ...form, source: event.target.value })}
+                placeholder="e.g. Referral, Inbound"
+              />
+            </FormField>
+          </div>
           <FormField label="Status">
             <FormSelect
               value={form.status ?? 'ACTIVE'}
@@ -520,11 +595,31 @@ export default function AccountsPage() {
               options={STATUS_FORM_OPTIONS}
             />
           </FormField>
+          <FormField label="Street address">
+            <FormInput
+              value={form.address_line1 ?? ''}
+              onChange={(event) => setForm({ ...form, address_line1: event.target.value })}
+            />
+          </FormField>
           <div className="grid grid-cols-2 gap-3">
             <FormField label="City">
               <FormInput
                 value={form.city ?? ''}
                 onChange={(event) => setForm({ ...form, city: event.target.value })}
+              />
+            </FormField>
+            <FormField label="State">
+              <FormInput
+                value={form.state ?? ''}
+                onChange={(event) => setForm({ ...form, state: event.target.value })}
+              />
+            </FormField>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Postal code">
+              <FormInput
+                value={form.postal_code ?? ''}
+                onChange={(event) => setForm({ ...form, postal_code: event.target.value })}
               />
             </FormField>
             <FormField label="Country">
@@ -549,7 +644,7 @@ export default function AccountsPage() {
             recordContext={{ ...editing, ...form }}
           />
         </div>
-      </SlideDrawer>
+      </Modal>
       {mergeOpen && mergeCandidates(items, selectedIds).length > 1 && (
         <MergeDialog
           open={mergeOpen}

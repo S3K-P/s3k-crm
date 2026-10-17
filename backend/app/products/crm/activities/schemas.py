@@ -24,6 +24,9 @@ class MeetingDetail(BaseModel):
     agenda: str | None = None
     reminder_minutes: int | None = Field(default=None, ge=0, le=10080)
     internal_participant_ids: list[uuid.UUID] = Field(default_factory=list)
+    #: Free text — who from outside the organization is attending. Not
+    #: validated against contacts: an external attendee need not be one.
+    external_participants: str | None = None
 
     @model_validator(mode="after")
     def _end_after_start(self) -> MeetingDetail:

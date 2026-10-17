@@ -18,17 +18,22 @@ import {
 } from 'lucide-react';
 
 import type { ActivityEntry } from '@/components/crm/cards/ActivityItem';
-import type { MeetingItem } from '@/components/crm/cards/MeetingCard';
-import type { PipelineStage } from '@/components/crm/cards/PipelineStageCard';
-import type { TaskItem, TaskPriority } from '@/components/crm/cards/TaskCard';
 import type {
   DashboardActivity,
   DashboardActivityType,
-  DashboardMeeting,
-  DashboardTask,
   PipelineStageSummary,
 } from '@/features/crm/dashboard/types';
 import { formatCompactCurrency } from '@/lib/currency';
+
+/** One open pipeline stage, shaped for the funnel bar it renders as. */
+export interface PipelineStage {
+  id: string;
+  label: string;
+  count: number;
+  value: string;
+  /** 0-100, relative to the largest stage — a comparison, not a completion percentage. */
+  percentage: number;
+}
 
 /* ------------------------------------------------------------------
    Money
@@ -95,65 +100,8 @@ export function formatRelative(iso: string, now: Date): string {
 }
 
 /* ------------------------------------------------------------------
-   Tasks
-   ------------------------------------------------------------------ */
-
-const TASK_PRIORITIES: Record<DashboardTask['priority'], TaskPriority> = {
-  HIGH: 'high',
-  MEDIUM: 'medium',
-  LOW: 'low',
-};
-
-export function toTaskItem(task: DashboardTask, now: Date): TaskItem {
-  const due = task.due_date ? new Date(task.due_date) : null;
-  const overdue = due !== null && due.getTime() < now.getTime() && !task.completed;
-
-  return {
-    id: task.id,
-    title: task.title,
-    description: task.description ?? undefined,
-    priority: TASK_PRIORITIES[task.priority],
-    // No due date is a real state; leave the line off rather than guess one.
-    dueTime: due ? `${overdue ? 'Overdue · ' : ''}${formatWhen(task.due_date!, now)}` : undefined,
-    completed: task.completed,
-  };
-}
-
-/* ------------------------------------------------------------------
-   Meetings
-   ------------------------------------------------------------------ */
-
-export function toMeetingItem(meeting: DashboardMeeting, now: Date): MeetingItem {
-  const start = meeting.start_time ? formatWhen(meeting.start_time, now) : 'Time not set';
-  const end =
-    meeting.end_time && meeting.start_time
-      ? timeOfDay(new Date(meeting.end_time))
-      : null;
-
-  return {
-    id: meeting.id,
-    title: meeting.title,
-    time: end ? `${start} – ${end}` : start,
-    // The API resolves the linked record's name, or nothing when the meeting
-    // stands alone. There is no separate contact on the wire, so that row is
-    // simply absent rather than filled with a plausible name.
-    company: meeting.related_label ?? undefined,
-    // Only future, non-cancelled meetings are returned, so this is accurate.
-    status: 'upcoming',
-  };
-}
-
-/* ------------------------------------------------------------------
    Pipeline
    ------------------------------------------------------------------ */
-
-const STAGE_GRADIENTS = [
-  'from-sky-500 to-blue-600',
-  'from-violet-600 to-indigo-600',
-  'from-amber-500 to-orange-500',
-  'from-pink-500 to-rose-500',
-  'from-emerald-500 to-green-600',
-];
 
 /**
  * Stage cards, with each bar drawn **relative to the largest stage**.
@@ -185,7 +133,6 @@ export function toPipelineStages(
       count: stage.count,
       value: formatMoney(stage.value),
       percentage: Math.round(share * 100),
-      gradient: STAGE_GRADIENTS[index % STAGE_GRADIENTS.length],
     };
   });
 }

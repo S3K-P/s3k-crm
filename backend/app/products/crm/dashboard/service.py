@@ -20,6 +20,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import ValidationFailedError
 from app.platform.organizations.service import organizations_for_session
 from app.products.crm.common import CrmEntityType
 from app.products.crm.dashboard.repository import (
@@ -27,14 +28,20 @@ from app.products.crm.dashboard.repository import (
     DashboardRepository,
 )
 from app.products.crm.dashboard.schemas import (
+    DEFAULT_HIDDEN_HOME_CARD_TYPES,
+    DEFAULT_HOME_CARD_ORDER,
     DashboardActivity,
     DashboardKpis,
     DashboardMeeting,
     DashboardSummary,
     DashboardTask,
+    HomeCardConfig,
+    HomeCardType,
+    HomeLayout,
     LeadSourcePerformance,
     OwnerPipelineSummary,
     PipelineStageSummary,
+    RecentRecordEntry,
     RevenueMonth,
 )
 from app.products.crm.reports.repository import ReportRepository
@@ -116,6 +123,10 @@ class DashboardService:
         )
         conversion_rate = await repository.lead_conversion_rate(
             organization_id, visibility=scope.leads
+        )
+        month_start = dt.datetime.combine(today.replace(day=1), dt.time.min, tzinfo=dt.UTC)
+        won_count, won_value, won_currency = await repository.count_and_sum_won_this_month(
+            organization_id, month_start=month_start, now=now, visibility=scope.opportunities
         )
 
         stages = await repository.pipeline_by_stage(
@@ -238,6 +249,9 @@ class DashboardService:
                 weighted_pipeline_value=weighted_pipeline,
                 won_revenue=won_revenue,
                 lead_conversion_rate=conversion_rate,
+                deals_won_this_month=won_count,
+                deals_won_this_month_value=won_value,
+                deals_won_this_month_currency=won_currency,
             ),
             pipeline=pipeline,
             pipeline_total=pipeline_value,
@@ -248,6 +262,87 @@ class DashboardService:
             revenue_trend=revenue_trend,
             pipeline_by_owner=pipeline_by_owner,
             lead_source_performance=lead_source_performance,
+        )
+
+    async def recent_records(
+        self, organization_id: uuid.UUID, *, scope: DashboardScope | None = None
+    ) -> list[RecentRecordEntry]:
+        """Leads, contacts and opportunities touched most recently."""
+        scope = scope or DashboardScope.unrestricted()
+        records = await self._repository.recent_records(
+            organization_id,
+            lead_visibility=scope.leads,
+            contact_visibility=scope.contacts,
+            opportunity_visibility=scope.opportunities,
+        )
+        return list(records)
+
+    # --- Home dashboard layout preference -------------------------------------
+
+    async def get_home_layout(
+        self, organization_id: uuid.UUID, user_id: uuid.UUID
+    ) -> HomeLayout:
+        """The caller's saved home-dashboard layout, or the default when unset.
+
+        Reconciled against the current catalogue: a card type added after
+        the user's last save (e.g. ``UPCOMING_MEETINGS``) is appended rather
+        than left missing, which is what lets ``save_home_layout``'s "every
+        known card exactly once" check keep working for a layout saved
+        before that card existed. A newly-appeared card starts hidden on the
+        same rule a brand-new user's default does, so reconciliation never
+        surfaces a card nobody asked to see.
+        """
+        saved = await self._repository.get_home_layout(organization_id, user_id)
+        if saved is None:
+            return self._default_home_layout()
+
+        cards = [HomeCardConfig.model_validate(card) for card in saved.cards]
+        known = {card.card_type for card in cards}
+        cards += [
+            HomeCardConfig(
+                card_type=card_type, visible=card_type not in DEFAULT_HIDDEN_HOME_CARD_TYPES
+            )
+            for card_type in HomeCardType
+            if card_type not in known
+        ]
+        return HomeLayout(cards=cards)
+
+    async def save_home_layout(
+        self, organization_id: uuid.UUID, user_id: uuid.UUID, *, cards: list[HomeCardConfig]
+    ) -> HomeLayout:
+        """Persist the caller's home-dashboard layout.
+
+        Every known card type must appear exactly once — enforced here, where
+        the catalogue (:class:`HomeCardType`) is available, rather than at
+        the schema, so a card type added after a user's last save is caught
+        instead of silently vanishing from their dashboard.
+        """
+        seen = [card.card_type for card in cards]
+        if sorted(seen, key=str) != sorted(HomeCardType, key=str):
+            raise ValidationFailedError(
+                "The layout must include every dashboard card exactly once.",
+                details={
+                    "expected": sorted(card.value for card in HomeCardType),
+                    "received": sorted(card.value for card in seen),
+                },
+            )
+
+        await self._repository.save_home_layout(
+            organization_id,
+            user_id,
+            cards=[card.model_dump(mode="json") for card in cards],
+        )
+        return HomeLayout(cards=cards)
+
+    @staticmethod
+    def _default_home_layout() -> HomeLayout:
+        return HomeLayout(
+            cards=[
+                HomeCardConfig(
+                    card_type=card_type, visible=card_type not in DEFAULT_HIDDEN_HOME_CARD_TYPES
+                )
+                for card_type in DEFAULT_HOME_CARD_ORDER
+            ]
         )
 
 

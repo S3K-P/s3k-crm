@@ -11,7 +11,7 @@ import { FormError, ListError } from '@/components/crm/shared/ListStates';
 import { ActivityTimelinePanel, NotesPanel } from '@/components/crm/shared/RecordPanels';
 import NotConfigured, { PartialDataNotice } from '@/components/crm/shared/NotConfigured';
 import { useRecord } from '@/components/crm/shared/useRecord';
-import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
+import Modal from '@/components/crm/dialogs/Modal';
 import FormField, { FormTextarea } from '@/components/crm/forms/FormField';
 import { notifySuccess } from '@/components/crm/feedback/notify';
 import { usePermissions } from '@/context/AuthContext';
@@ -164,8 +164,8 @@ export default function QualificationDetailPage() {
       </button>
 
       <div className="flex flex-wrap items-center gap-3.5">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-emerald-500 to-green-600">
-          <ListChecks className="h-5 w-5 text-white" />
+        <div className="surface-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]">
+          <ListChecks className="h-5 w-5" style={{ color: 'var(--accent)' }} />
         </div>
         <div className="min-w-0">
           <h1 className="font-display txt text-[22px] font-extrabold">
@@ -271,7 +271,7 @@ export default function QualificationDetailPage() {
         requires="AI gateway (ADR-016, Phase 5)"
       />
 
-      <SlideDrawer
+      <Modal
         open={disqualifyOpen}
         onClose={() => setDisqualifyOpen(false)}
         title="Disqualify lead"
@@ -308,7 +308,7 @@ export default function QualificationDetailPage() {
           </FormField>
           <FormError message={actionError} />
         </div>
-      </SlideDrawer>
+      </Modal>
     </div>
   );
 }

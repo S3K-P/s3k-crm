@@ -6,7 +6,7 @@ import { Target, Plus, Pencil, Trash2, Loader2, LayoutList, LayoutGrid } from 'l
 
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
 import KanbanBoard, { type KanbanColumnDef } from '@/components/crm/kanban/KanbanBoard';
-import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
+import Modal from '@/components/crm/dialogs/Modal';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
@@ -25,6 +25,8 @@ import { usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
 import { listAccounts, type Account } from '@/features/crm/accounts';
 import { listContacts, type Contact } from '@/features/crm/contacts';
+import { listMembers, type OrganizationMember } from '@/features/admin/users';
+import { listLeadSources, type LeadSource } from '@/features/crm/lead-sources';
 import {
   archiveOpportunity,
   bulkChangeStage,
@@ -64,10 +66,23 @@ const EMPTY_FORM: OpportunityInput = {
   name: '',
   account_id: '',
   primary_contact_id: '',
+  owner_id: '',
   deal_value: '',
+  win_probability: null,
   expected_close_date: '',
+  forecast_category: '',
+  competitor: '',
+  lead_source_id: '',
+  products: '',
   notes: '',
 };
+
+const FORECAST_CATEGORY_OPTIONS = [
+  { value: 'Pipeline', label: 'Pipeline' },
+  { value: 'Best Case', label: 'Best Case' },
+  { value: 'Commit', label: 'Commit' },
+  { value: 'Omitted', label: 'Omitted' },
+];
 
 type ViewMode = 'table' | 'kanban';
 
@@ -85,6 +100,8 @@ function OpportunitiesPageContent() {
   const mayDelete = can('opportunities', 'DELETE');
   const mayViewAccounts = can('accounts', 'VIEW');
   const mayViewContacts = can('contacts', 'VIEW');
+  const mayViewMembers = can('users', 'VIEW');
+  const mayViewSources = can('lead_sources', 'VIEW');
 
   const [view, setView] = useState<ViewMode>('table');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -179,6 +196,42 @@ function OpportunitiesPageContent() {
       cancelled = true;
     };
   }, [mayViewContacts]);
+
+  const [members, setMembers] = useState<OrganizationMember[]>([]);
+  useEffect(() => {
+    if (!mayViewMembers) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await listMembers();
+        if (!cancelled) {
+          setMembers(result.data.filter((member) => member.status === 'ACTIVE'));
+        }
+      } catch {
+        // Non-fatal — owner picker stays empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mayViewMembers]);
+
+  const [sources, setSources] = useState<LeadSource[]>([]);
+  useEffect(() => {
+    if (!mayViewSources) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await listLeadSources({ page_size: 200, status: 'ACTIVE' });
+        if (!cancelled) setSources(result.data);
+      } catch {
+        // Non-fatal — the picker is simply empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mayViewSources]);
 
   const stageNames = useMemo(
     () => new Map(stages.map((stage) => [stage.id, stage.name])),
@@ -288,8 +341,13 @@ function OpportunitiesPageContent() {
       name: row.name,
       account_id: row.account_id,
       primary_contact_id: row.primary_contact_id ?? '',
+      owner_id: row.owner_id ?? '',
       deal_value: row.deal_value ?? '',
+      win_probability: row.win_probability,
       expected_close_date: row.expected_close_date ?? '',
+      forecast_category: row.forecast_category ?? '',
+      competitor: row.competitor ?? '',
+      products: row.products ?? '',
       notes: row.notes ?? '',
     });
     clearError();
@@ -310,8 +368,13 @@ function OpportunitiesPageContent() {
       name: form.name.trim(),
       account_id: form.account_id,
       primary_contact_id: form.primary_contact_id || null,
+      owner_id: form.owner_id || null,
       deal_value: form.deal_value || null,
+      win_probability: form.win_probability ?? null,
       expected_close_date: form.expected_close_date || null,
+      forecast_category: form.forecast_category || null,
+      competitor: form.competitor?.trim() || null,
+      products: form.products?.trim() || null,
       notes: form.notes?.trim() || null,
       // Only what the user actually touched. Sending the whole document would
       // be harmless but noisy; sending `{}` when they touched nothing would
@@ -320,9 +383,13 @@ function OpportunitiesPageContent() {
         ? { custom_fields: changedValues(customValues, editing?.custom_fields) }
         : {}),
     };
-    // `stage_id` is only meaningful at creation: a PATCH deliberately ignores
-    // it so a stage move cannot skip history recording.
-    if (!editing) body.stage_id = startingStageId;
+    // `stage_id` and `lead_source_id` are create-only: a PATCH to
+    // `OpportunityUpdate` does not accept either, so sending them on an edit
+    // would be silently dropped by the backend — kept out of the body there.
+    if (!editing) {
+      body.stage_id = startingStageId;
+      body.lead_source_id = form.lead_source_id || null;
+    }
 
     const saved = await run(() =>
       editing ? updateOpportunity(editing.id, body) : createOpportunity(body),
@@ -507,8 +574,8 @@ function OpportunitiesPageContent() {
     <div className="flex h-full flex-col space-y-6 p-6 lg:p-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3.5">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-sky-500 to-blue-600">
-            <Target className="h-5 w-5 text-white" />
+          <div className="surface-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]">
+            <Target className="h-5 w-5" style={{ color: 'var(--accent)' }} />
           </div>
           <div>
             <h1 className="font-display txt text-[22px] font-extrabold">Opportunities</h1>
@@ -706,7 +773,7 @@ function OpportunitiesPageContent() {
         />
       )}
 
-      <SlideDrawer
+      <Modal
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         title={editing ? 'Edit opportunity' : 'New opportunity'}
@@ -808,35 +875,104 @@ function OpportunitiesPageContent() {
             />
           </FormField>
           {!editing && (
-            <FormField label="Starting stage">
-              <FormSelect
-                value={startingStageId}
-                onChange={(event) => setForm({ ...form, stage_id: event.target.value })}
-                options={openStages.map((stage) => ({
-                  value: stage.id,
-                  label: stage.name,
-                }))}
+            <div className="grid grid-cols-2 gap-3">
+              <FormField label="Starting stage">
+                <FormSelect
+                  value={startingStageId}
+                  onChange={(event) => setForm({ ...form, stage_id: event.target.value })}
+                  options={openStages.map((stage) => ({
+                    value: stage.id,
+                    label: stage.name,
+                  }))}
+                />
+              </FormField>
+              <FormField
+                label="Lead source"
+                hint={!mayViewSources ? 'You do not have permission to browse sources.' : undefined}
+              >
+                <FormSelect
+                  value={form.lead_source_id ?? ''}
+                  onChange={(event) => setForm({ ...form, lead_source_id: event.target.value })}
+                  placeholder="No source"
+                  disabled={!mayViewSources}
+                  options={sources.map((source) => ({ value: source.id, label: source.name }))}
+                />
+              </FormField>
+            </div>
+          )}
+          <FormField
+            label="Owner"
+            hint={!mayViewMembers ? 'You do not have permission to browse members.' : undefined}
+          >
+            <FormSelect
+              value={form.owner_id ?? ''}
+              onChange={(event) => setForm({ ...form, owner_id: event.target.value })}
+              placeholder="Unassigned"
+              disabled={!mayViewMembers}
+              options={members.map((member) => ({
+                value: member.user_id,
+                label: member.full_name?.trim() || member.email,
+              }))}
+            />
+          </FormField>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Deal value">
+              <FormInput
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.deal_value ?? ''}
+                onChange={(event) => setForm({ ...form, deal_value: event.target.value })}
               />
             </FormField>
-          )}
-          <FormField label="Deal value">
-            <FormInput
-              type="number"
-              min="0"
-              step="0.01"
-              value={form.deal_value ?? ''}
-              onChange={(event) => setForm({ ...form, deal_value: event.target.value })}
-            />
-          </FormField>
-          <FormField label="Expected close">
-            <FormInput
-              type="date"
-              value={form.expected_close_date ?? ''}
-              onChange={(event) =>
-                setForm({ ...form, expected_close_date: event.target.value })
-              }
-            />
-          </FormField>
+            <FormField label="Probability (%)">
+              <FormInput
+                type="number"
+                min="0"
+                max="100"
+                value={form.win_probability ?? ''}
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    win_probability: event.target.value === '' ? null : Number(event.target.value),
+                  })
+                }
+              />
+            </FormField>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Expected close">
+              <FormInput
+                type="date"
+                value={form.expected_close_date ?? ''}
+                onChange={(event) =>
+                  setForm({ ...form, expected_close_date: event.target.value })
+                }
+              />
+            </FormField>
+            <FormField label="Forecast category">
+              <FormSelect
+                value={form.forecast_category ?? ''}
+                onChange={(event) => setForm({ ...form, forecast_category: event.target.value })}
+                placeholder="Not set"
+                options={FORECAST_CATEGORY_OPTIONS}
+              />
+            </FormField>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Competitor">
+              <FormInput
+                value={form.competitor ?? ''}
+                onChange={(event) => setForm({ ...form, competitor: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Products / services">
+              <FormInput
+                value={form.products ?? ''}
+                onChange={(event) => setForm({ ...form, products: event.target.value })}
+              />
+            </FormField>
+          </div>
           <FormField label="Notes">
             <FormTextarea
               value={form.notes ?? ''}
@@ -852,7 +988,7 @@ function OpportunitiesPageContent() {
             recordContext={{ ...editing, ...form }}
           />
         </div>
-      </SlideDrawer>
+      </Modal>
       {bulkStageOpen && (
         <BulkStageDrawer
           count={selectedIds.size}
@@ -918,10 +1054,11 @@ function BulkStageDrawer({
   }
 
   return (
-    <SlideDrawer
+    <Modal
       open
       onClose={onClose}
       title={`Move ${count} deals`}
+      maxWidth="max-w-md"
       footer={
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} className="btn-ghost px-4 py-2 text-[13px]">
@@ -957,7 +1094,7 @@ function BulkStageDrawer({
           </FormField>
         )}
       </div>
-    </SlideDrawer>
+    </Modal>
   );
 }
 

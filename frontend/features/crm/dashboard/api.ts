@@ -9,8 +9,25 @@
  */
 
 import { api } from '@/lib/api-client';
-import type { DashboardSummary } from '@/features/crm/dashboard/types';
+import type {
+  DashboardSummary,
+  HomeLayout,
+  RecentRecordEntry,
+} from '@/features/crm/dashboard/types';
 
 export function fetchDashboardSummary(): Promise<DashboardSummary> {
   return api.get<DashboardSummary>('/crm/dashboard/summary');
+}
+
+export function fetchRecentRecords(): Promise<RecentRecordEntry[]> {
+  return api.get<RecentRecordEntry[]>('/crm/dashboard/recent-records');
+}
+
+/** The fixed home dashboard's own layout preference — not `/boards/{id}/layout`. */
+export function fetchHomeDashboardLayout(): Promise<HomeLayout> {
+  return api.get<HomeLayout>('/crm/dashboard/layout');
+}
+
+export function saveHomeDashboardLayout(layout: HomeLayout): Promise<HomeLayout> {
+  return api.put<HomeLayout>('/crm/dashboard/layout', layout);
 }

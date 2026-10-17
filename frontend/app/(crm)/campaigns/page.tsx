@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Megaphone, Plus, Pencil, Trash2, Loader2, LayoutGrid, LayoutList } from 'lucide-react';
 
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
-import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
+import Modal from '@/components/crm/dialogs/Modal';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
@@ -20,6 +20,7 @@ import { changedValues, type CustomFieldValues } from '@/features/crm/custom-fie
 import { usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
 import { listLeadSources, type LeadSource } from '@/features/crm/lead-sources';
+import { listMembers, type OrganizationMember } from '@/features/admin/users';
 import {
   CAMPAIGN_STATUSES,
   CAMPAIGN_TYPES,
@@ -65,6 +66,7 @@ const EMPTY_FORM: CampaignInput = {
   name: '',
   type: 'EMAIL',
   status: 'PLANNING',
+  owner_id: '',
   start_date: '',
   end_date: '',
   budget: '',
@@ -98,6 +100,7 @@ export default function CampaignsPage() {
   const mayEdit = can('campaigns', 'EDIT');
   const mayDelete = can('campaigns', 'DELETE');
   const mayViewSources = can('lead_sources', 'VIEW');
+  const mayViewMembers = can('users', 'VIEW');
 
   const [view, setView] = useState<ViewMode>('cards');
   const [search, setSearch] = useState('');
@@ -148,6 +151,25 @@ export default function CampaignsPage() {
     [sources],
   );
 
+  const [members, setMembers] = useState<OrganizationMember[]>([]);
+  useEffect(() => {
+    if (!mayViewMembers) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await listMembers();
+        if (!cancelled) {
+          setMembers(result.data.filter((member) => member.status === 'ACTIVE'));
+        }
+      } catch {
+        // Non-fatal — owner picker stays empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mayViewMembers]);
+
   /* ---- Drawer ---- */
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Custom values are held apart from `form` because they are keyed by tenant
@@ -173,6 +195,7 @@ export default function CampaignsPage() {
       name: row.name,
       type: row.type,
       status: row.status,
+      owner_id: row.owner_id ?? '',
       start_date: row.start_date ?? '',
       end_date: row.end_date ?? '',
       budget: row.budget ?? '',
@@ -194,6 +217,7 @@ export default function CampaignsPage() {
       name: form.name.trim(),
       type: form.type,
       status: form.status,
+      owner_id: form.owner_id || null,
       start_date: form.start_date || null,
       end_date: form.end_date || null,
       budget: form.budget || null,
@@ -327,8 +351,8 @@ export default function CampaignsPage() {
     <div className="flex h-full flex-col space-y-6 p-6 lg:p-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3.5">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-fuchsia-500 to-purple-600">
-            <Megaphone className="h-5 w-5 text-white" />
+          <div className="surface-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]">
+            <Megaphone className="h-5 w-5" style={{ color: 'var(--accent)' }} />
           </div>
           <div>
             <h1 className="font-display txt text-[22px] font-extrabold">Campaigns</h1>
@@ -495,7 +519,7 @@ export default function CampaignsPage() {
         </div>
       )}
 
-      <SlideDrawer
+      <Modal
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         title={editing ? 'Edit campaign' : 'New campaign'}
@@ -551,6 +575,22 @@ export default function CampaignsPage() {
               />
             </FormField>
           </div>
+
+          <FormField
+            label="Owner"
+            hint={!mayViewMembers ? 'You do not have permission to browse members.' : undefined}
+          >
+            <FormSelect
+              value={form.owner_id ?? ''}
+              onChange={(event) => setForm({ ...form, owner_id: event.target.value })}
+              placeholder="Unassigned"
+              disabled={!mayViewMembers}
+              options={members.map((member) => ({
+                value: member.user_id,
+                label: member.full_name?.trim() || member.email,
+              }))}
+            />
+          </FormField>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <FormField label="Starts">
@@ -635,7 +675,7 @@ export default function CampaignsPage() {
             onChange={setCustomValues}
           />
         </div>
-      </SlideDrawer>
+      </Modal>
     </div>
   );
 }

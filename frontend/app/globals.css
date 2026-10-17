@@ -8,24 +8,24 @@
    Change the values below and the whole UI follows.
    ============================================================ */
 :root {
-  --bg: #f4f4f7;          /* page background */
+  --bg: #f4f5f7;          /* page background */
   --surface: #ffffff;     /* cards, header */
-  --surface-2: #f8f8fb;   /* inputs, secondary surfaces */
-  --border: #e7e7ef;
-  --text: #15131f;
-  --muted: #6b6880;       /* secondary text */
-  --faint: #9a97ad;       /* tertiary text, placeholders */
-  --accent: #6d28d9;      /* brand colour — buttons, active states */
-  --accent-2: #9333ea;    /* brand gradient partner */
-  --accent-soft: #f0ecff; /* selected-card background */
+  --surface-2: #f7f8fa;   /* inputs, secondary surfaces */
+  --border: #e1e4e9;
+  --text: #182230;
+  --muted: #5b6676;       /* secondary text */
+  --faint: #8b95a5;       /* tertiary text, placeholders */
+  --accent: #4f39c9;      /* brand colour — buttons, active states */
+  --accent-2: #6d5ce0;    /* brand gradient partner */
+  --accent-soft: #ece9fb; /* selected-card background */
 
   /* Frosted overlay surface — tooltips and floating panels */
   --glass: rgba(255, 255, 255, 0.72);
   --glass-bd: rgba(255, 255, 255, 0.6);
 
   /* Elevation for raised cards and their hover state */
-  --shadow-card: 0 18px 40px -22px rgba(50, 30, 90, 0.28);
-  --shadow-lift: 0 24px 44px -24px rgba(50, 30, 90, 0.4);
+  --shadow-card: 0 18px 40px -22px rgba(30, 35, 90, 0.28);
+  --shadow-lift: 0 24px 44px -24px rgba(30, 35, 90, 0.4);
 
   /* Back-compat aliases used by tailwind.config.ts */
   --background: var(--bg);
@@ -37,16 +37,16 @@
 }
 
 .dark {
-  --bg: #0c0c12;
-  --surface: #15151e;
-  --surface-2: #1b1b26;
-  --border: #272733;
-  --text: #ececf2;
-  --muted: #a4a2b5;
-  --faint: #6d6b80;
-  --accent: #a78bfa;
-  --accent-2: #c084fc;
-  --accent-soft: #221b3a;
+  --bg: #0b0f16;
+  --surface: #131a24;
+  --surface-2: #19212c;
+  --border: #2a3441;
+  --text: #e7eaef;
+  --muted: #9ca6b4;
+  --faint: #677282;
+  --accent: #8b7ae8;
+  --accent-2: #6657c9;
+  --accent-soft: #211c3f;
 
   --glass: rgba(30, 28, 46, 0.6);
   --glass-bd: rgba(255, 255, 255, 0.07);
@@ -62,11 +62,11 @@
    resolves the dark-theme text/border tokens regardless of the active theme.
    The accent stays untouched so the purple highlight is identical. */
 .crm-sidebar {
-  --text: #ececf2;
-  --muted: #a4a2b5;
-  --faint: #6d6b80;
-  --border: #272733;
-  --surface-2: #1b1b26;
+  --text: #e7eaef;
+  --muted: #9ca6b4;
+  --faint: #677282;
+  --border: #2a3441;
+  --surface-2: #19212c;
 }
 
 body {
@@ -103,11 +103,11 @@ body {
 
 /* Dark mode: make inputs noticeably lighter than the card so empty ≠ filled */
 .dark .ctl {
-  background: #252537;
-  border-color: #3e3e58;
+  background: #232c3a;
+  border-color: #38414f;
 }
 .dark .ctl::placeholder {
-  color: #55556e;
+  color: #5c6878;
 }
 
 /* Status badges.

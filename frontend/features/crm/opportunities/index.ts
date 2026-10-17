@@ -65,9 +65,12 @@ export interface OpportunityInput {
   owner_id?: string | null;
   deal_value?: string | null;
   currency?: string;
+  win_probability?: number | null;
   expected_close_date?: string | null;
   forecast_category?: string | null;
   competitor?: string | null;
+  /** Create-only: the backend's `OpportunityUpdate` does not accept this field. */
+  lead_source_id?: string | null;
   products?: string | null;
   notes?: string | null;
   /**

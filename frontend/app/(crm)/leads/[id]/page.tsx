@@ -14,7 +14,7 @@ import { ActivityTimelinePanel, NotesPanel } from '@/components/crm/shared/Recor
 import AiRecordPanel from '@/components/crm/ai/AiRecordPanel';
 import EmailsPanel from '@/components/crm/emails/EmailsPanel';
 import { useRecord } from '@/components/crm/shared/useRecord';
-import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
+import Modal from '@/components/crm/dialogs/Modal';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect } from '@/components/crm/forms/FormField';
@@ -481,8 +481,8 @@ export default function LeadDetailPage() {
       </button>
 
       <div className="flex flex-wrap items-center gap-3.5">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-emerald-500 to-green-600">
-          <Users className="h-5 w-5 text-white" />
+        <div className="surface-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]">
+          <Users className="h-5 w-5" style={{ color: 'var(--accent)' }} />
         </div>
         <div>
           <h1 className="font-display txt text-[22px] font-extrabold">
@@ -666,7 +666,7 @@ export default function LeadDetailPage() {
         <AttachmentsPanel entityType="LEAD" entityId={lead.id} />
       </div>
 
-      <SlideDrawer
+      <Modal
         open={convertOpen}
         onClose={() => setConvertOpen(false)}
         title="Convert Lead"
@@ -880,7 +880,7 @@ export default function LeadDetailPage() {
 
           <FormError message={convertError} />
         </div>
-      </SlideDrawer>
+      </Modal>
     </div>
   );
 }

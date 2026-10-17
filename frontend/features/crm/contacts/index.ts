@@ -32,6 +32,7 @@ export interface Contact extends RecordMeta {
   job_title: string | null;
   department: string | null;
   owner_id: string | null;
+  reporting_manager_id: string | null;
   status: ContactStatus;
   ai_score: number | null;
   preferred_communication: string | null;
@@ -60,7 +61,9 @@ export interface ContactInput {
   job_title?: string | null;
   department?: string | null;
   owner_id?: string | null;
+  reporting_manager_id?: string | null;
   status?: ContactStatus;
+  preferred_communication?: string | null;
   linkedin_url?: string | null;
   notes?: string | null;
   address_line1?: string | null;

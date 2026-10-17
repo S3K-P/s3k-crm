@@ -53,6 +53,7 @@ export interface MeetingInput {
   subject: string;
   description?: string | null;
   status?: ActivityStatus;
+  owner_id?: string | null;
   related_entity_type?: CrmEntityType | null;
   related_entity_id?: string | null;
   meeting: Partial<MeetingDetail> & { start_time: string };

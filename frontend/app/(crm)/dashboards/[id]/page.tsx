@@ -35,7 +35,7 @@ import {
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
-import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
+import Modal from '@/components/crm/dialogs/Modal';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { ListEmpty, ListError } from '@/components/crm/shared/ListStates';
 import {
@@ -299,8 +299,8 @@ export default function DashboardDetailPage() {
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3.5">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-violet-500 to-indigo-600">
-            <LayoutGrid className="h-5 w-5 text-white" />
+          <div className="surface-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]">
+            <LayoutGrid className="h-5 w-5" style={{ color: 'var(--accent)' }} />
           </div>
           <div className="min-w-0">
             <h1 className="font-display txt truncate text-[22px] font-extrabold leading-tight tracking-tight">
@@ -399,11 +399,12 @@ export default function DashboardDetailPage() {
         </p>
       )}
 
-      <SlideDrawer
+      <Modal
         open={addOpen}
         onClose={() => setAddOpen(false)}
         title="Add a tile"
         subtitle="Tiles are built from saved reports."
+        maxWidth="max-w-md"
         footer={
           <div className="flex justify-end gap-2">
             <button
@@ -499,7 +500,7 @@ export default function DashboardDetailPage() {
             </>
           )}
         </div>
-      </SlideDrawer>
+      </Modal>
     </div>
   );
 }

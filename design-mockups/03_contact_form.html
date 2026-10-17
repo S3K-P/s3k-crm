@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>S3K CRM — Create / Edit Contact</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared/tokens.css">
+<link rel="stylesheet" href="shared/shell.css">
+<style>
+  /* ---- Demo-only comparison toggle (not part of the real product UI) ---- */
+  .demo-bar {
+    display: flex; align-items: center; gap: 12px; padding: 9px 20px; background: #1a2230; color: #d7dde6;
+    font-size: 12px; position: sticky; top: 0; z-index: 90;
+  }
+  .demo-bar b { color: #fff; }
+  .demo-toggle-group { display: inline-flex; background: rgba(255,255,255,.08); border-radius: var(--radius-full); padding: 3px; margin-left: auto; gap: 2px; }
+  .demo-toggle { padding: 6px 14px; font-size: 11.5px; font-weight: 700; border-radius: var(--radius-full); border: none; background: none; color: #aab4c2; cursor: pointer; }
+  .demo-toggle.is-active { background: var(--accent); color: #fff; }
+
+  /* ---- Section (collapsible) ---- */
+  .form-section { border: 1px solid var(--border); border-radius: var(--radius-lg); margin-bottom: 14px; overflow: hidden; }
+  .form-section-head { display: flex; align-items: center; gap: 9px; padding: 12px 15px; background: var(--surface-2); cursor: pointer; user-select: none; }
+  .form-section-head svg.chev { width: 15px; height: 15px; margin-left: auto; transition: transform .15s ease; color: var(--faint); }
+  .form-section.is-collapsed .chev { transform: rotate(-90deg); }
+  .form-section-head .title { font-size: 12.5px; font-weight: 700; }
+  .form-section-body { padding: 16px 16px 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; }
+  .form-section.is-collapsed .form-section-body { display: none; }
+  .form-span-2 { grid-column: 1 / -1; }
+  @media (max-width: 560px) { .form-section-body { grid-template-columns: 1fr; } }
+
+  /* ---- Duplicate banner ---- */
+  .dup-banner {
+    display: none; align-items: flex-start; gap: 10px; background: var(--warning-soft); color: var(--warning);
+    border: 1px solid var(--warning); border-radius: var(--radius-md); padding: 11px 13px; margin-bottom: 14px; font-size: 12.5px;
+  }
+  .dup-banner.is-visible { display: flex; }
+  .dup-banner svg { width: 17px; height: 17px; flex-shrink: 0; margin-top: 1px; }
+  .dup-banner a { font-weight: 700; text-decoration: underline; cursor: pointer; color: inherit; }
+
+  /* ---- Error summary ---- */
+  .error-summary {
+    display: none; background: var(--danger-soft); border: 1px solid var(--danger); color: var(--danger);
+    border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 14px; font-size: 12.5px;
+  }
+  .error-summary.is-visible { display: block; }
+  .error-summary ul { margin: 6px 0 0; padding-left: 18px; }
+  .error-summary a { color: inherit; text-decoration: underline; cursor: pointer; }
+
+  /* ---- Lookup dropdown ---- */
+  .lookup-wrap { position: relative; }
+  .lookup-dropdown { display: none; position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); z-index: var(--z-dropdown); padding: 6px; max-height: 220px; overflow-y: auto; }
+  .lookup-dropdown.is-open { display: block; }
+  .lookup-item { display: flex; align-items: center; gap: 9px; padding: 8px 9px; border-radius: 9px; cursor: pointer; }
+  .lookup-item:hover { background: var(--surface-2); }
+
+  /* ---- Owner field ---- */
+  .owner-row { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
+
+  /* ---- Coachmark ---- */
+  .coachmark {
+    position: absolute; width: 230px; background: #1a2230; color: #fff; border-radius: var(--radius-lg);
+    padding: 14px; box-shadow: var(--shadow-xl); z-index: var(--z-coachmark); font-size: 12px;
+  }
+  .coachmark::after { content: ""; position: absolute; left: -7px; top: 26px; width: 14px; height: 14px; background: #1a2230; transform: rotate(45deg); }
+  .coachmark h5 { margin: 0 0 5px; font-size: 12.5px; font-weight: 700; }
+  .coachmark p { margin: 0 0 10px; color: #aab4c2; line-height: 1.5; }
+
+  /* ---- Full page layout ---- */
+  .fullpage-wrap { max-width: 920px; margin: 0 auto; padding: 24px 24px 100px; }
+  .fullpage-footer {
+    position: sticky; bottom: 0; background: var(--surface); border-top: 1px solid var(--border);
+    padding: 14px 24px; display: flex; justify-content: flex-end; gap: 10px; margin: 0 -24px -100px;
+  }
+
+  /* View switching */
+  #view-modal, #view-fullpage { display: none; }
+  [data-active-view="modal"] #view-modal { display: block; }
+  [data-active-view="fullpage"] #view-fullpage { display: block; }
+
+  .bg-context { filter: blur(2.5px) saturate(0.85); pointer-events: none; user-select: none; opacity: .75; }
+
+  @media (max-width: 900px) {
+    .coachmark { display: none; }
+  }
+  @media (max-width: 640px) {
+    .demo-bar { flex-wrap: wrap; row-gap: 8px; }
+    .demo-bar > span { display: none; }
+    .demo-toggle-group { margin-left: 0; }
+    .modal-backdrop { padding: 0; align-items: stretch; }
+    .modal { max-width: 100% !important; width: 100%; height: 100%; max-height: 100%; border-radius: 0; }
+    .fullpage-wrap { padding: 18px 14px 100px; }
+    .fullpage-footer { padding: 12px 14px; margin: 0 -14px -100px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="demo-bar">
+  <span>Mockup comparison —</span><b id="demo-label">Modal view</b>
+  <div class="demo-toggle-group">
+    <button class="demo-toggle is-active" data-set-view="modal">Modal view</button>
+    <button class="demo-toggle" data-set-view="fullpage">Full-page view</button>
+  </div>
+</div>
+
+<div class="app-shell" id="app-shell" data-shell data-active-view="modal">
+  <div class="app-main-col">
+    <main class="app-content" id="page-content">
+
+      <!-- ======================================================
+           VIEW: MODAL (centered over the Contacts list)
+           ====================================================== -->
+      <div id="view-modal">
+        <div class="bg-context" style="padding:20px 24px;">
+          <div class="page-head" style="margin-bottom:14px;">
+            <div class="page-head-left">
+              <div class="page-icon-tile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><circle cx="12" cy="12" r="3"/></svg></div>
+              <div><h1 class="page-title">Contacts</h1><p class="page-subtitle">128 items · Sorted by Last Activity · Filtered by Status: Active</p></div>
+            </div>
+          </div>
+          <div class="contacts-table-wrap" style="margin:0;">
+            <table class="table">
+              <thead><tr><th>Full Name</th><th>Company</th><th>City</th><th>Owner</th><th>Status</th></tr></thead>
+              <tbody>
+                <tr><td style="font-weight:600;">Ananya Iyer</td><td>Zenith Software Solutions</td><td>Bengaluru</td><td>Rohan Mehta</td><td><span class="badge badge-success"><span class="badge-dot"></span>Active</span></td></tr>
+                <tr><td style="font-weight:600;">Kabir Singh</td><td>Himalaya Dairy Pvt Ltd</td><td>Pune</td><td>Priya Nair</td><td><span class="badge badge-success"><span class="badge-dot"></span>Active</span></td></tr>
+                <tr><td style="font-weight:600;">Priya Nair</td><td>Konkan Logistics</td><td>Kochi</td><td>Rohan Mehta</td><td><span class="badge badge-success"><span class="badge-dot"></span>Active</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="modal-backdrop is-open" style="position:fixed;">
+          <div class="modal contact-form-root" style="max-width:680px;" data-form-role="owner-demo">
+            <div class="modal-header">
+              <div>
+                <div style="font-weight:700;font-size:15.5px;">New Contact</div>
+                <div style="font-size:11.5px;color:var(--faint);margin-top:1px;">Create a new contact record</div>
+              </div>
+              <button class="btn btn-ghost btn-icon" onclick="document.querySelector('#view-modal .modal-backdrop').classList.remove('is-open')" aria-label="Close (Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+            </div>
+            <div class="modal-body">
+              <div class="form-sections-mount"></div>
+            </div>
+            <div class="modal-footer">
+              <label class="check-row" style="margin-right:auto;font-size:11.5px;color:var(--faint);font-weight:500;" title="Demo only">
+                <button class="toggle" role="switch" aria-checked="false" data-on-toggle="simulateDup" style="transform:scale(.8);"></button>
+                Simulate duplicate match
+              </label>
+              <button class="btn btn-secondary" onclick="document.querySelector('#view-modal .modal-backdrop').classList.remove('is-open')">Cancel</button>
+              <button class="btn btn-secondary js-save-new">Save &amp; New</button>
+              <button class="btn btn-primary js-save">Save</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Guided coachmark -->
+        <div class="coachmark" id="coachmark" style="top:14%;right:calc(50% - 420px);">
+          <h5>👋 New here?</h5>
+          <p>Required fields are marked with a red asterisk. The Account field searches your existing companies as you type.</p>
+          <button class="btn btn-secondary btn-sm" style="width:100%;justify-content:center;" onclick="document.getElementById('coachmark').style.display='none'">Got it</button>
+        </div>
+      </div>
+
+      <!-- ======================================================
+           VIEW: FULL PAGE
+           ====================================================== -->
+      <div id="view-fullpage">
+        <div class="fullpage-wrap">
+          <button class="txt-muted" style="background:none;border:none;display:flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;cursor:pointer;padding:0;margin-bottom:14px;" onclick="S3K.setView('modal')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;"><path d="m15 18-6-6 6-6"/></svg>
+            Back to Contacts
+          </button>
+          <h1 class="page-title" style="margin-bottom:2px;">New Contact</h1>
+          <p class="page-subtitle" style="margin-bottom:18px;">Create a new contact record — full page layout</p>
+
+          <div class="contact-form-root" data-form-role="owner-demo">
+            <div class="form-sections-mount"></div>
+          </div>
+        </div>
+        <div class="fullpage-footer">
+          <button class="btn btn-secondary" onclick="S3K.setView('modal')">Cancel</button>
+          <button class="btn btn-secondary js-save-new">Save &amp; New</button>
+          <button class="btn btn-primary js-save">Save</button>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<script src="shared/app.js"></script>
+<script src="shared/shell.js"></script>
+<script src="shared/contacts-data.js"></script>
+<script>
+  S3K.mountShell({ active: 'contacts', breadcrumb: ['S3K CRM', 'Contacts', 'New Contact'], quickCreate: false });
+
+  /* ============================================================
+     Build the form sections once, inject into both the modal
+     and full-page mounts so the two layouts never drift apart.
+     ============================================================ */
+  var INDIAN_STATES = ['Andhra Pradesh','Bihar','Delhi','Goa','Gujarat','Haryana','Karnataka','Kerala','Madhya Pradesh','Maharashtra','Punjab','Rajasthan','Tamil Nadu','Telangana','Uttar Pradesh','West Bengal'];
+  var ACCOUNTS = ['Zenith Software Solutions', 'Himalaya Dairy Pvt Ltd', 'Konkan Logistics', 'Bharat Textiles Pvt Ltd', 'Shree Enterprises'];
+
+  function sectionHtml(id, title, bodyHtml, startCollapsed) {
+    return '' +
+      '<div class="form-section' + (startCollapsed ? ' is-collapsed' : '') + '">' +
+        '<div class="form-section-head" data-toggle-section>' +
+          '<span class="title">' + title + '</span>' +
+          '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>' +
+        '</div>' +
+        '<div class="form-section-body">' + bodyHtml + '</div>' +
+      '</div>';
+  }
+
+  function field(label, required, inputHtml, span2, hint) {
+    return '' +
+      '<div' + (span2 ? ' class="form-span-2"' : '') + '>' +
+        '<label class="field-label">' + label + (required ? ' <span class="req">*</span>' : '') + '</label>' +
+        inputHtml +
+        (hint ? '<div class="field-hint">' + hint + '</div>' : '') +
+      '</div>';
+  }
+
+  var formHtml =
+    '<div class="dup-banner" data-dup-banner>' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>' +
+      '<div><b>Possible duplicate.</b> A contact with this email already exists — <a data-dup-view>View existing</a> or <a data-dup-dismiss>Continue anyway</a>.</div>' +
+    '</div>' +
+    '<div class="error-summary" data-error-summary>' +
+      '<b>We couldn\'t save this contact.</b> Please fix the following:' +
+      '<ul data-error-list></ul>' +
+    '</div>' +
+
+    sectionHtml('basic', 'Basic Info', [
+      field('First Name', true, '<input class="input" data-field="firstName" placeholder="e.g. Rohan">'),
+      field('Last Name', true, '<input class="input" data-field="lastName" placeholder="e.g. Mehta">'),
+      field('Status', false, '<select class="input" data-field="status"><option>Active</option><option>Inactive</option></select>'),
+      field('Job Title', false, '<input class="input" data-field="jobTitle" placeholder="e.g. VP Engineering">'),
+      field('Department', false, '<input class="input" data-field="department" placeholder="e.g. Technology">', true),
+    ].join('')) +
+
+    sectionHtml('contact', 'Get in Touch', [
+      field('Email', true, '<input class="input" type="email" data-field="email" placeholder="name@company.com" data-dup-trigger>', true),
+      field('Phone', false,
+        '<div class="input-group"><span class="input-group-prefix">🇮🇳 +91</span><input class="input" type="tel" data-field="phone" placeholder="98765 43210"></div>'),
+      field('Mobile', false,
+        '<div class="input-group"><span class="input-group-prefix">🇮🇳 +91</span><input class="input" type="tel" data-field="mobile" placeholder="98765 43210"></div>'),
+      field('WhatsApp Number <span class="badge badge-proposed">Proposed</span>', false,
+        '<div class="input-group"><span class="input-group-prefix">🇮🇳 +91</span><input class="input" type="tel" data-field="whatsapp" placeholder="Same as mobile"></div>'),
+      field('Preferred Communication', false, '<select class="input" data-field="preferredCommunication"><option>Email</option><option>Phone</option><option>Meeting</option></select>'),
+      field('LinkedIn URL', false, '<input class="input" data-field="linkedInUrl" placeholder="linkedin.com/in/username">', true),
+    ].join('')) +
+
+    sectionHtml('address', 'Address', [
+      field('Country', false, '<select class="input" data-field="country"><option>India</option><option>United States</option><option>United Kingdom</option><option>United Arab Emirates</option></select>'),
+      field('State', false, '<select class="input" data-field="state">' + INDIAN_STATES.map(function(s){return '<option>'+s+'</option>';}).join('') + '</select>'),
+      field('City', false, '<input class="input" data-field="city" placeholder="e.g. Mumbai">'),
+      field('PIN Code', false, '<input class="input" data-field="postalCode" maxlength="6" inputmode="numeric" placeholder="400001">', false, '6 digits'),
+      field('Street Address', false, '<textarea class="input" rows="2" data-field="addressLine1" placeholder="Building, street, area"></textarea>', true),
+    ].join('')) +
+
+    sectionHtml('professional', 'Professional Info', [
+      field('Account', false,
+        '<div class="lookup-wrap">' +
+          '<div class="input-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input class="input" data-field="account" data-lookup placeholder="Search companies…" autocomplete="off"></div>' +
+          '<div class="lookup-dropdown" data-lookup-dropdown></div>' +
+        '</div>', true, 'Can\'t find it? Type a new company name and choose "Create new".'),
+      field('Contact Owner', false, '<div data-owner-field></div>'),
+      field('Reporting Manager', false, '<input class="input" data-field="reportingManager" placeholder="e.g. Ananya Iyer">'),
+    ].join('')) +
+
+    sectionHtml('additional', 'Additional / Custom Fields', [
+      field('Tags <span class="badge badge-proposed">Proposed</span>', false,
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">' +
+          '<span class="badge badge-neutral">Decision Maker ✕</span><span class="badge badge-neutral">Enterprise ✕</span>' +
+          '<button class="btn btn-ghost btn-sm" style="padding:3px 9px;">+ Add tag</button>' +
+        '</div>', true),
+      field('GSTIN <span class="badge badge-proposed">Proposed</span>', false,
+        '<input class="input" data-field="gstin" placeholder="22AAAAA0000A1Z5">', false, 'Custom field via CRMCustomField — not a real column on Contact today.'),
+    ].join(''), true) +
+
+    sectionHtml('description', 'Description', [
+      field('Notes', false, '<textarea class="input" rows="3" data-field="notes" placeholder="Add context for your team…"></textarea>', true),
+    ].join(''), true);
+
+  document.querySelectorAll('.form-sections-mount').forEach(function (mount) { mount.innerHTML = formHtml; });
+
+  /* ---- Section collapse ---- */
+  document.querySelectorAll('[data-toggle-section]').forEach(function (head) {
+    head.addEventListener('click', function () { head.closest('.form-section').classList.toggle('is-collapsed'); });
+  });
+
+  /* ---- Owner field: read-only for Sales Rep, editable select for Admin/Sales Manager ---- */
+  var currentRole = 'Sales Rep';
+  function renderOwnerFields() {
+    document.querySelectorAll('[data-owner-field]').forEach(function (el) {
+      if (currentRole === 'Sales Rep') {
+        el.innerHTML = '<div class="owner-row"><div class="avatar avatar-xs">RM</div><span style="font-size:12.5px;font-weight:600;flex:1;">Rohan Mehta (you)</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;color:var(--faint);"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div><div class="field-hint">Only Admins and Sales Managers can reassign the owner.</div>';
+      } else {
+        el.innerHTML = '<select class="input" data-field="owner"><option>Rohan Mehta (you)</option><option>Priya Nair</option><option>Meera Pillai</option></select>';
+      }
+    });
+  }
+  renderOwnerFields();
+
+  /* ---- Role switcher (demo-only, shown in the demo bar) ---- */
+  var roleSelect = document.createElement('select');
+  roleSelect.className = 'input';
+  roleSelect.style.cssText = 'width:auto;padding:5px 10px;font-size:11px;background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.2);color:#fff;';
+  ['Sales Rep', 'Admin', 'Sales Manager'].forEach(function (r) {
+    var o = document.createElement('option'); o.textContent = 'View as: ' + r; o.value = r; roleSelect.appendChild(o);
+  });
+  roleSelect.addEventListener('change', function () { currentRole = this.value; renderOwnerFields(); });
+  document.querySelector('.demo-bar').insertBefore(roleSelect, document.querySelector('.demo-toggle-group'));
+
+  /* ---- Account lookup ---- */
+  document.addEventListener('input', function (e) {
+    if (!e.target.matches('[data-lookup]')) return;
+    var wrap = e.target.closest('.lookup-wrap');
+    var dd = wrap.querySelector('[data-lookup-dropdown]');
+    var q = e.target.value.trim().toLowerCase();
+    var matches = ACCOUNTS.filter(function (a) { return a.toLowerCase().indexOf(q) > -1; });
+    var html = matches.map(function (a) {
+      return '<div class="lookup-item" data-pick="' + a.replace(/"/g, '&quot;') + '"><div class="avatar avatar-xs" style="background:var(--surface-3);color:var(--muted);border-radius:6px;">' + a.split(' ').map(function(w){return w[0];}).slice(0,2).join('') + '</div><span style="font-size:12.5px;">' + a + '</span></div>';
+    }).join('');
+    if (q) html += '<div class="lookup-item" data-create-company style="color:var(--accent);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><path d="M5 12h14M12 5v14"/></svg><span style="font-size:12.5px;font-weight:600;">Create new company "' + e.target.value + '"</span></div>';
+    dd.innerHTML = html;
+    dd.classList.toggle('is-open', true);
+  });
+  document.addEventListener('focusin', function (e) {
+    if (e.target.matches('[data-lookup]')) e.target.dispatchEvent(new Event('input'));
+  });
+  document.addEventListener('click', function (e) {
+    var pick = e.target.closest('[data-pick]');
+    var create = e.target.closest('[data-create-company]');
+    if (pick) {
+      var wrap = pick.closest('.lookup-wrap');
+      wrap.querySelector('[data-lookup]').value = pick.getAttribute('data-pick');
+      wrap.querySelector('[data-lookup-dropdown]').classList.remove('is-open');
+    } else if (create) {
+      var wrap2 = create.closest('.lookup-wrap');
+      var val = wrap2.querySelector('[data-lookup]').value;
+      wrap2.querySelector('[data-lookup-dropdown]').classList.remove('is-open');
+      S3K.toast('Company "' + val + '" created', 'success');
+    } else if (!e.target.closest('.lookup-wrap')) {
+      document.querySelectorAll('.lookup-dropdown.is-open').forEach(function (d) { d.classList.remove('is-open'); });
+    }
+  });
+
+  /* ---- Duplicate detection ---- */
+  function showDup(root) { var b = root.querySelector('[data-dup-banner]'); if (b) b.classList.add('is-visible'); }
+  function hideDup(root) { var b = root.querySelector('[data-dup-banner]'); if (b) b.classList.remove('is-visible'); }
+  document.addEventListener('blur', function (e) {
+    if (!e.target.matches('[data-dup-trigger]')) return;
+    var root = e.target.closest('.contact-form-root');
+    var val = e.target.value.trim().toLowerCase();
+    var match = S3K_CONTACTS.some(function (c) { return c.email.toLowerCase() === val; });
+    if (match) showDup(root); else hideDup(root);
+  }, true);
+  document.addEventListener('click', function (e) {
+    if (e.target.closest('[data-dup-dismiss]')) hideDup(e.target.closest('.contact-form-root'));
+    if (e.target.closest('[data-dup-view]')) window.location.href = '04_contact_detail.html';
+  });
+  window.S3K.toggleHandlers = window.S3K.toggleHandlers || {};
+  window.S3K.toggleHandlers.simulateDup = function (on) {
+    var root = document.querySelector('#view-modal .contact-form-root');
+    if (on) showDup(root); else hideDup(root);
+  };
+
+  /* ---- Validation + Save ---- */
+  function validate(root) {
+    var errors = [];
+    root.querySelectorAll('[data-field]').forEach(function (f) { f.classList.remove('has-error'); });
+    var first = root.querySelector('[data-field="firstName"]');
+    var last = root.querySelector('[data-field="lastName"]');
+    var email = root.querySelector('[data-field="email"]');
+    if (!first.value.trim()) { errors.push({ field: first, label: 'First Name is required' }); }
+    if (!last.value.trim()) { errors.push({ field: last, label: 'Last Name is required' }); }
+    if (!email.value.trim()) { errors.push({ field: email, label: 'Email is required' }); }
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim())) { errors.push({ field: email, label: 'Email format looks invalid' }); }
+    return errors;
+  }
+  function trySave(root, andNew) {
+    var errors = validate(root);
+    var summary = root.querySelector('[data-error-summary]');
+    var list = root.querySelector('[data-error-list]');
+    if (errors.length) {
+      list.innerHTML = errors.map(function (e) { return '<li><a data-jump>' + e.label + '</a></li>'; }).join('');
+      Array.from(list.querySelectorAll('[data-jump]')).forEach(function (a, i) {
+        a.addEventListener('click', function () { errors[i].field.focus(); errors[i].field.scrollIntoView({ behavior: 'smooth', block: 'center' }); });
+      });
+      errors.forEach(function (e) { e.field.classList.add('has-error'); });
+      summary.classList.add('is-visible');
+      summary.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+    summary.classList.remove('is-visible');
+    S3K.toast(andNew ? 'Contact saved — ready for the next one' : 'Contact saved successfully');
+    if (andNew) {
+      root.querySelectorAll('[data-field]').forEach(function (f) { if (f.tagName !== 'SELECT') f.value = ''; });
+      root.querySelector('[data-field="firstName"]').focus();
+    } else if (root.closest('#view-modal')) {
+      document.querySelector('#view-modal .modal-backdrop').classList.remove('is-open');
+    }
+  }
+  function activeRoot() {
+    var view = document.getElementById('app-shell').getAttribute('data-active-view');
+    return document.querySelector((view === 'modal' ? '#view-modal' : '#view-fullpage') + ' .contact-form-root');
+  }
+  document.querySelectorAll('.js-save').forEach(function (b) { b.onclick = function () { trySave(b.closest('.contact-form-root') || activeRoot(), false); }; });
+  document.querySelectorAll('.js-save-new').forEach(function (b) { b.onclick = function () { trySave(b.closest('.contact-form-root') || activeRoot(), true); }; });
+
+  /* ---- Ctrl/Cmd+S saves the active view ---- */
+  document.addEventListener('keydown', function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      trySave(activeRoot(), false);
+    }
+  });
+
+  /* ---- Modal/full-page view switch ---- */
+  S3K.setView = function (view) {
+    document.getElementById('app-shell').setAttribute('data-active-view', view);
+    document.querySelectorAll('.demo-toggle').forEach(function (b) { b.classList.toggle('is-active', b.getAttribute('data-set-view') === view); });
+    document.getElementById('demo-label').textContent = view === 'modal' ? 'Modal view' : 'Full-page view';
+    if (view === 'modal') document.querySelector('#view-modal .modal-backdrop').classList.add('is-open');
+  };
+  document.querySelectorAll('[data-set-view]').forEach(function (b) {
+    b.addEventListener('click', function () { S3K.setView(b.getAttribute('data-set-view')); });
+  });
+</script>
+</body>
+</html>

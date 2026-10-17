@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>S3K CRM — Design Mockups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared/tokens.css">
+<style>
+  .gal-head {
+    padding: 48px 24px 36px; text-align: center; position: relative; overflow: hidden;
+    background: radial-gradient(circle at 30% 20%, var(--accent-soft), transparent 60%);
+  }
+  .gal-mark {
+    width: 52px; height: 52px; border-radius: 16px; background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display: flex; align-items: center; justify-content: center; color: #fff; font-family: var(--font-display);
+    font-weight: 800; font-size: 17px; margin: 0 auto 16px;
+  }
+  .gal-head h1 { font-family: var(--font-display); font-size: 30px; font-weight: 800; margin: 0 0 8px; }
+  .gal-head p { color: var(--muted); font-size: 14px; max-width: 560px; margin: 0 auto; }
+  .gal-top-links { display: flex; gap: 10px; justify-content: center; margin-top: 20px; }
+
+  .gal-wrap { max-width: 1100px; margin: 0 auto; padding: 0 24px 60px; }
+  .gal-section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--faint); margin: 36px 0 14px; }
+  .gal-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .gal-card {
+    display: block; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xl);
+    overflow: hidden; text-decoration: none; color: var(--text); transition: transform .15s ease, box-shadow .15s ease;
+  }
+  .gal-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
+  .gal-card-preview {
+    height: 140px; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden;
+  }
+  .gal-card-preview svg { width: 46px; height: 46px; color: rgba(255,255,255,.9); position: relative; z-index: 1; }
+  .gal-card-body { padding: 15px 16px; }
+  .gal-card-num { font-size: 10.5px; font-weight: 700; color: var(--faint); letter-spacing: .04em; }
+  .gal-card-title { font-size: 14.5px; font-weight: 700; margin: 3px 0 5px; }
+  .gal-card-desc { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+  .gal-footer { text-align: center; padding: 30px 24px 50px; font-size: 12px; color: var(--faint); }
+  .gal-footer a { color: var(--accent); font-weight: 600; text-decoration: none; }
+</style>
+</head>
+<body>
+
+<div class="gal-head">
+  <div class="gal-mark">S3K</div>
+  <h1>S3K CRM — Design Mockups</h1>
+  <p>Static HTML mockups for the Home Dashboard and every CRM module — Contacts, Accounts, Opportunities, Leads, Lead Sources, Campaigns, Meetings, Tasks, Qualification and Partners — built from the real S3K codebase and design patterns inspired by (never copied from) Salesforce Lightning. Review-only — no application code was changed.</p>
+  <div class="gal-top-links">
+    <a href="00_discovery.md" class="btn btn-secondary btn-sm">Phase 0 — Discovery</a>
+    <a href="REVIEW.md" class="btn btn-primary btn-sm">Phase 3 — Review Pack</a>
+  </div>
+</div>
+
+<div class="gal-wrap">
+
+  <div class="gal-section-title">Phase 1 — Foundation</div>
+  <div class="gal-grid">
+    <a class="gal-card" href="design-system.html">
+      <div class="gal-card-preview" style="background:linear-gradient(135deg,var(--accent),var(--accent-2));">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
+      </div>
+      <div class="gal-card-body">
+        <div class="gal-card-num">00</div>
+        <div class="gal-card-title">Design System</div>
+        <div class="gal-card-desc">Color tokens, type scale, spacing, and every core component (buttons, inputs, lookup, badges, modal, table…).</div>
+      </div>
+    </a>
+  </div>
+
+  <div class="gal-section-title">Phase 2 — Mockups</div>
+  <div class="gal-grid">
+    <a class="gal-card" href="01_dashboard.html">
+      <div class="gal-card-preview" style="background:linear-gradient(135deg,var(--accent),var(--accent-2));">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z"/></svg>
+      </div>
+      <div class="gal-card-body">
+        <div class="gal-card-num">01</div>
+        <div class="gal-card-title">Home Dashboard</div>
+        <div class="gal-card-desc">KPI strip, My Leads / Deals / Contacts cards, pipeline funnel, activity timeline, customize mode, populated/empty/loading states, To-Do bar.</div>
+      </div>
+    </a>
+    <a class="gal-card" href="02_contacts_list.html">
+      <div class="gal-card-preview" style="background:linear-gradient(135deg,var(--accent),var(--accent-2));">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><circle cx="12" cy="12" r="3"/></svg>
+      </div>
+      <div class="gal-card-body">
+        <div class="gal-card-num">02</div>
+        <div class="gal-card-title">Contacts — List View</div>
+        <div class="gal-card-desc">List-view switcher, filters, column chooser, density, bulk actions, sortable table, pagination, mobile card layout.</div>
+      </div>
+    </a>
+    <a class="gal-card" href="03_contact_form.html">
+      <div class="gal-card-preview" style="background:linear-gradient(135deg,var(--accent),var(--accent-2));">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+      </div>
+      <div class="gal-card-body">
+        <div class="gal-card-num">03</div>
+        <div class="gal-card-title">Contact — Create / Edit</div>
+        <div class="gal-card-desc">Modal and full-page layouts for the same form, India-first address, Account lookup, duplicate detection, inline validation.</div>
+      </div>
+    </a>
+    <a class="gal-card" href="04_contact_detail.html">
+      <div class="gal-card-preview" style="background:linear-gradient(135deg,var(--accent),var(--accent-2));">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M6 21v-2a6 6 0 0 1 12 0v2"/></svg>
+      </div>
+      <div class="gal-card-body">
+        <div class="gal-card-num">04</div>
+        <div class="gal-card-title">Contact — Record Page</div>
+        <div class="gal-card-desc">Header with quick actions, highlights row, Overview/Activity/Deals/Notes/Files tabs, AI relationship panel, related records.</div>
+      </div>
+    </a>
+  </div>
+
+  <div class="gal-section-title">Other CRM Modules — List + Create/Edit Modal + Detail Page</div>
+  <div class="gal-grid">
+    <a class="gal-card" href="05_accounts.html">
+      <div class="gal-card-preview" style="background:linear-gradient(135deg,var(--accent),var(--accent-2));">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="1"/><path d="M9 22v-4h6v4M9 6h.01M9 10h.01M9 14h.01M15 6h.01M15 10h.01M15 14h.01"/></svg>
+      </div>
+      <div class="gal-card-body"><div class="gal-card-num">05–06</div><div class="gal-card-title">Accounts</div><div class="gal-card-desc">List, create/edit modal and record detail — health score, pipeline value, related contacts &amp; opportunities.</div></div>
+    </a>
+    <a class="gal-card" href="07_opportunities.html">
+      <div class="gal-card-preview" style="background:linear-gradient(135deg,var(--accent),var(--accent-2));">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>
+      </div>
+      <div class="gal-card-body"><div class="gal-card-num">07–08</div><div class="gal-card-title">Opportunities</div><div class="gal-card-desc">Deal list, create/edit modal with Account lookup, and a stage-track detail page with close-plan checklist.</div></div>
+    </a>
+    <a class="gal-card" href="09_leads.html">
+      <div class="gal-card-preview" style="background:linear-gradient(135deg,var(--accent),var(--accent-2));">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      </div>
+      <div class="gal-card-body"><div class="gal-card-num">09–10</div><div class="gal-card-title">Leads</div><div class="gal-card-desc">Prospect list, create/edit modal with duplicate detection, and a detail page with the Convert Lead flow.</div></div>
+    </a>
+    <a class="gal-card" href="11_lead_sources.html">
+      <div class="gal-card-preview" style="background:linear-gradient(135deg,var(--accent),var(--accent-2));">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z"/></svg>
+      </div>
+      <div class="gal-card-body"><div class="gal-card-num">11</div><div class="gal-card-title">Lead Sources</div><div class="gal-card-desc">List + edit modal only, matching S3K today — no separate record page, row click opens Edit directly.</div></div>
+    </a>
+    <a class="gal-card" href="12_campaigns.html">
+      <div class="gal-card-preview" style="background:linear-gradient(135deg,var(--accent),var(--accent-2));">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
+      </div>
+      <div class="gal-card-body"><div class="gal-card-num">12–13</div><div class="gal-card-title">Campaigns</div><div class="gal-card-desc">Campaign list with ROI/progress, create/edit modal, and a detail page with relationship-impact metrics.</div></div>
+    </a>
+    <a class="gal-card" href="14_meetings.html">
+      <div class="gal-card-preview" style="background:linear-gradient(135deg,var(--accent),var(--accent-2));">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+      </div>
+      <div class="gal-card-body"><div class="gal-card-num">14–15</div><div class="gal-card-title">Meetings</div><div class="gal-card-desc">Meeting list, create/edit modal, and a detail page with the AI pre-call briefing assistant.</div></div>
+    </a>
+    <a class="gal-card" href="16_tasks.html">
+      <div class="gal-card-preview" style="background:linear-gradient(135deg,var(--accent),var(--accent-2));">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M9 16l2 2 4-4"/></svg>
+      </div>
+      <div class="gal-card-body"><div class="gal-card-num">16</div><div class="gal-card-title">Tasks <span class="badge badge-proposed" style="vertical-align:1px;">Proposed</span></div><div class="gal-card-desc">List + edit modal — a net-new module; S3K has no dedicated Tasks route today, only a dashboard card.</div></div>
+    </a>
+    <a class="gal-card" href="17_qualification.html">
+      <div class="gal-card-preview" style="background:linear-gradient(135deg,var(--accent),var(--accent-2));">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+      </div>
+      <div class="gal-card-body"><div class="gal-card-num">17–18</div><div class="gal-card-title">Qualification</div><div class="gal-card-desc">BANT triage queue plus a qualification workspace — no create modal, matching how S3K works today.</div></div>
+    </a>
+    <a class="gal-card" href="19_partners.html">
+      <div class="gal-card-preview" style="background:linear-gradient(135deg,var(--accent),var(--accent-2));">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m11 17 2 2a1 1 0 1 0 3-3"/><path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.42.25L21 4"/></svg>
+      </div>
+      <div class="gal-card-body"><div class="gal-card-num">19–20</div><div class="gal-card-title">Partners <span class="badge badge-proposed" style="vertical-align:1px;">Proposed</span></div><div class="gal-card-desc">List, create/edit modal and detail page — rebuilt in the real design system; the only existing prototype is stale and unreachable.</div></div>
+    </a>
+  </div>
+
+  <div class="gal-section-title">Phase 3 — Review Pack</div>
+  <div class="gal-grid">
+    <a class="gal-card" href="00_discovery.md">
+      <div class="gal-card-preview" style="background:linear-gradient(135deg,var(--accent),var(--accent-2));">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      </div>
+      <div class="gal-card-body">
+        <div class="gal-card-num">Phase 0</div>
+        <div class="gal-card-title">Codebase Discovery</div>
+        <div class="gal-card-desc">What actually exists in S3K today — stack, data model, navigation, roles — before any design work started.</div>
+      </div>
+    </a>
+    <a class="gal-card" href="REVIEW.md">
+      <div class="gal-card-preview" style="background:linear-gradient(135deg,var(--accent),var(--accent-2));">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      </div>
+      <div class="gal-card-body">
+        <div class="gal-card-num">Phase 3</div>
+        <div class="gal-card-title">Review Pack</div>
+        <div class="gal-card-desc">Design decisions, Salesforce → S3K field mapping table, gaps, open questions, suggested build order.</div>
+      </div>
+    </a>
+  </div>
+
+</div>
+
+<div class="gal-footer">
+  All pages are standalone HTML — open any file directly, or double-click it in <code style="background:var(--surface-2);padding:1px 5px;border-radius:4px;">/design-mockups/</code>. No build step required.
+</div>
+
+</body>
+</html>

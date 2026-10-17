@@ -25,6 +25,10 @@ export interface DashboardKpis {
   won_revenue: string;
   /** Checkpoint 5. Share of live leads converted, 0-100, all-time. */
   lead_conversion_rate: number;
+  deals_won_this_month: number;
+  deals_won_this_month_value: string;
+  /** `null` when this month's wins span more than one currency. */
+  deals_won_this_month_currency: string | null;
 }
 
 export interface PipelineStageSummary {
@@ -102,4 +106,40 @@ export interface DashboardSummary {
   pipeline_by_owner: OwnerPipelineSummary[];
   /** Checkpoint 5. Capped at 8 — the full breakdown is the report itself. */
   lead_source_performance: LeadSourcePerformance[];
+}
+
+export type RecentRecordType = 'LEAD' | 'CONTACT' | 'OPPORTUNITY';
+
+export interface RecentRecordEntry {
+  type: RecentRecordType;
+  id: string;
+  label: string;
+  created_at: string;
+  updated_at: string;
+  touched_at: string;
+}
+
+/**
+ * Every card the fixed home dashboard can show. Mirrors `HomeCardType`
+ * server-side. Not related to the user-built "configurable dashboards"
+ * (`Dashboard`/`DashboardComponent`) feature elsewhere in this module.
+ */
+export type HomeCardType =
+  | 'MY_LEADS'
+  | 'MY_DEALS'
+  | 'MY_CONTACTS'
+  | 'PIPELINE_BY_STAGE'
+  | 'TASKS_FOLLOW_UPS'
+  | 'RECENT_RECORDS'
+  | 'ACTIVITY_TIMELINE'
+  | 'UPCOMING_MEETINGS'
+  | 'QUICK_ACTIONS';
+
+export interface HomeCardConfig {
+  card_type: HomeCardType;
+  visible: boolean;
+}
+
+export interface HomeLayout {
+  cards: HomeCardConfig[];
 }

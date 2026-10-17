@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>S3K CRM — Design System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared/tokens.css">
+<style>
+  body { font-family: var(--font-sans); }
+  .ds-shell { display: flex; min-height: 100vh; }
+  .ds-nav {
+    width: 232px; flex-shrink: 0; border-right: 1px solid var(--border); background: var(--surface);
+    position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 20px 14px;
+  }
+  .ds-nav a {
+    display: block; padding: 7px 10px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500;
+    color: var(--muted); text-decoration: none; margin-bottom: 1px;
+  }
+  .ds-nav a:hover { background: var(--surface-2); color: var(--text); }
+  .ds-nav .grp { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); margin: 16px 10px 4px; }
+  .ds-nav .grp:first-child { margin-top: 0; }
+  .ds-main { flex: 1; min-width: 0; padding: 36px 44px 120px; max-width: 1180px; }
+  .ds-topbar {
+    position: sticky; top: 0; z-index: var(--z-sticky); display: flex; align-items: center; justify-content: space-between;
+    background: var(--surface); border-bottom: 1px solid var(--border); padding: 14px 44px; margin: -36px -44px 36px;
+  }
+  section.ds-section { margin-bottom: 56px; scroll-margin-top: 90px; }
+  section.ds-section h2 { font-family: var(--font-display); font-size: 22px; font-weight: 800; margin: 0 0 6px; }
+  section.ds-section > p.desc { color: var(--muted); font-size: 13.5px; margin: 0 0 22px; max-width: 640px; }
+  .ds-card { border: 1px solid var(--border); border-radius: var(--radius-xl); background: var(--surface); padding: 24px; }
+  .swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; }
+  .swatch { border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+  .swatch-color { height: 56px; }
+  .swatch-meta { padding: 9px 11px; background: var(--surface); }
+  .swatch-meta .name { font-size: 12.5px; font-weight: 700; }
+  .swatch-meta .val { font-size: 11px; color: var(--faint); font-family: monospace; }
+  .row-flex { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .type-row { display: flex; align-items: baseline; gap: 18px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .type-row:last-child { border-bottom: none; }
+  .type-row .tok { width: 150px; flex-shrink: 0; font-size: 11px; font-family: monospace; color: var(--faint); }
+  .scale-chip { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .scale-box { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-radius: 6px; }
+  .scale-label { font-size: 11px; font-family: monospace; color: var(--faint); }
+  .radius-chip { width: 72px; height: 72px; background: var(--accent-soft); border: 2px solid var(--accent); display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 700; color: var(--accent); text-align: center; }
+  .shadow-chip { width: 120px; height: 72px; background: var(--surface); border-radius: var(--radius-lg); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: var(--muted); }
+  .zindex-stack { position: relative; height: 160px; }
+  .zindex-chip { position: absolute; width: 140px; padding: 10px 12px; border-radius: var(--radius-md); font-size: 11px; font-weight: 700; color: #fff; box-shadow: var(--shadow-md); }
+  code.inline { background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 11.5px; font-family: monospace; }
+  .demo-table-wrap { border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+  .wcag-note { display: flex; gap: 8px; align-items: flex-start; background: var(--info-soft); color: var(--info); border-radius: var(--radius-md); padding: 10px 12px; font-size: 12.5px; margin-top: 16px; }
+  .wcag-note svg { width: 16px; height: 16px; flex-shrink: 0; margin-top: 1px; }
+  @media (max-width: 900px) {
+    .ds-nav { display: none; }
+    .ds-main { padding: 28px 18px 100px; }
+    .ds-topbar { padding: 12px 18px; margin: -28px -18px 28px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="ds-shell" data-shell>
+  <nav class="ds-nav">
+    <div class="font-display" style="font-weight:800;font-size:15px;padding:6px 10px 14px;">S3K Design System</div>
+    <div class="grp">Foundations</div>
+    <a href="#colors">Color tokens</a>
+    <a href="#type">Type scale</a>
+    <a href="#spacing">Spacing grid</a>
+    <a href="#radius">Radius</a>
+    <a href="#shadow">Shadows</a>
+    <a href="#zindex">Z-index layers</a>
+    <a href="#a11y">Accessibility (AA)</a>
+    <div class="grp">Components</div>
+    <a href="#buttons">Buttons</a>
+    <a href="#inputs">Inputs &amp; selects</a>
+    <a href="#lookup">Lookup / combobox</a>
+    <a href="#datepicker">Date picker</a>
+    <a href="#choice">Checkbox · Radio · Toggle</a>
+    <a href="#badges">Badges &amp; status pills</a>
+    <a href="#avatars">Avatars</a>
+    <a href="#tabs">Tabs</a>
+    <a href="#cards">Cards</a>
+    <a href="#table">Table</a>
+    <a href="#modal">Modal</a>
+    <a href="#toast">Toast</a>
+    <a href="#tooltip">Tooltip</a>
+    <a href="#empty">Empty state</a>
+    <a href="#skeleton">Skeleton loader</a>
+  </nav>
+
+  <main class="ds-main">
+    <div class="ds-topbar">
+      <div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);">Phase 1 — Mockup</div>
+        <div class="font-display" style="font-size:18px;font-weight:800;">Design System Reference</div>
+      </div>
+      <div class="row-flex">
+        <a href="index.html" class="btn btn-secondary btn-sm">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+          Back to gallery
+        </a>
+        <button class="btn btn-secondary btn-sm btn-icon" data-action="toggle-theme" aria-label="Toggle dark mode" title="Toggle dark mode">
+          <svg data-theme-icon="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+          <svg data-theme-icon="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ============ COLORS ============ -->
+    <section class="ds-section" id="colors">
+      <h2>Color tokens</h2>
+      <p class="desc">A vibrant indigo accent on neutral cool grays — a deliberate revision from S3K's current shipped violet <code class="inline">--accent</code> in <code class="inline">frontend/app/globals.css</code>, requested for a more restrained, enterprise-professional read with enough richness to not feel flat (see <code class="inline">REVIEW.md</code>). One accent color used consistently, muted semantic colors reserved for status only — no decorative rainbow accents, no Salesforce blue.</p>
+
+      <div style="margin-bottom:22px;font-size:12.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;">Core surface &amp; text</div>
+      <div class="swatch-grid">
+        <div class="swatch"><div class="swatch-color" style="background:var(--bg)"></div><div class="swatch-meta"><div class="name">bg</div><div class="val">page background</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:var(--surface);border-bottom:1px solid var(--border)"></div><div class="swatch-meta"><div class="name">surface</div><div class="val">cards, modals</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:var(--surface-2)"></div><div class="swatch-meta"><div class="name">surface-2</div><div class="val">inputs, nested</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:var(--surface-3)"></div><div class="swatch-meta"><div class="name">surface-3</div><div class="val">hover, skeleton</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:var(--border)"></div><div class="swatch-meta"><div class="name">border</div><div class="val">all borders</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:var(--text)"></div><div class="swatch-meta"><div class="name">text</div><div class="val">primary text</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:var(--muted)"></div><div class="swatch-meta"><div class="name">muted</div><div class="val">secondary text</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:var(--faint)"></div><div class="swatch-meta"><div class="name">faint</div><div class="val">placeholders</div></div></div>
+      </div>
+
+      <div style="margin:26px 0 22px;font-size:12.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;">Brand</div>
+      <div class="swatch-grid">
+        <div class="swatch"><div class="swatch-color" style="background:var(--accent)"></div><div class="swatch-meta"><div class="name">accent</div><div class="val">#4f39c9 / #8b7ae8</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:var(--accent-2)"></div><div class="swatch-meta"><div class="name">accent-2</div><div class="val">gradient partner</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:var(--accent-soft)"></div><div class="swatch-meta"><div class="name">accent-soft</div><div class="val">selected bg</div></div></div>
+      </div>
+
+      <div style="margin:26px 0 22px;font-size:12.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;">Semantic</div>
+      <div class="swatch-grid">
+        <div class="swatch"><div class="swatch-color" style="background:var(--success)"></div><div class="swatch-meta"><div class="name">success</div><div class="val">won, active</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:var(--warning)"></div><div class="swatch-meta"><div class="name">warning</div><div class="val">at risk, due soon</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:var(--danger)"></div><div class="swatch-meta"><div class="name">danger</div><div class="val">lost, overdue</div></div></div>
+        <div class="swatch"><div class="swatch-color" style="background:var(--info)"></div><div class="swatch-meta"><div class="name">info</div><div class="val">new, informational</div></div></div>
+      </div>
+
+      <div class="wcag-note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        <div>All text/background pairs above meet WCAG 2.1 AA (4.5:1 for body text, 3:1 for large text/icons). Semantic colors always pair with an icon or label, never color alone, for colorblind users.</div>
+      </div>
+    </section>
+
+    <!-- ============ TYPE ============ -->
+    <section class="ds-section" id="type">
+      <h2>Type scale</h2>
+      <p class="desc">Inter for body text, Sora for display headings — both already loaded by the real app via <code class="inline">next/font/google</code>.</p>
+      <div class="ds-card">
+        <div class="type-row"><div class="tok">--text-3xl / 30px</div><div class="font-display" style="font-size:30px;font-weight:800;">Pipeline value this quarter</div></div>
+        <div class="type-row"><div class="tok">--text-2xl / 24px</div><div class="font-display" style="font-size:24px;font-weight:800;">Rohan Mehta</div></div>
+        <div class="type-row"><div class="tok">--text-xl / 20px</div><div class="font-display" style="font-size:20px;font-weight:700;">Page title</div></div>
+        <div class="type-row"><div class="tok">--text-lg / 17px</div><div style="font-size:17px;font-weight:700;">Card title</div></div>
+        <div class="type-row"><div class="tok">--text-md / 15px</div><div style="font-size:15px;font-weight:500;">Section label</div></div>
+        <div class="type-row"><div class="tok">--text-base / 13.5px</div><div style="font-size:13.5px;">Body text — the default size for table cells, form inputs and card copy.</div></div>
+        <div class="type-row"><div class="tok">--text-sm / 12.5px</div><div style="font-size:12.5px;font-weight:600;">Field label / button text</div></div>
+        <div class="type-row"><div class="tok">--text-xs / 11px</div><div style="font-size:11px;color:var(--faint);">Hint text, timestamps, metadata</div></div>
+      </div>
+    </section>
+
+    <!-- ============ SPACING ============ -->
+    <section class="ds-section" id="spacing">
+      <h2>Spacing grid (4/8px)</h2>
+      <p class="desc">Every margin, padding and gap in these mockups resolves to one of these steps.</p>
+      <div class="row-flex" style="align-items:flex-end;">
+        <div class="scale-chip"><div class="scale-box" style="width:4px;height:4px;"></div><div class="scale-label">4</div></div>
+        <div class="scale-chip"><div class="scale-box" style="width:8px;height:8px;"></div><div class="scale-label">8</div></div>
+        <div class="scale-chip"><div class="scale-box" style="width:12px;height:12px;"></div><div class="scale-label">12</div></div>
+        <div class="scale-chip"><div class="scale-box" style="width:16px;height:16px;"></div><div class="scale-label">16</div></div>
+        <div class="scale-chip"><div class="scale-box" style="width:20px;height:20px;"></div><div class="scale-label">20</div></div>
+        <div class="scale-chip"><div class="scale-box" style="width:24px;height:24px;"></div><div class="scale-label">24</div></div>
+        <div class="scale-chip"><div class="scale-box" style="width:32px;height:32px;"></div><div class="scale-label">32</div></div>
+        <div class="scale-chip"><div class="scale-box" style="width:40px;height:40px;"></div><div class="scale-label">40</div></div>
+        <div class="scale-chip"><div class="scale-box" style="width:48px;height:48px;"></div><div class="scale-label">48</div></div>
+        <div class="scale-chip"><div class="scale-box" style="width:64px;height:64px;"></div><div class="scale-label">64</div></div>
+      </div>
+    </section>
+
+    <!-- ============ RADIUS ============ -->
+    <section class="ds-section" id="radius">
+      <h2>Corner radius</h2>
+      <div class="row-flex">
+        <div class="radius-chip" style="border-radius:var(--radius-sm)">sm · 6</div>
+        <div class="radius-chip" style="border-radius:var(--radius-md)">md · 10</div>
+        <div class="radius-chip" style="border-radius:var(--radius-lg)">lg · 14</div>
+        <div class="radius-chip" style="border-radius:var(--radius-xl)">xl · 20</div>
+        <div class="radius-chip" style="border-radius:var(--radius-2xl)">2xl · 24</div>
+        <div class="radius-chip" style="border-radius:var(--radius-full)">full</div>
+      </div>
+    </section>
+
+    <!-- ============ SHADOW ============ -->
+    <section class="ds-section" id="shadow">
+      <h2>Shadows</h2>
+      <div class="row-flex" style="background:var(--bg);padding:24px;border-radius:var(--radius-lg);">
+        <div class="shadow-chip" style="box-shadow:var(--shadow-sm)">shadow-sm</div>
+        <div class="shadow-chip" style="box-shadow:var(--shadow-md)">shadow-md</div>
+        <div class="shadow-chip" style="box-shadow:var(--shadow-lg)">shadow-lg</div>
+        <div class="shadow-chip" style="box-shadow:var(--shadow-xl)">shadow-xl</div>
+        <div class="shadow-chip" style="box-shadow:var(--shadow-accent);color:var(--accent);">shadow-accent</div>
+      </div>
+    </section>
+
+    <!-- ============ Z-INDEX ============ -->
+    <section class="ds-section" id="zindex">
+      <h2>Z-index layers</h2>
+      <p class="desc">Named layers prevent dropdown/modal/toast collisions across the app.</p>
+      <div class="zindex-stack">
+        <div class="zindex-chip" style="background:var(--muted);top:0;left:0;">dropdown · 30</div>
+        <div class="zindex-chip" style="background:var(--info);top:24px;left:60px;">sticky header · 40</div>
+        <div class="zindex-chip" style="background:var(--warning);top:48px;left:120px;">overlay · 50</div>
+        <div class="zindex-chip" style="background:var(--accent);top:72px;left:180px;">modal · 60</div>
+        <div class="zindex-chip" style="background:var(--danger);top:96px;left:240px;">toast · 70</div>
+        <div class="zindex-chip" style="background:#1a2230;top:120px;left:300px;">tooltip · 80</div>
+      </div>
+    </section>
+
+    <!-- ============ BUTTONS ============ -->
+    <section class="ds-section" id="buttons">
+      <h2>Buttons</h2>
+      <p class="desc">Primary action is always the accent-filled button; one per view.</p>
+      <div class="ds-card">
+        <div style="font-size:11px;font-weight:700;color:var(--faint);text-transform:uppercase;margin-bottom:10px;">Variants</div>
+        <div class="row-flex" style="margin-bottom:22px;">
+          <button class="btn btn-primary">Save</button>
+          <button class="btn btn-secondary">Cancel</button>
+          <button class="btn btn-ghost">Skip</button>
+          <button class="btn btn-danger">Delete</button>
+          <button class="btn btn-danger-ghost">Remove</button>
+        </div>
+        <div style="font-size:11px;font-weight:700;color:var(--faint);text-transform:uppercase;margin-bottom:10px;">Sizes</div>
+        <div class="row-flex" style="margin-bottom:22px;align-items:center;">
+          <button class="btn btn-primary btn-sm">Small</button>
+          <button class="btn btn-primary">Medium</button>
+          <button class="btn btn-primary btn-lg">Large</button>
+        </div>
+        <div style="font-size:11px;font-weight:700;color:var(--faint);text-transform:uppercase;margin-bottom:10px;">With icon · loading · disabled</div>
+        <div class="row-flex">
+          <button class="btn btn-primary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14"/></svg>
+            New Contact
+          </button>
+          <button class="btn btn-primary is-loading">Saving</button>
+          <button class="btn btn-secondary is-loading">Loading</button>
+          <button class="btn btn-primary" disabled>Disabled</button>
+          <button class="btn btn-secondary btn-icon" aria-label="More options">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ INPUTS ============ -->
+    <section class="ds-section" id="inputs">
+      <h2>Inputs, select &amp; textarea</h2>
+      <div class="ds-card">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:22px;">
+          <div>
+            <label class="field-label">Full name <span class="req">*</span></label>
+            <input class="input" placeholder="e.g. Rohan Mehta" />
+          </div>
+          <div>
+            <label class="field-label">Email <span class="req">*</span></label>
+            <div class="input-icon-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
+              <input class="input" type="email" placeholder="name@company.com" />
+            </div>
+          </div>
+          <div>
+            <label class="field-label">Email (error state)</label>
+            <input class="input has-error" value="not-an-email" />
+            <div class="field-error">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:12px;height:12px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              Enter a valid email address
+            </div>
+          </div>
+          <div>
+            <label class="field-label">Disabled field</label>
+            <input class="input" value="Cannot be edited" disabled />
+          </div>
+          <div>
+            <label class="field-label">Status</label>
+            <select class="input">
+              <option>Active</option>
+              <option>Inactive</option>
+            </select>
+          </div>
+          <div>
+            <label class="field-label">Phone</label>
+            <div class="input-group">
+              <span class="input-group-prefix">🇮🇳 +91</span>
+              <input class="input" placeholder="98765 43210" />
+            </div>
+          </div>
+          <div style="grid-column:1/-1;">
+            <label class="field-label">Notes</label>
+            <textarea class="input" rows="3" placeholder="Add context for your team…"></textarea>
+            <div class="field-hint">Visible to anyone with access to this record.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ LOOKUP ============ -->
+    <section class="ds-section" id="lookup">
+      <h2>Lookup / combobox</h2>
+      <p class="desc">Type-ahead search over a related record, with an inline "create new" escape hatch — used for the Account lookup on the Contact form.</p>
+      <div class="ds-card" style="max-width:420px;">
+        <label class="field-label">Account</label>
+        <div class="input-icon-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input class="input" value="Shree" readonly />
+        </div>
+        <div class="card" style="margin-top:8px;padding:6px;box-shadow:var(--shadow-md);">
+          <div class="menu-item" style="cursor:default;">
+            <div class="avatar avatar-xs" style="background:var(--surface-3);color:var(--muted);border-radius:6px;">SE</div>
+            <div><div style="font-weight:600;">Shree Enterprises</div><div style="font-size:11px;color:var(--faint);">Mumbai, Maharashtra</div></div>
+          </div>
+          <div class="menu-item" style="cursor:default;">
+            <div class="avatar avatar-xs" style="background:var(--surface-3);color:var(--muted);border-radius:6px;">SM</div>
+            <div><div style="font-weight:600;">Shree Multiplex Pvt Ltd</div><div style="font-size:11px;color:var(--faint);">Pune, Maharashtra</div></div>
+          </div>
+          <div class="menu-sep"></div>
+          <div class="menu-item" style="color:var(--accent);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent)"><path d="M5 12h14M12 5v14"/></svg>
+            Create new company "Shree"
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ DATE PICKER ============ -->
+    <section class="ds-section" id="datepicker">
+      <h2>Date picker</h2>
+      <div class="ds-card" style="max-width:300px;">
+        <label class="field-label">Expected close date</label>
+        <div class="input-icon-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+          <input class="input" value="14 Oct 2026" readonly />
+        </div>
+        <div class="card" style="margin-top:8px;padding:12px;box-shadow:var(--shadow-md);">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;font-weight:700;font-size:12.5px;">
+            <span>‹</span><span>October 2026</span><span>›</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center;font-size:11px;">
+            <span style="color:var(--faint);font-weight:700;">S</span><span style="color:var(--faint);font-weight:700;">M</span><span style="color:var(--faint);font-weight:700;">T</span><span style="color:var(--faint);font-weight:700;">W</span><span style="color:var(--faint);font-weight:700;">T</span><span style="color:var(--faint);font-weight:700;">F</span><span style="color:var(--faint);font-weight:700;">S</span>
+            <span></span><span></span><span></span><span></span><span style="padding:5px 0;">1</span><span style="padding:5px 0;">2</span><span style="padding:5px 0;">3</span>
+            <span style="padding:5px 0;">4</span><span style="padding:5px 0;">5</span><span style="padding:5px 0;">6</span><span style="padding:5px 0;">7</span><span style="padding:5px 0;">8</span><span style="padding:5px 0;">9</span><span style="padding:5px 0;">10</span>
+            <span style="padding:5px 0;">11</span><span style="padding:5px 0;">12</span><span style="padding:5px 0;">13</span>
+            <span style="padding:5px 0;border-radius:50%;background:var(--accent);color:#fff;font-weight:700;">14</span>
+            <span style="padding:5px 0;">15</span><span style="padding:5px 0;">16</span><span style="padding:5px 0;">17</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ CHOICE ============ -->
+    <section class="ds-section" id="choice">
+      <h2>Checkbox · Radio · Toggle</h2>
+      <div class="ds-card">
+        <div class="row-flex" style="margin-bottom:18px;">
+          <label class="check-row"><input type="checkbox" class="check-box" checked /> Checked</label>
+          <label class="check-row"><input type="checkbox" class="check-box" /> Unchecked</label>
+          <label class="check-row"><input type="radio" name="ds-radio" class="radio-box" checked /> Selected</label>
+          <label class="check-row"><input type="radio" name="ds-radio" class="radio-box" /> Option</label>
+        </div>
+        <div class="row-flex">
+          <label class="check-row"><button class="toggle" role="switch" aria-checked="true"></button> Email notifications</label>
+          <label class="check-row"><button class="toggle" role="switch" aria-checked="false"></button> SMS notifications</label>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ BADGES ============ -->
+    <section class="ds-section" id="badges">
+      <h2>Badges &amp; status pills</h2>
+      <div class="ds-card">
+        <div class="row-flex">
+          <span class="badge badge-success"><span class="badge-dot"></span>Active</span>
+          <span class="badge badge-warning"><span class="badge-dot"></span>At Risk</span>
+          <span class="badge badge-danger"><span class="badge-dot"></span>Lost</span>
+          <span class="badge badge-info"><span class="badge-dot"></span>New</span>
+          <span class="badge badge-neutral">Inactive</span>
+          <span class="badge badge-accent">VIP Account</span>
+          <span class="badge badge-proposed">Proposed field</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ AVATARS ============ -->
+    <section class="ds-section" id="avatars">
+      <h2>Avatars</h2>
+      <div class="ds-card">
+        <div class="row-flex" style="align-items:flex-end;">
+          <div class="avatar avatar-xs">RM</div>
+          <div class="avatar avatar-sm">RM</div>
+          <div class="avatar avatar-md">RM</div>
+          <div class="avatar avatar-lg">RM</div>
+          <div class="avatar avatar-xl">RM</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ TABS ============ -->
+    <section class="ds-section" id="tabs">
+      <h2>Tabs</h2>
+      <div class="ds-card">
+        <div class="tabs-list" data-tabs>
+          <button class="tab-btn is-active" data-tab="t1">Overview</button>
+          <button class="tab-btn" data-tab="t2">Activity</button>
+          <button class="tab-btn" data-tab="t3">Deals</button>
+        </div>
+        <div style="padding-top:16px;" data-tabs>
+          <div class="tab-panel is-active" data-tab-panel="t1" style="font-size:13.5px;color:var(--muted);">Overview content goes here.</div>
+          <div class="tab-panel" data-tab-panel="t2" style="font-size:13.5px;color:var(--muted);">Activity timeline goes here.</div>
+          <div class="tab-panel" data-tab-panel="t3" style="font-size:13.5px;color:var(--muted);">Related deals go here.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ CARDS ============ -->
+    <section class="ds-section" id="cards">
+      <h2>Cards</h2>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;">
+        <div class="card card-pad card-hover">
+          <div style="font-size:12px;color:var(--muted);font-weight:600;">Pipeline Value</div>
+          <div class="font-display" style="font-size:24px;font-weight:800;margin-top:4px;">₹1.8 Cr</div>
+        </div>
+        <div class="card card-pad card-hover">
+          <div style="font-size:12px;color:var(--muted);font-weight:600;">Open Leads</div>
+          <div class="font-display" style="font-size:24px;font-weight:800;margin-top:4px;">42</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ TABLE ============ -->
+    <section class="ds-section" id="table">
+      <h2>Table</h2>
+      <div class="demo-table-wrap">
+        <table class="table">
+          <thead><tr><th>Name</th><th>Company</th><th>City</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td style="font-weight:600;">Ananya Iyer</td><td>Zenith Software Solutions</td><td>Bengaluru</td><td><span class="badge badge-success"><span class="badge-dot"></span>Active</span></td></tr>
+            <tr><td style="font-weight:600;">Kabir Singh</td><td>Himalaya Dairy Pvt Ltd</td><td>Pune</td><td><span class="badge badge-neutral">Inactive</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ MODAL ============ -->
+    <section class="ds-section" id="modal">
+      <h2>Modal</h2>
+      <button class="btn btn-primary" data-open="#ds-demo-modal">Open demo modal</button>
+      <div class="modal-backdrop" id="ds-demo-modal">
+        <div class="modal" style="max-width:420px;">
+          <div class="modal-header">
+            <div style="font-weight:700;font-size:15px;">Confirm action</div>
+            <button class="btn btn-ghost btn-icon" data-close aria-label="Close">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+          <div class="modal-body" style="font-size:13.5px;color:var(--muted);">This is a reusable modal shell — used by the full Contact create/edit modal in <code class="inline">03_contact_form.html</code>.</div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" data-close>Cancel</button>
+            <button class="btn btn-primary" data-close>Confirm</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ TOAST ============ -->
+    <section class="ds-section" id="toast">
+      <h2>Toast</h2>
+      <button class="btn btn-secondary" onclick="S3K.toast('Contact saved successfully')">Trigger success toast</button>
+    </section>
+
+    <!-- ============ TOOLTIP ============ -->
+    <section class="ds-section" id="tooltip">
+      <h2>Tooltip</h2>
+      <div class="tooltip-wrap">
+        <button class="btn btn-secondary btn-icon" aria-label="AI relationship score">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        </button>
+        <span class="tooltip-bubble">AI-scored relationship strength</span>
+      </div>
+    </section>
+
+    <!-- ============ EMPTY STATE ============ -->
+    <section class="ds-section" id="empty">
+      <h2>Empty state</h2>
+      <div class="ds-card">
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <h4>No contacts yet</h4>
+          <p>Contacts you add will show up here. Import a list or add your first contact to get started.</p>
+          <button class="btn btn-primary btn-sm">Add Contact</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ SKELETON ============ -->
+    <section class="ds-section" id="skeleton">
+      <h2>Skeleton loader</h2>
+      <div class="ds-card">
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px;">
+          <div class="skel" style="width:38px;height:38px;border-radius:50%;"></div>
+          <div style="flex:1;">
+            <div class="skel" style="width:40%;height:12px;margin-bottom:8px;"></div>
+            <div class="skel" style="width:65%;height:10px;"></div>
+          </div>
+        </div>
+        <div class="skel" style="width:100%;height:10px;margin-bottom:8px;"></div>
+        <div class="skel" style="width:85%;height:10px;"></div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="shared/app.js"></script>
+</body>
+</html>

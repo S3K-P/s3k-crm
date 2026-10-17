@@ -26,6 +26,7 @@ class ContactBase(BaseModel):
     job_title: str | None = Field(default=None, max_length=160)
     department: str | None = Field(default=None, max_length=120)
     owner_id: uuid.UUID | None = None
+    reporting_manager_id: uuid.UUID | None = None
     status: ContactStatus = ContactStatus.ACTIVE
     preferred_communication: str | None = Field(default=None, max_length=64)
     linkedin_url: str | None = Field(default=None, max_length=512)
@@ -60,6 +61,7 @@ class ContactUpdate(BaseModel):
     job_title: str | None = Field(default=None, max_length=160)
     department: str | None = Field(default=None, max_length=120)
     owner_id: uuid.UUID | None = None
+    reporting_manager_id: uuid.UUID | None = None
     status: ContactStatus | None = None
     preferred_communication: str | None = Field(default=None, max_length=64)
     linkedin_url: str | None = Field(default=None, max_length=512)
@@ -98,6 +100,7 @@ class ContactResponse(BaseModel):
     job_title: str | None
     department: str | None
     owner_id: uuid.UUID | None
+    reporting_manager_id: uuid.UUID | None
     status: ContactStatus
     ai_score: int | None
     preferred_communication: str | None

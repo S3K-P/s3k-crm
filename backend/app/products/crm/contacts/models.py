@@ -64,8 +64,14 @@ class Contact(Base, CrmEntityMixin, CustomFieldValuesMixin):
     job_title: Mapped[str | None] = mapped_column(String(160), nullable=True)
     department: Mapped[str | None] = mapped_column(String(120), nullable=True)
     owner_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    #: Self-referential: the contact this one reports to, at their own
+    #: company — not an internal org member. ``SET NULL`` so removing the
+    #: manager's own contact record clears the pointer rather than blocking
+    #: the delete.
     reporting_manager_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid(as_uuid=True), nullable=True
+        Uuid(as_uuid=True),
+        ForeignKey(f"{CRM_SCHEMA}.contacts.id", ondelete="SET NULL"),
+        nullable=True,
     )
     status: Mapped[ContactStatus] = mapped_column(
         Enum(ContactStatus, name="contact_status", schema=CRM_SCHEMA, native_enum=True),

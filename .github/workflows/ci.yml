@@ -152,6 +152,11 @@ jobs:
       STORAGE_REGION: auto
       STORAGE_FORCE_PATH_STYLE: 'true'
       CORS_ALLOWED_ORIGINS: http://localhost:3000
+      # Unset by default in every environment (see config.py) — MFA enrollment
+      # answers 503 mfa_not_configured without it, so test_mfa.py's whole file
+      # never actually exercised MFA until this ran. Throwaway, generated with
+      # the same `Fernet.generate_key()` the deployment docs call for.
+      MFA_ENCRYPTION_KEY: SaPMkSDDVfXcFkZVIV1E1T0bEgLXbEfZPGzGrPqtU4M=
 
     steps:
       - uses: actions/checkout@v4
@@ -215,8 +220,34 @@ jobs:
       # `minio/mc` Docker Hub repositories were later removed outright ("pull
       # access denied ... repository does not exist"). The same release tags
       # are still published there, so this is the identical build.
+      #
+      # quay.io has since started rejecting the same anonymous pulls with
+      # "unauthorized" too — MinIO narrowing free distribution is apparently
+      # ongoing, not a one-time Docker Hub decision. Which registry breaks
+      # next is not predictable, so a pull failure here is treated as its own
+      # case rather than a hard failure: it means object storage is
+      # unavailable *this run*, which is exactly the condition
+      # `_require_storage()` in the attachment tests already skips on
+      # locally when MinIO isn't running. Clearing the STORAGE_* credentials
+      # makes CI hit that same, already-exercised path instead of either
+      # aborting the whole job before a single test runs, or limping into
+      # pytest with a backend that will refuse every attachment request.
       - name: Start MinIO
         run: |
+          skip_storage() {
+            echo "::warning::$1; object storage is unavailable this run, so attachment tests will skip"
+            {
+              echo "STORAGE_BUCKET="
+              echo "STORAGE_ACCESS_KEY_ID="
+              echo "STORAGE_SECRET_ACCESS_KEY="
+            } >> "$GITHUB_ENV"
+          }
+
+          if ! docker pull quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z; then
+            skip_storage "could not pull the MinIO image"
+            exit 0
+          fi
+
           docker run -d --name minio \
             -p 9000:9000 \
             -e MINIO_ROOT_USER=s3k-ci \
@@ -224,6 +255,8 @@ jobs:
             quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
 
           # Wait for the health endpoint rather than sleeping a fixed amount.
+          # An image that pulled but won't come up healthy is still a real
+          # failure worth stopping the job for, unlike a pull rejection.
           for i in $(seq 1 30); do
             if curl -fsS http://localhost:9000/minio/health/live >/dev/null 2>&1; then
               echo "MinIO is live after ${i} attempt(s)"
@@ -245,6 +278,11 @@ jobs:
           # itself, so an unqualified `sh -c ...` is parsed as `mc sh` and
           # rejected. docker-compose.yml overrides it the same way, with its
           # own `entrypoint:` key.
+          if ! docker pull quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z; then
+            skip_storage "could not pull the mc image"
+            exit 0
+          fi
+
           docker run --rm --network host \
             --entrypoint sh \
             quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z \
@@ -360,6 +398,10 @@ jobs:
       # a forwarded header here would let the suite's own requests choose their
       # bucket and prove nothing.
       TRUSTED_PROXY_HOPS: '0'
+      # Without it, mfa.spec.ts's "Enable two-factor authentication" button
+      # hits a real 503 mfa_not_configured and the suite never sees a secret
+      # to enroll with. Same throwaway key as the backend-tests job.
+      MFA_ENCRYPTION_KEY: SaPMkSDDVfXcFkZVIV1E1T0bEgLXbEfZPGzGrPqtU4M=
 
     steps:
       - uses: actions/checkout@v4

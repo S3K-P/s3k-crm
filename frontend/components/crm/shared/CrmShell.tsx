@@ -4,6 +4,7 @@ import CrmSidebar from '@/components/crm/sidebar/CrmSidebar';
 import CrmTopbar from '@/components/crm/topbar/CrmTopbar';
 import CrmBreadcrumbs from '@/components/crm/breadcrumbs/CrmBreadcrumbs';
 import EmailVerificationBanner from '@/components/crm/shared/EmailVerificationBanner';
+import CrmFooter from '@/components/crm/shared/CrmFooter';
 
 /* ============================================================
    CRM SHELL
@@ -25,6 +26,7 @@ export default function CrmShell({ children }: { children: React.ReactNode }) {
         <main className="flex-1 overflow-y-auto">
           {children}
         </main>
+        <CrmFooter />
       </div>
     </div>
   );

@@ -119,7 +119,7 @@ class RecordVisibility:
 class DashboardScope:
     """The visibilities a cross-module read model needs, resolved together.
 
-    The dashboard aggregates over three owner-scoped modules at once, and a
+    The dashboard aggregates over four owner-scoped modules at once, and a
     custom role may hold ``VIEW_ALL`` on one and not another. Resolving each
     separately — rather than picking one and applying it to all three — is
     what keeps each KPI equal to the count of rows behind the list it links
@@ -129,11 +129,17 @@ class DashboardScope:
     leads: RecordVisibility
     opportunities: RecordVisibility
     tasks: RecordVisibility
+    contacts: RecordVisibility
 
     @classmethod
     def unrestricted(cls) -> DashboardScope:
         unrestricted = RecordVisibility.unrestricted()
-        return cls(leads=unrestricted, opportunities=unrestricted, tasks=unrestricted)
+        return cls(
+            leads=unrestricted,
+            opportunities=unrestricted,
+            tasks=unrestricted,
+            contacts=unrestricted,
+        )
 
     @classmethod
     def for_principal(cls, principal: Principal) -> DashboardScope:
@@ -141,6 +147,7 @@ class DashboardScope:
             leads=RecordVisibility.for_module(principal, "leads"),
             opportunities=RecordVisibility.for_module(principal, "opportunities"),
             tasks=RecordVisibility.for_module(principal, "tasks"),
+            contacts=RecordVisibility.for_module(principal, "contacts"),
         )
 
 

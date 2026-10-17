@@ -247,6 +247,9 @@ def test_an_organization_with_no_records_returns_a_real_empty_state(
         "weighted_pipeline_value": "0.00",
         "won_revenue": "0",
         "lead_conversion_rate": 0.0,
+        "deals_won_this_month": 0,
+        "deals_won_this_month_value": "0",
+        "deals_won_this_month_currency": None,
     }
     assert body["tasks"] == []
     assert body["meetings"] == []

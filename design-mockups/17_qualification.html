@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>S3K CRM — Qualification</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared/tokens.css">
+<link rel="stylesheet" href="shared/shell.css">
+<link rel="stylesheet" href="shared/views.css">
+</head>
+<body>
+
+<div class="app-shell" id="app-shell" data-shell>
+  <div class="app-main-col">
+    <main class="app-content" id="page-content">
+
+      <div class="list-head">
+        <div class="page-head">
+          <div class="page-head-left">
+            <div class="page-icon-tile">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+            </div>
+            <div><h1 class="page-title">Qualification</h1><p class="page-subtitle">BANT triage queue for your leads</p></div>
+          </div>
+        </div>
+        <div class="list-meta"><b>5 in queue</b><span class="sep">•</span>Sorted by <b>Priority, then AI Score</b><span class="sep">•</span>Updated 2 min ago</div>
+      </div>
+
+      <p style="padding:8px 24px 0;font-size:11.5px;color:var(--faint);">This is a triage queue, not a create/edit list — matching the real app, there's no "New Qualification" form; records are generated from an existing Lead.</p>
+
+      <div class="toolbar">
+        <div class="input-icon-wrap toolbar-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input class="input" id="list-search" placeholder="Search this list…"></div>
+        <button class="btn btn-secondary btn-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>Filters</button>
+      </div>
+
+      <div class="dt-wrap">
+        <div class="dt-scroll">
+        <table class="dt">
+          <thead><tr><th>Lead</th><th>Source</th><th>Status</th><th>Budget</th><th>Authority</th><th>Need</th><th>Timeline</th><th style="text-align:center;">AI Score</th><th>Recommendation</th><th style="width:110px;"></th></tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<script src="shared/app.js"></script>
+<script src="shared/shell.js"></script>
+<script src="shared/qualification-data.js"></script>
+<script>
+  S3K.mountShell({ active: 'qualification', breadcrumb: ['S3K CRM', 'Qualification'] });
+  function statusVariant(s) { return { Qualified: 'success', 'In Review': 'warning', Unqualified: 'neutral', Disqualified: 'danger' }[s] || 'neutral'; }
+  function bantVariant(v) { return { Confirmed: 'success', Pending: 'warning', Unknown: 'neutral', 'No Budget': 'danger', None: 'danger' }[v] || 'neutral'; }
+  function scoreColor(s) { return s >= 75 ? 'var(--success)' : s >= 45 ? 'var(--warning)' : 'var(--danger)'; }
+
+  var tbody = document.getElementById('tbody');
+  tbody.innerHTML = S3K_QUALIFICATION_QUEUE.map(function (q) {
+    return '<tr data-id="' + q.id + '">' +
+      '<td class="cell-name"><div style="font-weight:600;">' + q.leadName + '</div><div style="font-size:11px;color:var(--faint);">' + q.company + '</div></td>' +
+      '<td data-label="Source">' + q.source + '</td>' +
+      '<td data-label="Status"><span class="badge badge-' + statusVariant(q.status) + '">' + q.status + '</span></td>' +
+      '<td data-label="Budget"><span class="badge badge-' + bantVariant(q.budget) + '">' + q.budget + '</span></td>' +
+      '<td data-label="Authority"><span class="badge badge-' + bantVariant(q.authority) + '">' + q.authority + '</span></td>' +
+      '<td data-label="Need"><span class="badge badge-' + bantVariant(q.need) + '">' + q.need + '</span></td>' +
+      '<td data-label="Timeline"><span class="badge badge-' + bantVariant(q.timeline) + '">' + q.timeline + '</span></td>' +
+      '<td data-label="AI Score" style="text-align:center;"><span class="ai-score" style="color:' + scoreColor(q.aiScore) + ';">' + q.aiScore + '</span></td>' +
+      '<td data-label="Recommendation" style="font-style:italic;color:var(--muted);max-width:220px;white-space:normal;">' + q.recommendation + '</td>' +
+      '<td><a class="btn btn-secondary btn-sm" href="18_qualification_workspace.html">Qualify →</a></td></tr>';
+  }).join('');
+  document.getElementById('list-search').addEventListener('input', function (e) { var q = e.target.value.toLowerCase(); tbody.querySelectorAll('tr').forEach(function (tr) { tr.style.display = tr.textContent.toLowerCase().indexOf(q) > -1 ? '' : 'none'; }); });
+</script>
+</body>
+</html>

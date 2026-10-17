@@ -25,15 +25,15 @@ export async function signIn(page: Page, person: SeededPerson): Promise<void> {
   await page.getByLabel('Password', { exact: true }).fill(person.password);
   await page.getByRole('button', { name: 'Sign in' }).click();
 
-  // S3K is a platform with products in it, so signing in lands on the app
-  // picker rather than inside the CRM. Asserting that step rather than
-  // skipping past it means a regression that strands people on the workspace
-  // shows up here.
-  await expect(page.getByRole('region', { name: 'Your apps' })).toBeVisible();
-  await openCrm(page);
+  // Signing in lands directly inside the CRM dashboard — the platform's app
+  // picker (`/workspace`) is still there for anyone who holds more than one
+  // app, but is no longer the front door. Asserting the CRM nav rather than
+  // skipping past it means a regression that strands people on a blank or
+  // wrong page shows up here.
+  await expect(page.getByRole('link', { name: 'Dashboard', exact: true })).toBeVisible();
 }
 
-/** Enter the CRM from the workspace. */
+/** Enter the CRM from the workspace app picker. */
 export async function openCrm(page: Page): Promise<void> {
   await page.getByRole('link', { name: /S3K CRM/ }).click();
   await expect(page.getByRole('link', { name: 'Dashboard', exact: true })).toBeVisible();

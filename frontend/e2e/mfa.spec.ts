@@ -111,7 +111,7 @@ test.describe('two-factor authentication', () => {
     // The right code completes sign-in.
     await page.getByLabel('Code').fill(currentTotpCode(secret));
     await page.getByRole('button', { name: 'Verify' }).click();
-    await expect(page.getByRole('region', { name: 'Your apps' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Dashboard', exact: true })).toBeVisible();
     await page.waitForTimeout(500);
 
     // --- A recovery code works exactly once ---------------------------
@@ -125,7 +125,7 @@ test.describe('two-factor authentication', () => {
     if (!recoveryCode) throw new Error('No recovery code was captured to spend.');
     await page.getByLabel('Code').fill(recoveryCode);
     await page.getByRole('button', { name: 'Verify' }).click();
-    await expect(page.getByRole('region', { name: 'Your apps' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Dashboard', exact: true })).toBeVisible();
     await page.waitForTimeout(500);
 
     await signOut(page);
@@ -140,7 +140,7 @@ test.describe('two-factor authentication', () => {
     // Clear the stuck challenge with a fresh code, then disable.
     await page.getByLabel('Code').fill(currentTotpCode(secret));
     await page.getByRole('button', { name: 'Verify' }).click();
-    await expect(page.getByRole('region', { name: 'Your apps' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Dashboard', exact: true })).toBeVisible();
 
     await page.goto('/account/security');
     await page.getByRole('button', { name: 'Disable' }).click();
