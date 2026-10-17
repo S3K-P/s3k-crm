@@ -19,8 +19,12 @@ interface KpiCardProps {
   trend?: 'up' | 'down' | 'flat';
   /** Lucide icon component */
   icon: LucideIcon;
-  /** Gradient classes for the icon container */
+  /** Gradient classes for the icon container (ignored when variant="neutral") */
   iconGradient?: string;
+  /** "neutral" = one muted tile + accent-coloured icon, matching the
+   *  current design system; "gradient" (default) keeps the per-card
+   *  colour treatment. */
+  variant?: 'gradient' | 'neutral';
   className?: string;
   /** Optional URL to navigate to when clicked */
   href?: string;
@@ -33,6 +37,7 @@ export default function KpiCard({
   trend = 'flat',
   icon: Icon,
   iconGradient = 'from-violet-600 to-indigo-600',
+  variant = 'gradient',
   className,
   href,
 }: KpiCardProps) {
@@ -57,12 +62,18 @@ export default function KpiCard({
             </p>
           )}
         </div>
-        <div className={cn(
-          'flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br',
-          iconGradient,
-        )}>
-          <Icon className="h-5 w-5 text-white" />
-        </div>
+        {variant === 'neutral' ? (
+          <div className="surface-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]">
+            <Icon className="h-5 w-5" style={{ color: 'var(--accent)' }} />
+          </div>
+        ) : (
+          <div className={cn(
+            'flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br',
+            iconGradient,
+          )}>
+            <Icon className="h-5 w-5 text-white" />
+          </div>
+        )}
       </div>
     </div>
   );

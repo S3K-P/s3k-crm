@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { Globe, Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
 
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
-import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
+import Modal from '@/components/crm/dialogs/Modal';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
@@ -206,8 +206,8 @@ export default function LeadSourcesPage() {
     <div className="flex h-full flex-col space-y-6 p-6 lg:p-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3.5">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-sky-500 to-blue-600">
-            <Globe className="h-5 w-5 text-white" />
+          <div className="surface-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]">
+            <Globe className="h-5 w-5" style={{ color: 'var(--accent)' }} />
           </div>
           <div>
             <h1 className="font-display txt text-[22px] font-extrabold">Lead Sources</h1>
@@ -275,7 +275,7 @@ export default function LeadSourcesPage() {
         />
       )}
 
-      <SlideDrawer
+      <Modal
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         title={editing ? 'Edit lead source' : 'New lead source'}
@@ -338,7 +338,7 @@ export default function LeadSourcesPage() {
           </FormField>
           <FormError message={saveError} />
         </div>
-      </SlideDrawer>
+      </Modal>
     </div>
   );
 }

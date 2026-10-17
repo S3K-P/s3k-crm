@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>S3K CRM — Leads</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared/tokens.css">
+<link rel="stylesheet" href="shared/shell.css">
+<link rel="stylesheet" href="shared/views.css">
+</head>
+<body>
+
+<div class="app-shell" id="app-shell" data-shell>
+  <div class="app-main-col">
+    <main class="app-content" id="page-content">
+
+      <div class="list-head">
+        <div class="page-head">
+          <div class="page-head-left">
+            <div class="page-icon-tile">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </div>
+            <div><h1 class="page-title">Leads</h1><p class="page-subtitle">Prospects not yet qualified into the pipeline</p></div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-secondary btn-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Board view</button>
+            <button class="btn btn-primary btn-sm" data-open="#lead-modal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14"/></svg>New Lead</button>
+          </div>
+        </div>
+        <div class="view-switcher" style="margin-top:16px;"><div class="view-tab is-active">All Leads</div><div class="view-tab">My Leads</div><div class="view-tab">Unassigned</div></div>
+        <div class="list-meta"><b>154 items</b><span class="sep">•</span>Sorted by <b>Created Date</b><span class="sep">•</span>Updated 2 min ago</div>
+      </div>
+
+      <div class="toolbar">
+        <div class="input-icon-wrap toolbar-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input class="input" id="list-search" placeholder="Search this list…"></div>
+        <button class="btn btn-secondary btn-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>Filters</button>
+        <button class="icon-btn" aria-label="Refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
+      </div>
+
+      <div class="dt-wrap">
+        <div class="bulk-bar" id="bulk-bar"><span style="font-size:12.5px;"><b id="bulk-count">0</b> selected</span><button class="btn btn-danger-ghost btn-sm" style="margin-left:auto;">Delete</button><button class="btn btn-ghost btn-sm" id="bulk-clear">Clear</button></div>
+        <div class="dt-scroll">
+        <table class="dt">
+          <thead><tr>
+            <th style="width:36px;"><input type="checkbox" class="check-box" id="select-all"></th>
+            <th class="sortable">Lead Name</th><th>Company</th><th>Email</th><th>Phone</th><th>Source</th><th>Owner</th><th>Status</th><th style="text-align:center;">AI Score</th><th style="width:100px;"></th>
+          </tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        </div>
+        <div class="table-footer"><span style="font-size:12px;color:var(--faint);">Showing <b class="txt">1–8</b> of <b class="txt">154</b></span>
+          <div style="display:flex;align-items:center;gap:6px;"><button class="pager-btn" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><path d="m15 18-6-6 6-6"/></svg></button><span style="font-size:12px;font-weight:600;">Page 1 of 20</span><button class="pager-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><path d="m9 18 6-6-6-6"/></svg></button></div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="lead-modal">
+  <div class="modal contact-form-root" data-form-root style="max-width:680px;">
+    <div class="modal-header"><div><div style="font-weight:700;font-size:15.5px;" id="lead-modal-title">New Lead</div></div><button class="btn btn-ghost btn-icon" data-close="#lead-modal" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-body" id="lead-form-mount"></div>
+    <div class="modal-footer"><button class="btn btn-secondary" data-close="#lead-modal">Cancel</button><button class="btn btn-secondary" id="lead-save-new">Save &amp; New</button><button class="btn btn-primary" id="lead-save">Save</button></div>
+  </div>
+</div>
+
+<script src="shared/app.js"></script>
+<script src="shared/shell.js"></script>
+<script src="shared/form-helpers.js"></script>
+<script src="shared/lead-sources-data.js"></script>
+<script src="shared/leads-data.js"></script>
+<script>
+  S3K.mountShell({ active: 'leads', breadcrumb: ['S3K CRM', 'Leads'] });
+
+  function initials(f, l) { return (f[0] + l[0]).toUpperCase(); }
+  function statusVariant(s) { return { New: 'info', Contacted: 'accent', Qualified: 'warning', 'Proposal Sent': 'warning', Negotiation: 'warning', Converted: 'success', Lost: 'neutral' }[s] || 'neutral'; }
+  function scoreColor(s) { return s >= 75 ? 'var(--success)' : s >= 45 ? 'var(--warning)' : 'var(--danger)'; }
+
+  var tbody = document.getElementById('tbody');
+  tbody.innerHTML = S3K_LEADS.map(function (l) {
+    return '<tr data-id="' + l.id + '">' +
+      '<td><input type="checkbox" class="check-box row-check" onclick="event.stopPropagation()"></td>' +
+      '<td class="cell-name"><div class="name-cell"><div class="avatar avatar-sm">' + initials(l.firstName, l.lastName) + '</div><div><a href="10_lead_detail.html">' + l.firstName + ' ' + l.lastName + '</a><div style="font-size:11px;color:var(--faint);">' + l.industry + '</div></div></div></td>' +
+      '<td data-label="Company">' + l.company + '</td>' +
+      '<td data-label="Email">' + l.email + '</td>' +
+      '<td data-label="Phone">' + l.phone + '</td>' +
+      '<td data-label="Source"><span class="badge badge-neutral">' + l.source + '</span></td>' +
+      '<td data-label="Owner">' + l.owner + '</td>' +
+      '<td data-label="Status"><span class="badge badge-' + statusVariant(l.status) + '">' + l.status + '</span></td>' +
+      '<td data-label="AI Score" style="text-align:center;"><span class="ai-score" style="color:' + scoreColor(l.aiScore) + ';">' + l.aiScore + '</span></td>' +
+      '<td><div class="row-actions"><button aria-label="Call" onclick="event.stopPropagation()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg></button><button aria-label="Edit" onclick="event.stopPropagation();document.getElementById(\'lead-modal\').classList.add(\'is-open\')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div></td></tr>';
+  }).join('');
+
+  tbody.addEventListener('click', function (e) { var tr = e.target.closest('tr'); if (tr && !e.target.closest('.row-check') && !e.target.closest('.row-actions')) window.location.href = '10_lead_detail.html'; });
+  function syncBulk() { var n = tbody.querySelectorAll('.row-check:checked').length; document.getElementById('bulk-bar').classList.toggle('is-visible', n > 0); document.getElementById('bulk-count').textContent = n; }
+  tbody.addEventListener('change', function (e) { if (e.target.classList.contains('row-check')) syncBulk(); });
+  document.getElementById('select-all').addEventListener('change', function () { tbody.querySelectorAll('.row-check').forEach(function (c) { c.checked = this.checked; }.bind(this)); syncBulk(); });
+  document.getElementById('bulk-clear').addEventListener('click', function () { tbody.querySelectorAll('.row-check').forEach(function (c) { c.checked = false; }); document.getElementById('select-all').checked = false; syncBulk(); });
+  document.getElementById('list-search').addEventListener('input', function (e) { var q = e.target.value.toLowerCase(); tbody.querySelectorAll('tr').forEach(function (tr) { tr.style.display = tr.textContent.toLowerCase().indexOf(q) > -1 ? '' : 'none'; }); });
+
+  var formHtml =
+    '<div class="dup-banner" data-dup-banner><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg><div><b>Possible duplicate.</b> A lead with this email already exists — <a data-dup-dismiss>Continue anyway</a>.</div></div>' +
+    '<div class="error-summary" data-error-summary><b>We couldn\'t save this lead.</b><ul data-error-list></ul></div>' +
+    '<div class="form-section"><div class="form-section-head" data-toggle-section><span class="title">Personal Information</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></div><div class="form-section-body">' +
+      '<div><label class="field-label">First Name <span class="req">*</span></label><input class="input" data-field="firstName"></div>' +
+      '<div><label class="field-label">Last Name <span class="req">*</span></label><input class="input" data-field="lastName"></div>' +
+      '<div><label class="field-label">Email</label><input class="input" type="email" data-field="email" data-dup-trigger data-dup-var="S3K_LEADS" data-dup-field="email"></div>' +
+      '<div><label class="field-label">Phone</label><div class="input-group"><span class="input-group-prefix">🇮🇳 +91</span><input class="input" type="tel" data-field="phone"></div></div>' +
+    '</div></div>' +
+    '<div class="form-section"><div class="form-section-head" data-toggle-section><span class="title">Company Information</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></div><div class="form-section-body">' +
+      '<div class="form-span-2"><label class="field-label">Company Name <span class="req">*</span></label><input class="input" data-field="company"></div>' +
+      '<div><label class="field-label">Industry</label><input class="input" data-field="industry"></div>' +
+      '<div><label class="field-label">Website</label><input class="input" data-field="website"></div>' +
+      '<div><label class="field-label">Company Size</label><select class="input" data-field="companySize"><option>1-10</option><option>11-50</option><option>51-200</option><option>201-500</option><option>501-1000</option><option>1000+</option></select></div>' +
+    '</div></div>' +
+    '<div class="form-section"><div class="form-section-head" data-toggle-section><span class="title">Sales Information</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></div><div class="form-section-body">' +
+      '<div><label class="field-label">Lead Source</label><select class="input" data-field="source">' + S3K_LEAD_SOURCES.map(function(s){return '<option>'+s.name+'</option>';}).join('') + '</select></div>' +
+      '<div><label class="field-label">Status</label><select class="input" data-field="status"><option>New</option><option>Contacted</option><option>Qualified</option><option>Proposal Sent</option><option>Negotiation</option><option>Converted</option><option>Lost</option></select></div>' +
+      '<div><label class="field-label">Priority</label><select class="input" data-field="priority"><option>Low</option><option>Medium</option><option>High</option></select></div>' +
+      '<div><label class="field-label">Expected Deal Size (₹)</label><input class="input" data-field="expectedDealSize"></div>' +
+      '<div><label class="field-label">Assigned Owner</label><select class="input" data-field="owner"><option>Rohan Mehta</option><option>Priya Nair</option><option>Meera Pillai</option></select></div>' +
+      '<div class="form-span-2"><label class="field-label">Notes</label><textarea class="input" rows="3" data-field="notes"></textarea></div>' +
+    '</div></div>';
+  document.getElementById('lead-form-mount').innerHTML = formHtml;
+  S3K.initFormSections();
+
+  var root = document.querySelector('#lead-modal .contact-form-root');
+  var required = [{ selector: '[data-field="firstName"]', label: 'First Name is required' }, { selector: '[data-field="lastName"]', label: 'Last Name is required' }, { selector: '[data-field="company"]', label: 'Company Name is required' }];
+  document.getElementById('lead-save').addEventListener('click', function () { S3K.trySaveForm(root, required, { successMessage: 'Lead saved successfully', onSuccess: function () { document.getElementById('lead-modal').classList.remove('is-open'); } }); });
+  document.getElementById('lead-save-new').addEventListener('click', function () { S3K.trySaveForm(root, required, { successMessage: 'Lead saved — ready for the next one', onSuccess: function () { root.querySelectorAll('[data-field]').forEach(function (f) { if (f.tagName !== 'SELECT') f.value = ''; }); root.querySelector('[data-field="firstName"]').focus(); } }); });
+</script>
+</body>
+</html>

@@ -14,7 +14,7 @@ import { ActivityTimelinePanel, NotesPanel } from '@/components/crm/shared/Recor
 import EmailsPanel from '@/components/crm/emails/EmailsPanel';
 import NotConfigured from '@/components/crm/shared/NotConfigured';
 import { useRecord } from '@/components/crm/shared/useRecord';
-import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
+import Modal from '@/components/crm/dialogs/Modal';
 import FormField, { FormSelect } from '@/components/crm/forms/FormField';
 import { usePermissions } from '@/context/AuthContext';
 import { describeApiError, useMutation } from '@/features/shared/hooks/useCollection';
@@ -230,8 +230,8 @@ export default function CampaignDetailPage() {
       </button>
 
       <div className="flex flex-wrap items-center gap-3.5">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-fuchsia-500 to-purple-600">
-          <Megaphone className="h-5 w-5 text-white" />
+        <div className="surface-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]">
+          <Megaphone className="h-5 w-5" style={{ color: 'var(--accent)' }} />
         </div>
         <div>
           <h1 className="font-display txt text-[22px] font-extrabold">{campaign.name}</h1>
@@ -370,7 +370,7 @@ export default function CampaignDetailPage() {
         requires="AI gateway (ADR-016, Phase 5)"
       />
 
-      <SlideDrawer
+      <Modal
         open={addOpen}
         onClose={() => setAddOpen(false)}
         title="Add campaign member"
@@ -439,7 +439,7 @@ export default function CampaignDetailPage() {
 
           <FormError message={mutationError} />
         </div>
-      </SlideDrawer>
+      </Modal>
     </div>
   );
 }

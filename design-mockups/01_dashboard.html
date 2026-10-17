@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>S3K CRM — Home Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared/tokens.css">
+<link rel="stylesheet" href="shared/shell.css">
+<style>
+  /* ---- Page-specific: state toggle (populated / empty / loading) ---- */
+  .dash[data-state="populated"] .state-empty, .dash[data-state="populated"] .state-loading { display: none !important; }
+  .dash[data-state="empty"] .state-populated, .dash[data-state="empty"] .state-loading { display: none !important; }
+  .dash[data-state="loading"] .state-populated, .dash[data-state="loading"] .state-empty { display: none !important; }
+
+  .state-pill-group { display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-full); padding: 3px; gap: 2px; }
+  .state-pill { padding: 6px 13px; font-size: 11.5px; font-weight: 700; border-radius: var(--radius-full); color: var(--muted); cursor: pointer; border: none; background: none; }
+  .state-pill.is-active { background: var(--accent); color: #fff; }
+
+  /* ---- KPI strip ---- */
+  .kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xl); padding: 16px 18px; }
+  .kpi-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .kpi-icon { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: var(--surface-3); color: var(--accent); flex-shrink: 0; }
+  .kpi-icon svg { width: 17px; height: 17px; }
+  .kpi-value { font-family: var(--font-display); font-size: 25px; font-weight: 800; letter-spacing: -0.01em; }
+  .kpi-label { font-size: 11.5px; color: var(--muted); font-weight: 600; margin-top: 2px; }
+  .kpi-trend { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 700; margin-top: 8px; }
+  .kpi-trend svg { width: 12px; height: 12px; }
+  .trend-up { color: var(--success); }
+  .trend-down { color: var(--danger); }
+  .trend-flat { color: var(--muted); }
+
+  /* ---- Dashboard list cards ---- */
+  .dcard { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xl); display: flex; flex-direction: column; position: relative; }
+  .dcard-head { display: flex; align-items: center; gap: 10px; padding: 15px 16px 0; }
+  .dcard-icon { width: 30px; height: 30px; border-radius: 9px; display: flex; align-items: center; justify-content: center; background: var(--surface-3); color: var(--accent); flex-shrink: 0; }
+  .dcard-icon svg { width: 15px; height: 15px; }
+  .dcard-title { font-size: 14px; font-weight: 700; }
+  .dcard-head-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+  .dcard-mini-btn { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--muted); background: transparent; border: none; cursor: pointer; }
+  .dcard-mini-btn:hover { background: var(--surface-2); color: var(--text); }
+  .dcard-mini-btn svg { width: 14px; height: 14px; }
+  .dcard-toolbar { display: flex; align-items: center; gap: 8px; padding: 10px 16px 0; }
+  .dcard-select { font-size: 11.5px; font-weight: 600; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px 8px; }
+  .dcard-body { padding: 10px 8px 6px; flex: 1; }
+  .dcard-row { display: flex; align-items: center; gap: 10px; padding: 8px 8px; border-radius: 10px; }
+  .dcard-row:hover { background: var(--surface-2); }
+  .dcard-footer { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px 14px; border-top: 1px solid var(--border); margin-top: 6px; font-size: 11px; color: var(--faint); }
+  .dcard-footer a { color: var(--accent); font-weight: 700; text-decoration: none; }
+
+  /* ---- Customize mode ---- */
+  .dash.is-customizing .dcard { outline: 2px dashed var(--accent); outline-offset: 3px; }
+  .drag-handle { display: none; cursor: grab; color: var(--faint); }
+  .dash.is-customizing .drag-handle { display: inline-flex; }
+  .card-remove-btn { display: none; position: absolute; top: -9px; right: -9px; width: 22px; height: 22px; border-radius: 50%; background: var(--danger); color: #fff; align-items: center; justify-content: center; border: 2px solid var(--bg); cursor: pointer; }
+  .card-remove-btn svg { width: 11px; height: 11px; }
+  .dash.is-customizing .card-remove-btn { display: flex; }
+  .add-card-tile {
+    display: none; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    border: 2px dashed var(--border-strong); border-radius: var(--radius-xl); color: var(--faint);
+    font-size: 12.5px; font-weight: 600; min-height: 160px; cursor: pointer; background: transparent;
+  }
+  .dash.is-customizing .add-card-tile { display: flex; }
+  .add-card-tile:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .add-card-tile svg { width: 26px; height: 26px; }
+
+  /* ---- Discovery banner ---- */
+  .discovery-banner {
+    display: flex; align-items: center; gap: 14px; border-radius: var(--radius-xl); padding: 14px 18px;
+    background: linear-gradient(120deg, var(--accent-soft), transparent 70%); border: 1px solid var(--accent-soft);
+  }
+  .discovery-banner svg.spark { width: 22px; height: 22px; color: var(--accent); flex-shrink: 0; }
+
+  /* ---- Pipeline funnel ---- */
+  .funnel-row { display: flex; align-items: center; gap: 12px; padding: 7px 0; }
+  .funnel-bar-wrap { flex: 1; height: 26px; background: var(--surface-2); border-radius: 7px; overflow: hidden; }
+  .funnel-bar { height: 100%; border-radius: 7px; display: flex; align-items: center; padding: 0 10px; color: #fff; font-size: 11px; font-weight: 700; white-space: nowrap; }
+
+  /* ---- Todo utility bar ---- */
+  .todo-bar {
+    position: fixed; right: 20px; bottom: 0; width: 300px; background: var(--surface); border: 1px solid var(--border);
+    border-bottom: none; border-radius: var(--radius-lg) var(--radius-lg) 0 0; box-shadow: var(--shadow-lg); z-index: var(--z-sticky);
+    max-height: 70vh; display: flex; flex-direction: column;
+  }
+  .todo-bar-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; cursor: pointer; }
+  .todo-bar-body { display: none; padding: 4px 10px 12px; overflow-y: auto; }
+  .todo-bar.is-open .todo-bar-body { display: block; }
+  .todo-bar.is-open .todo-chevron { transform: rotate(180deg); }
+  .todo-item { display: flex; align-items: flex-start; gap: 9px; padding: 8px; border-radius: 9px; }
+  .todo-item:hover { background: var(--surface-2); }
+
+  @media (max-width: 640px) {
+    .todo-bar { width: calc(100% - 24px); right: 12px; left: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app-shell" id="app-shell" data-shell>
+  <div class="app-main-col">
+    <main class="app-content" id="page-content">
+      <div class="dash" data-state="populated" style="padding:22px 24px 90px;max-width:1500px;margin:0 auto;">
+
+        <!-- ===== Page header ===== -->
+        <div class="page-head" style="margin-bottom:18px;">
+          <div class="page-head-left">
+            <div>
+              <h1 class="page-title">Good morning, Rohan 👋</h1>
+              <p class="page-subtitle" id="dash-date">Here's what's happening with your sales pipeline today</p>
+            </div>
+          </div>
+          <div class="row-flex" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <div class="state-pill-group" role="group" aria-label="Preview dashboard state">
+              <button class="state-pill is-active" data-dash-state="populated">Populated</button>
+              <button class="state-pill" data-dash-state="empty">Empty</button>
+              <button class="state-pill" data-dash-state="loading">Loading</button>
+            </div>
+            <button class="btn btn-secondary btn-sm" id="customize-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+              Customize dashboard
+            </button>
+          </div>
+        </div>
+
+        <!-- ===== Discovery banner (dismissible) ===== -->
+        <div class="discovery-banner" id="discovery-banner" style="margin-bottom:18px;">
+          <svg class="spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/></svg>
+          <div style="flex:1;">
+            <div style="font-weight:700;font-size:13px;">There's more to see here</div>
+            <div style="font-size:12px;color:var(--muted);">Add cards, reorder your layout, or explore AI Insights for recommended next actions.</div>
+          </div>
+          <button class="btn btn-secondary btn-sm">Explore AI Insights</button>
+          <button class="icon-btn" style="background:transparent;border:none;" aria-label="Dismiss" onclick="document.getElementById('discovery-banner').remove()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+
+        <!-- ===== KPI strip ===== -->
+        <div class="state-populated" style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:20px;" data-responsive-kpi>
+          <div class="kpi-card">
+            <div class="kpi-top">
+              <div class="kpi-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              </div>
+            </div>
+            <div class="kpi-value">128</div>
+            <div class="kpi-label">Open Leads</div>
+            <div class="kpi-trend trend-up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/></svg>+18 this week</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-top">
+              <div class="kpi-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              </div>
+            </div>
+            <div class="kpi-value">₹4.82 Cr</div>
+            <div class="kpi-label">Pipeline Value</div>
+            <div class="kpi-trend trend-up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/></svg>+₹62L vs last month</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-top">
+              <div class="kpi-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+              </div>
+            </div>
+            <div class="kpi-value">14</div>
+            <div class="kpi-label">Deals Won This Month</div>
+            <div class="kpi-trend trend-up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/></svg>₹1.1Cr won value</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-top">
+              <div class="kpi-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/></svg>
+              </div>
+            </div>
+            <div class="kpi-value">9</div>
+            <div class="kpi-label">Tasks Due Today</div>
+            <div class="kpi-trend trend-down"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>3 overdue</div>
+          </div>
+        </div>
+        <div class="state-empty" style="margin-bottom:20px;">
+          <div class="empty-state card" style="padding:30px;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+            <h4>No activity yet this period</h4>
+            <p>Once you start adding leads, deals and tasks, your key numbers will show up here.</p>
+          </div>
+        </div>
+        <div class="state-loading" style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:20px;">
+          <div class="kpi-card"><div class="skel" style="width:34px;height:34px;border-radius:10px;margin-bottom:14px;"></div><div class="skel" style="width:60%;height:22px;margin-bottom:8px;"></div><div class="skel" style="width:40%;height:10px;"></div></div>
+          <div class="kpi-card"><div class="skel" style="width:34px;height:34px;border-radius:10px;margin-bottom:14px;"></div><div class="skel" style="width:60%;height:22px;margin-bottom:8px;"></div><div class="skel" style="width:40%;height:10px;"></div></div>
+          <div class="kpi-card"><div class="skel" style="width:34px;height:34px;border-radius:10px;margin-bottom:14px;"></div><div class="skel" style="width:60%;height:22px;margin-bottom:8px;"></div><div class="skel" style="width:40%;height:10px;"></div></div>
+          <div class="kpi-card"><div class="skel" style="width:34px;height:34px;border-radius:10px;margin-bottom:14px;"></div><div class="skel" style="width:60%;height:22px;margin-bottom:8px;"></div><div class="skel" style="width:40%;height:10px;"></div></div>
+        </div>
+
+        <!-- ===== Card grid ===== -->
+        <div style="display:grid;grid-template-columns:1fr;gap:16px;" data-responsive-grid>
+
+          <!-- My Leads -->
+          <div class="dcard" style="position:relative;">
+            <button class="card-remove-btn" aria-label="Remove card"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+            <div class="dcard-head">
+              <span class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg></span>
+              <div class="dcard-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div>
+              <div class="dcard-title">My Leads</div>
+              <div class="dcard-head-actions">
+                <button class="dcard-mini-btn" aria-label="New lead"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14"/></svg></button>
+                <div style="position:relative;">
+                  <button class="dcard-mini-btn" data-menu-trigger aria-label="More options"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button>
+                  <div class="menu" style="right:0;left:auto;"><button class="menu-item">Edit card</button><button class="menu-item">Refresh</button><button class="menu-item danger">Remove card</button></div>
+                </div>
+              </div>
+            </div>
+            <div class="dcard-toolbar">
+              <select class="dcard-select"><option>My Leads</option><option>All Leads</option><option>Recently Viewed</option></select>
+              <div class="input-icon-wrap" style="flex:1;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                <input class="input" style="padding:5px 10px 5px 30px;font-size:11.5px;" placeholder="Search this list…">
+              </div>
+            </div>
+            <div class="state-populated">
+              <div class="dcard-body">
+                <div class="dcard-row"><div class="avatar avatar-sm">RM</div><div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:600;" class="txt">Rohan Mehta</div><div style="font-size:11px;color:var(--faint);">Shree Enterprises · Mumbai</div></div><span class="badge badge-info">New</span></div>
+                <div class="dcard-row"><div class="avatar avatar-sm">AI</div><div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:600;" class="txt">Ananya Iyer</div><div style="font-size:11px;color:var(--faint);">Zenith Software · Bengaluru</div></div><span class="badge badge-warning">Contacted</span></div>
+                <div class="dcard-row"><div class="avatar avatar-sm">KS</div><div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:600;" class="txt">Kabir Singh</div><div style="font-size:11px;color:var(--faint);">Himalaya Dairy · Pune</div></div><span class="badge badge-info">New</span></div>
+              </div>
+              <div class="dcard-footer"><a href="#">View Report</a><span id="leads-ts">As of 09:41 AM <button class="dcard-mini-btn" style="width:18px;height:18px;vertical-align:middle;" aria-label="Refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:11px;height:11px;"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button></span></div>
+            </div>
+            <div class="state-empty"><div class="empty-state" style="padding:26px 16px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:46px;height:46px;"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg><h4 style="font-size:13px;">No leads assigned to you</h4><p style="font-size:12px;">New leads will show up here as they're assigned.</p></div></div>
+            <div class="state-loading" style="padding:12px 16px 16px;">
+              <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;"><div class="skel" style="width:28px;height:28px;border-radius:50%;"></div><div style="flex:1;"><div class="skel" style="width:50%;height:10px;margin-bottom:6px;"></div><div class="skel" style="width:70%;height:8px;"></div></div></div>
+              <div style="display:flex;gap:10px;align-items:center;"><div class="skel" style="width:28px;height:28px;border-radius:50%;"></div><div style="flex:1;"><div class="skel" style="width:40%;height:10px;margin-bottom:6px;"></div><div class="skel" style="width:60%;height:8px;"></div></div></div>
+            </div>
+          </div>
+
+          <!-- My Deals / Opportunities -->
+          <div class="dcard">
+            <button class="card-remove-btn" aria-label="Remove card"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+            <div class="dcard-head">
+              <span class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg></span>
+              <div class="dcard-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg></div>
+              <div class="dcard-title">My Open Deals</div>
+              <div class="dcard-head-actions">
+                <button class="dcard-mini-btn" aria-label="New deal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14"/></svg></button>
+                <div style="position:relative;"><button class="dcard-mini-btn" data-menu-trigger aria-label="More options"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button><div class="menu" style="right:0;left:auto;"><button class="menu-item">Edit card</button><button class="menu-item">Refresh</button><button class="menu-item danger">Remove card</button></div></div>
+              </div>
+            </div>
+            <div class="dcard-toolbar">
+              <select class="dcard-select"><option>Open Deals</option><option>Closing This Month</option></select>
+            </div>
+            <div class="state-populated">
+              <div class="dcard-body">
+                <div class="dcard-row"><div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:600;" class="txt">Zenith Software — Enterprise Expansion</div><div style="font-size:11px;color:var(--faint);">Negotiation · closes 28 Oct</div></div><span class="font-display" style="font-size:13px;font-weight:800;">₹85L</span></div>
+                <div class="dcard-row"><div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:600;" class="txt">Himalaya Dairy — Cold Chain Upgrade</div><div style="font-size:11px;color:var(--faint);">Proposal · closes 05 Nov</div></div><span class="font-display" style="font-size:13px;font-weight:800;">₹1.2Cr</span></div>
+                <div class="dcard-row"><div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:600;" class="txt">Konkan Logistics — Fleet Suite</div><div style="font-size:11px;color:var(--faint);">Discovery · closes 20 Nov</div></div><span class="font-display" style="font-size:13px;font-weight:800;">₹42L</span></div>
+              </div>
+              <div class="dcard-footer"><a href="#">View Report</a><span>As of 09:41 AM</span></div>
+            </div>
+            <div class="state-empty"><div class="empty-state" style="padding:26px 16px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:46px;height:46px;"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/></svg><h4 style="font-size:13px;">No open deals</h4><p style="font-size:12px;">Create an opportunity to start tracking it here.</p></div></div>
+            <div class="state-loading" style="padding:12px 16px 16px;"><div class="skel" style="width:100%;height:14px;margin-bottom:8px;"></div><div class="skel" style="width:90%;height:14px;margin-bottom:8px;"></div><div class="skel" style="width:95%;height:14px;"></div></div>
+          </div>
+
+          <!-- My Contacts -->
+          <div class="dcard">
+            <button class="card-remove-btn" aria-label="Remove card"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+            <div class="dcard-head">
+              <span class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg></span>
+              <div class="dcard-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><circle cx="12" cy="12" r="3"/></svg></div>
+              <div class="dcard-title">My Contacts</div>
+              <div class="dcard-head-actions">
+                <a href="02_contacts_list.html" class="dcard-mini-btn" aria-label="New contact"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14"/></svg></a>
+              </div>
+            </div>
+            <div class="dcard-toolbar"><select class="dcard-select"><option>My Contacts</option><option>Recently Viewed</option></select></div>
+            <div class="state-populated">
+              <div class="dcard-body">
+                <a href="04_contact_detail.html" class="dcard-row" style="text-decoration:none;"><div class="avatar avatar-sm">PN</div><div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:600;" class="txt">Priya Nair</div><div style="font-size:11px;color:var(--faint);">Konkan Logistics</div></div></a>
+                <a href="04_contact_detail.html" class="dcard-row" style="text-decoration:none;"><div class="avatar avatar-sm">VD</div><div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:600;" class="txt">Vikram Desai</div><div style="font-size:11px;color:var(--faint);">Bharat Textiles Pvt Ltd</div></div></a>
+                <a href="04_contact_detail.html" class="dcard-row" style="text-decoration:none;"><div class="avatar avatar-sm">MP</div><div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:600;" class="txt">Meera Pillai</div><div style="font-size:11px;color:var(--faint);">Zenith Software Solutions</div></div></a>
+              </div>
+              <div class="dcard-footer"><a href="02_contacts_list.html">View all</a><span>As of 09:41 AM</span></div>
+            </div>
+            <div class="state-empty"><div class="empty-state" style="padding:26px 16px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:46px;height:46px;"><rect x="3" y="5" width="18" height="16" rx="2"/><circle cx="12" cy="12" r="3"/></svg><h4 style="font-size:13px;">No contacts yet</h4><p style="font-size:12px;">Add your first contact to start building relationships.</p><a href="02_contacts_list.html" class="btn btn-primary btn-sm">Add Contact</a></div></div>
+            <div class="state-loading" style="padding:12px 16px 16px;"><div class="skel" style="width:100%;height:14px;margin-bottom:8px;"></div><div class="skel" style="width:90%;height:14px;margin-bottom:8px;"></div><div class="skel" style="width:95%;height:14px;"></div></div>
+          </div>
+
+          <!-- Pipeline by Stage (funnel) -->
+          <div class="dcard">
+            <button class="card-remove-btn" aria-label="Remove card"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+            <div class="dcard-head">
+              <span class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg></span>
+              <div class="dcard-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h18M6 3v9l6 6 6-6V3"/></svg></div>
+              <div class="dcard-title">Pipeline by Stage</div>
+              <div class="dcard-head-actions"><span style="font-family:var(--font-display);font-weight:800;font-size:13px;">₹4.82 Cr</span></div>
+            </div>
+            <div class="state-populated">
+              <div class="dcard-body" style="padding:14px 16px 6px;">
+                <div class="funnel-row"><span style="width:92px;font-size:11.5px;font-weight:600;color:var(--muted);flex-shrink:0;">Qualification</span><div class="funnel-bar-wrap"><div class="funnel-bar" style="width:100%;background:#c7bff2;">32 · ₹1.1Cr</div></div></div>
+                <div class="funnel-row"><span style="width:92px;font-size:11.5px;font-weight:600;color:var(--muted);flex-shrink:0;">Discovery</span><div class="funnel-bar-wrap"><div class="funnel-bar" style="width:82%;background:#9a8de8;">24 · ₹1.6Cr</div></div></div>
+                <div class="funnel-row"><span style="width:92px;font-size:11.5px;font-weight:600;color:var(--muted);flex-shrink:0;">Proposal</span><div class="funnel-bar-wrap"><div class="funnel-bar" style="width:63%;background:var(--accent-2);">16 · ₹1.4Cr</div></div></div>
+                <div class="funnel-row"><span style="width:92px;font-size:11.5px;font-weight:600;color:var(--muted);flex-shrink:0;">Negotiation</span><div class="funnel-bar-wrap"><div class="funnel-bar" style="width:40%;background:var(--accent);">9 · ₹95L</div></div></div>
+                <div class="funnel-row"><span style="width:92px;font-size:11.5px;font-weight:600;color:var(--muted);flex-shrink:0;">Closed Won</span><div class="funnel-bar-wrap"><div class="funnel-bar" style="width:24%;background:var(--success);">6 · ₹68L</div></div></div>
+              </div>
+              <div class="dcard-footer"><a href="#">View pipeline</a><span>As of 09:41 AM</span></div>
+            </div>
+            <div class="state-empty"><div class="empty-state" style="padding:26px 16px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:46px;height:46px;"><path d="M3 3h18M6 3v9l6 6 6-6V3"/></svg><h4 style="font-size:13px;">Pipeline is empty</h4><p style="font-size:12px;">Deals you create will appear here by stage.</p></div></div>
+            <div class="state-loading" style="padding:14px 16px;"><div class="skel" style="width:100%;height:26px;margin-bottom:10px;border-radius:7px;"></div><div class="skel" style="width:85%;height:26px;margin-bottom:10px;border-radius:7px;"></div><div class="skel" style="width:65%;height:26px;border-radius:7px;"></div></div>
+          </div>
+
+          <!-- Tasks & Follow-ups -->
+          <div class="dcard">
+            <button class="card-remove-btn" aria-label="Remove card"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+            <div class="dcard-head">
+              <span class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg></span>
+              <div class="dcard-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M9 16l2 2 4-4"/></svg></div>
+              <div class="dcard-title">Tasks &amp; Follow-ups</div>
+              <div class="dcard-head-actions"><button class="dcard-mini-btn" aria-label="New task"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14"/></svg></button></div>
+            </div>
+            <div class="state-populated">
+              <div class="dcard-body">
+                <div class="dcard-row"><input type="checkbox" class="check-box"><div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:600;" class="txt">Call Rohan Mehta — renewal discussion</div><div style="font-size:11px;color:var(--faint);">Shree Enterprises</div></div><span class="badge badge-danger">10:00 AM</span></div>
+                <div class="dcard-row"><input type="checkbox" class="check-box"><div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:600;" class="txt">Send proposal to Zenith Software</div><div style="font-size:11px;color:var(--faint);">Ananya Iyer</div></div><span class="badge badge-warning">11:30 AM</span></div>
+                <div class="dcard-row"><input type="checkbox" class="check-box"><div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:600;" class="txt">Follow up: Himalaya Dairy PO</div><div style="font-size:11px;color:var(--faint);">Kabir Singh</div></div><span class="badge badge-neutral">2:00 PM</span></div>
+              </div>
+              <div class="dcard-footer"><a href="#">View all</a><span>As of 09:41 AM</span></div>
+            </div>
+            <div class="state-empty"><div class="empty-state" style="padding:26px 16px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:46px;height:46px;"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M9 16l2 2 4-4"/></svg><h4 style="font-size:13px;">You're all caught up</h4><p style="font-size:12px;">No tasks due today.</p></div></div>
+            <div class="state-loading" style="padding:12px 16px 16px;"><div class="skel" style="width:100%;height:14px;margin-bottom:8px;"></div><div class="skel" style="width:88%;height:14px;margin-bottom:8px;"></div><div class="skel" style="width:95%;height:14px;"></div></div>
+          </div>
+
+          <!-- Recent Records -->
+          <div class="dcard">
+            <button class="card-remove-btn" aria-label="Remove card"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+            <div class="dcard-head">
+              <span class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg></span>
+              <div class="dcard-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-4"/></svg></div>
+              <div class="dcard-title">Recent Records</div>
+            </div>
+            <div class="state-populated">
+              <div class="dcard-body">
+                <div class="dcard-row"><div class="avatar avatar-sm" style="background:var(--surface-3);color:var(--accent);border-radius:8px;">PN</div><div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:600;" class="txt">Priya Nair <span class="badge badge-accent" style="margin-left:4px;">Contact</span></div><div style="font-size:11px;color:var(--faint);">added 25 min ago</div></div></div>
+                <div class="dcard-row"><div class="avatar avatar-sm" style="background:var(--surface-3);color:var(--accent);border-radius:8px;">KL</div><div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:600;" class="txt">Konkan Logistics <span class="badge badge-accent" style="margin-left:4px;">Account</span></div><div style="font-size:11px;color:var(--faint);">updated 1 hr ago</div></div></div>
+                <div class="dcard-row"><div class="avatar avatar-sm" style="background:var(--surface-3);color:var(--accent);border-radius:8px;">ZS</div><div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:600;" class="txt">Zenith Software deal <span class="badge badge-accent" style="margin-left:4px;">Deal</span></div><div style="font-size:11px;color:var(--faint);">moved to Negotiation · 2 hrs ago</div></div></div>
+              </div>
+              <div class="dcard-footer"><a href="#">View All</a><span>As of 09:41 AM</span></div>
+            </div>
+            <div class="state-empty"><div class="empty-state" style="padding:26px 16px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:46px;height:46px;"><path d="M3 3v18h18"/></svg><h4 style="font-size:13px;">Nothing recent</h4><p style="font-size:12px;">Records you view or edit will show up here.</p></div></div>
+            <div class="state-loading" style="padding:12px 16px 16px;"><div class="skel" style="width:100%;height:14px;margin-bottom:8px;"></div><div class="skel" style="width:88%;height:14px;margin-bottom:8px;"></div><div class="skel" style="width:95%;height:14px;"></div></div>
+          </div>
+
+          <!-- Activity Timeline (wide) -->
+          <div class="dcard" style="grid-column:1/-1;">
+            <button class="card-remove-btn" aria-label="Remove card"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+            <div class="dcard-head">
+              <span class="drag-handle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg></span>
+              <div class="dcard-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
+              <div class="dcard-title">Activity Timeline</div>
+              <div class="dcard-head-actions"><button class="btn btn-ghost btn-sm">All activities →</button></div>
+            </div>
+            <div class="state-populated" style="padding:14px 18px 18px;">
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;">
+                <div style="display:flex;gap:10px;"><div class="avatar avatar-sm tile-neutral" style="border-radius:9px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg></div><div><div style="font-size:12.5px;font-weight:600;">Call completed with Rohan Mehta</div><div style="font-size:11px;color:var(--faint);">Renewal pricing — Shree Enterprises · 25 min ago</div></div></div>
+                <div style="display:flex;gap:10px;"><div class="avatar avatar-sm tile-neutral" style="border-radius:9px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg></div><div><div style="font-size:12.5px;font-weight:600;">Email sent to Ananya Iyer</div><div style="font-size:11px;color:var(--faint);">Demo follow-up deck — Zenith Software · 1 hr ago</div></div></div>
+                <div style="display:flex;gap:10px;"><div class="avatar avatar-sm tile-neutral" style="border-radius:9px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/></svg></div><div><div style="font-size:12.5px;font-weight:600;">New opportunity created</div><div style="font-size:11px;color:var(--faint);">₹42L — Konkan Logistics Fleet Suite · 2 hrs ago</div></div></div>
+                <div style="display:flex;gap:10px;"><div class="avatar avatar-sm tile-neutral" style="border-radius:9px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div><div><div style="font-size:12.5px;font-weight:600;">New lead captured</div><div style="font-size:11px;color:var(--faint);">Priya Nair from Konkan Logistics — Website form · 4 hrs ago</div></div></div>
+              </div>
+            </div>
+            <div class="state-empty"><div class="empty-state" style="padding:26px 16px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width:46px;height:46px;"><circle cx="12" cy="12" r="10"/></svg><h4 style="font-size:13px;">No recent activity</h4><p style="font-size:12px;">Calls, emails and notes you log will appear here.</p></div></div>
+            <div class="state-loading" style="padding:14px 18px 18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;">
+              <div class="skel" style="height:32px;"></div><div class="skel" style="height:32px;"></div><div class="skel" style="height:32px;"></div><div class="skel" style="height:32px;"></div>
+            </div>
+          </div>
+
+          <!-- Add card tile (customize mode only) -->
+          <button class="add-card-tile">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14"/></svg>
+            Add Card
+          </button>
+        </div>
+
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- ===== To-Do utility bar ===== -->
+<div class="todo-bar" id="todo-bar">
+  <div class="todo-bar-head" data-action="toggle-todo">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;color:var(--accent);"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M9 16l2 2 4-4"/></svg>
+    <span style="font-weight:700;font-size:12.5px;">To-Do List</span>
+    <span class="badge badge-accent">5</span>
+    <svg class="todo-chevron" style="width:15px;height:15px;margin-left:auto;transition:transform .15s;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg>
+  </div>
+  <div class="todo-bar-body">
+    <div class="todo-item"><input type="checkbox" class="check-box" style="margin-top:2px;"><div><div style="font-size:12.5px;font-weight:600;">Call Rohan Mehta — renewal</div><div style="font-size:11px;color:var(--faint);">10:00 AM</div></div></div>
+    <div class="todo-item"><input type="checkbox" class="check-box" style="margin-top:2px;"><div><div style="font-size:12.5px;font-weight:600;">Send proposal to Zenith Software</div><div style="font-size:11px;color:var(--faint);">11:30 AM</div></div></div>
+    <div class="todo-item"><input type="checkbox" class="check-box" style="margin-top:2px;"><div><div style="font-size:12.5px;font-weight:600;">Follow up: Himalaya Dairy PO</div><div style="font-size:11px;color:var(--faint);">2:00 PM</div></div></div>
+    <div class="todo-item"><input type="checkbox" class="check-box" style="margin-top:2px;"><div><div style="font-size:12.5px;font-weight:600;">Review Q3 pipeline forecast</div><div style="font-size:11px;color:var(--faint);">3:00 PM</div></div></div>
+    <div class="todo-item"><input type="checkbox" class="check-box" style="margin-top:2px;"><div><div style="font-size:12.5px;font-weight:600;">Send NDA to Bharat Textiles</div><div style="font-size:11px;color:var(--faint);">4:30 PM</div></div></div>
+  </div>
+</div>
+
+<script src="shared/app.js"></script>
+<script src="shared/shell.js"></script>
+<script>
+  S3K.mountShell({ active: 'dashboard', breadcrumb: ['S3K CRM', 'Dashboard'] });
+
+  document.getElementById('dash-date').textContent =
+    "Here's what's happening with your sales pipeline today — " +
+    new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+  // Populated / Empty / Loading state switcher
+  document.querySelectorAll('[data-dash-state]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('[data-dash-state]').forEach(function (b) { b.classList.remove('is-active'); });
+      btn.classList.add('is-active');
+      document.querySelector('.dash').setAttribute('data-state', btn.getAttribute('data-dash-state'));
+    });
+  });
+
+  // Customize mode
+  document.getElementById('customize-btn').addEventListener('click', function () {
+    var dash = document.querySelector('.dash');
+    var on = dash.classList.toggle('is-customizing');
+    this.classList.toggle('btn-primary', on);
+    this.classList.toggle('btn-secondary', !on);
+    this.lastChild.textContent = on ? ' Done customizing' : ' Customize dashboard';
+  });
+
+  // To-do bar expand/collapse
+  document.querySelector('[data-action="toggle-todo"]').addEventListener('click', function () {
+    document.getElementById('todo-bar').classList.toggle('is-open');
+  });
+
+  // Responsive grid (keeps things simple + dependable without a Tailwind build step)
+  function applyResponsive() {
+    var w = window.innerWidth;
+    document.querySelectorAll('[data-responsive-kpi]').forEach(function (el) {
+      el.style.gridTemplateColumns = w >= 1024 ? 'repeat(4,1fr)' : w >= 640 ? 'repeat(2,1fr)' : '1fr';
+    });
+    document.querySelectorAll('[data-responsive-grid]').forEach(function (el) {
+      el.style.gridTemplateColumns = w >= 1280 ? 'repeat(3,1fr)' : w >= 800 ? 'repeat(2,1fr)' : '1fr';
+    });
+  }
+  applyResponsive();
+  window.addEventListener('resize', applyResponsive);
+</script>
+</body>
+</html>

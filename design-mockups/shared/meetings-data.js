@@ -1,0 +1,15 @@
+/* ============================================================
+   S3K CRM — shared mock Meeting data (India-first).
+   Mirrors model Activity + Meeting in 05-CRM-PRISMA-SCHEMA.md
+   (type CALL/EMAIL/MEETING + Meeting's meetingType/startTime/
+   endTime/location/meetingLink/agenda/internalParticipantIds).
+   `account`/`contact`/`opportunity` are display-only labels for
+   the polymorphic relatedEntity relation.
+   ============================================================ */
+var S3K_MEETINGS = [
+  { id: 'm1', title: 'Renewal Pricing Call — Zenith Software', type: 'Call', date: '2026-10-14', startTime: '10:00 AM', endTime: '10:30 AM', participants: 'Ananya Iyer', account: 'Zenith Software Solutions', contact: 'Ananya Iyer', opportunity: 'Zenith Software — Enterprise Expansion', internalParticipants: 'Rohan Mehta', owner: 'Rohan Mehta', location: 'Phone', link: '', agenda: 'Walk through revised pricing and close timeline.', reminder: 'Yes', reminderTime: '15 mins', reminderMethod: 'Email', status: 'Scheduled' },
+  { id: 'm2', title: 'Cold Chain Demo — Himalaya Dairy', type: 'Online', date: '2026-10-15', startTime: '2:00 PM', endTime: '2:45 PM', participants: 'Kabir Singh', account: 'Himalaya Dairy Pvt Ltd', contact: 'Kabir Singh', opportunity: 'Himalaya Dairy — Cold Chain Upgrade', internalParticipants: 'Priya Nair', owner: 'Priya Nair', location: 'Google Meet', link: 'meet.google.com/s3k-demo', agenda: 'Live product walkthrough for the cold-chain module.', reminder: 'Yes', reminderTime: '30 mins', reminderMethod: 'Email', status: 'Scheduled' },
+  { id: 'm3', title: 'Discovery Call — Confluence Analytics', type: 'Call', date: '2026-10-13', startTime: '11:30 AM', endTime: '12:00 PM', participants: 'Neha Kapoor', account: 'Confluence Analytics Pvt Ltd', contact: 'Neha Kapoor', opportunity: '', internalParticipants: 'Rohan Mehta', owner: 'Rohan Mehta', location: 'Phone', link: '', agenda: 'Understand current analytics stack and pain points.', reminder: 'Yes', reminderTime: '15 mins', reminderMethod: 'SMS', status: 'Completed' },
+  { id: 'm4', title: 'Quarterly Business Review — Shree Enterprises', type: 'In Person', date: '2026-10-20', startTime: '4:00 PM', endTime: '5:00 PM', participants: 'Arjun Rao', account: 'Shree Enterprises', contact: 'Arjun Rao', opportunity: 'Shree Enterprises — Retail Expansion', internalParticipants: 'Priya Nair, Rohan Mehta', owner: 'Priya Nair', location: 'Nariman Point, Mumbai', link: '', agenda: 'QBR covering adoption metrics and renewal plan.', reminder: 'Yes', reminderTime: '1 day', reminderMethod: 'Email', status: 'Scheduled' },
+  { id: 'm5', title: 'Contract Review — Bharat Textiles', type: 'Online', date: '2026-10-08', startTime: '3:00 PM', endTime: '3:30 PM', participants: 'Vikram Desai', account: 'Bharat Textiles Pvt Ltd', contact: 'Vikram Desai', opportunity: 'Bharat Textiles — Renewal', internalParticipants: 'Meera Pillai', owner: 'Meera Pillai', location: 'Zoom', link: 'zoom.us/j/s3k-review', agenda: 'Final review before renewal decision.', reminder: 'Yes', reminderTime: '15 mins', reminderMethod: 'Email', status: 'Cancelled' }
+];

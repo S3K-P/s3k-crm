@@ -207,8 +207,8 @@ export default function AccountDetailPage() {
       </button>
 
       <div className="flex flex-wrap items-center gap-3.5">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-amber-500 to-orange-500">
-          <Building2 className="h-5 w-5 text-white" />
+        <div className="surface-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]">
+          <Building2 className="h-5 w-5" style={{ color: 'var(--accent)' }} />
         </div>
         <div>
           <h1 className="font-display txt text-[22px] font-extrabold">{account.name}</h1>

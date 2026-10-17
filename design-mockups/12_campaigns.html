@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>S3K CRM — Campaigns</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared/tokens.css">
+<link rel="stylesheet" href="shared/shell.css">
+<link rel="stylesheet" href="shared/views.css">
+<style>.progress-track{background:var(--surface-2);border-radius:999px;height:6px;overflow:hidden;width:70px;display:inline-block;vertical-align:middle;margin-right:6px;}.progress-fill{height:100%;background:var(--accent);border-radius:999px;}</style>
+</head>
+<body>
+
+<div class="app-shell" id="app-shell" data-shell>
+  <div class="app-main-col">
+    <main class="app-content" id="page-content">
+
+      <div class="list-head">
+        <div class="page-head">
+          <div class="page-head-left">
+            <div class="page-icon-tile">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
+            </div>
+            <div><h1 class="page-title">Campaigns</h1><p class="page-subtitle">Marketing programs driving your pipeline</p></div>
+          </div>
+          <button class="btn btn-primary btn-sm" data-open="#camp-modal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14"/></svg>New Campaign</button>
+        </div>
+        <div class="view-switcher" style="margin-top:16px;"><div class="view-tab is-active">All Campaigns</div><div class="view-tab">Active</div><div class="view-tab">My Campaigns</div></div>
+        <div class="list-meta"><b>6 items</b><span class="sep">•</span>Sorted by <b>Start Date</b><span class="sep">•</span>Updated 2 min ago</div>
+      </div>
+
+      <div class="toolbar">
+        <div class="input-icon-wrap toolbar-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input class="input" id="list-search" placeholder="Search this list…"></div>
+        <button class="btn btn-secondary btn-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>Filters</button>
+      </div>
+
+      <div class="dt-wrap">
+        <div class="dt-scroll">
+        <table class="dt">
+          <thead><tr><th class="sortable">Campaign Name</th><th>Type</th><th>Budget</th><th style="text-align:center;">Leads</th><th style="text-align:center;">Opps</th><th>ROI</th><th>Progress</th><th>Owner</th><th>Status</th><th style="width:70px;"></th></tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="camp-modal">
+  <div class="modal contact-form-root" data-form-root style="max-width:680px;">
+    <div class="modal-header"><div><div style="font-weight:700;font-size:15.5px;">New Campaign</div></div><button class="btn btn-ghost btn-icon" data-close="#camp-modal" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-body" id="camp-form-mount"></div>
+    <div class="modal-footer"><button class="btn btn-secondary" data-close="#camp-modal">Cancel</button><button class="btn btn-secondary" id="camp-save-new">Save &amp; New</button><button class="btn btn-primary" id="camp-save">Save</button></div>
+  </div>
+</div>
+
+<script src="shared/app.js"></script>
+<script src="shared/shell.js"></script>
+<script src="shared/form-helpers.js"></script>
+<script src="shared/lead-sources-data.js"></script>
+<script src="shared/campaigns-data.js"></script>
+<script>
+  S3K.mountShell({ active: 'campaigns', breadcrumb: ['S3K CRM', 'Campaigns'] });
+  function statusVariant(s) { return { Active: 'success', Planning: 'info', Completed: 'neutral', Paused: 'warning', Cancelled: 'danger' }[s] || 'neutral'; }
+
+  var tbody = document.getElementById('tbody');
+  tbody.innerHTML = S3K_CAMPAIGNS.map(function (c) {
+    return '<tr data-id="' + c.id + '">' +
+      '<td class="cell-name"><div style="font-weight:600;"><a href="13_campaign_detail.html" style="color:inherit;text-decoration:none;">' + c.name + '</a></div><div style="font-size:11px;color:var(--faint);">' + c.startDate + ' → ' + c.endDate + '</div></td>' +
+      '<td data-label="Type"><span class="badge badge-accent">' + c.type + '</span></td>' +
+      '<td data-label="Budget">' + c.budget + '</td>' +
+      '<td data-label="Leads" style="text-align:center;">' + c.leadsGenerated + '</td>' +
+      '<td data-label="Opps" style="text-align:center;">' + c.opportunitiesGenerated + '</td>' +
+      '<td data-label="ROI" style="color:var(--success);font-weight:700;">' + c.roi + '</td>' +
+      '<td data-label="Progress"><span class="progress-track"><span class="progress-fill" style="width:' + c.progress + '%;"></span></span>' + c.progress + '%</td>' +
+      '<td data-label="Owner">' + c.owner + '</td>' +
+      '<td data-label="Status"><span class="badge badge-' + statusVariant(c.status) + '"><span class="badge-dot"></span>' + c.status + '</span></td>' +
+      '<td><div class="row-actions"><button aria-label="Edit" onclick="event.stopPropagation();document.getElementById(\'camp-modal\').classList.add(\'is-open\')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div></td></tr>';
+  }).join('');
+  tbody.addEventListener('click', function (e) { var tr = e.target.closest('tr'); if (tr && !e.target.closest('.row-actions') && !e.target.closest('a')) window.location.href = '13_campaign_detail.html'; });
+  document.getElementById('list-search').addEventListener('input', function (e) { var q = e.target.value.toLowerCase(); tbody.querySelectorAll('tr').forEach(function (tr) { tr.style.display = tr.textContent.toLowerCase().indexOf(q) > -1 ? '' : 'none'; }); });
+
+  var formHtml =
+    '<div class="error-summary" data-error-summary><b>We couldn\'t save this campaign.</b><ul data-error-list></ul></div>' +
+    '<div class="form-section"><div class="form-section-head" data-toggle-section><span class="title">Campaign Information</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></div><div class="form-section-body">' +
+      '<div class="form-span-2"><label class="field-label">Campaign Name <span class="req">*</span></label><input class="input" data-field="name"></div>' +
+      '<div><label class="field-label">Type</label><select class="input" data-field="type"><option>Email</option><option>Webinar</option><option>Social Media</option><option>Event</option><option>Advertisement</option></select></div>' +
+      '<div><label class="field-label">Owner</label><select class="input" data-field="owner"><option>Rohan Mehta</option><option>Priya Nair</option><option>Meera Pillai</option></select></div>' +
+      '<div class="form-span-2"><label class="field-label">Description</label><textarea class="input" rows="2" data-field="notes"></textarea></div>' +
+    '</div></div>' +
+    '<div class="form-section"><div class="form-section-head" data-toggle-section><span class="title">Schedule &amp; Status</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></div><div class="form-section-body">' +
+      '<div><label class="field-label">Start Date</label><input class="input" type="date" data-field="startDate"></div>' +
+      '<div><label class="field-label">End Date</label><input class="input" type="date" data-field="endDate"></div>' +
+      '<div><label class="field-label">Status</label><select class="input" data-field="status"><option>Planning</option><option>Active</option><option>Paused</option><option>Completed</option><option>Cancelled</option></select></div>' +
+    '</div></div>' +
+    '<div class="form-section"><div class="form-section-head" data-toggle-section><span class="title">Budget</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></div><div class="form-section-body">' +
+      '<div><label class="field-label">Allocated Budget (₹) <span class="req">*</span></label><input class="input" data-field="budget"></div>' +
+      '<div><label class="field-label">Expected Revenue (₹)</label><input class="input" data-field="expectedRevenue"></div>' +
+    '</div></div>' +
+    '<div class="form-section is-collapsed"><div class="form-section-head" data-toggle-section><span class="title">Audience &amp; Integration</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></div><div class="form-section-body">' +
+      '<div class="form-span-2"><label class="field-label">Target Audience</label><input class="input" data-field="targetAudience"></div>' +
+      '<div><label class="field-label">Lead Source Indicator</label><select class="input" data-field="leadSource">' + S3K_LEAD_SOURCES.map(function(s){return '<option>'+s.name+'</option>';}).join('') + '</select></div>' +
+      '<div><label class="field-label">Associated Products</label><input class="input" data-field="products"></div>' +
+    '</div></div>';
+  document.getElementById('camp-form-mount').innerHTML = formHtml;
+  S3K.initFormSections();
+
+  var root = document.querySelector('#camp-modal .contact-form-root');
+  var required = [{ selector: '[data-field="name"]', label: 'Campaign Name is required' }, { selector: '[data-field="budget"]', label: 'Allocated Budget is required' }];
+  document.getElementById('camp-save').addEventListener('click', function () { S3K.trySaveForm(root, required, { successMessage: 'Campaign saved successfully', onSuccess: function () { document.getElementById('camp-modal').classList.remove('is-open'); } }); });
+  document.getElementById('camp-save-new').addEventListener('click', function () { S3K.trySaveForm(root, required, { successMessage: 'Campaign saved — ready for the next one', onSuccess: function () { root.querySelectorAll('[data-field]').forEach(function (f) { if (f.tagName !== 'SELECT') f.value = ''; }); root.querySelector('[data-field="name"]').focus(); } }); });
+</script>
+</body>
+</html>

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   UserPlus, CalendarDays, Target, Building2,
   Users, CheckCircle2, IndianRupee, ClipboardList,
-  ArrowRight, AlertTriangle, RefreshCw, Scale, Trophy, Percent,
+  ArrowRight, AlertTriangle, RefreshCw, Scale, Trophy, Percent, LayoutGrid,
 } from 'lucide-react';
 import SectionHeader from '@/components/crm/shared/SectionHeader';
 import KpiCard from '@/components/crm/cards/KpiCard';
@@ -50,10 +50,10 @@ import {
 
 /** Static navigation, not data — these are links, not metrics. */
 const QUICK_ACTIONS = [
-  { label: 'Add New Lead',        icon: UserPlus,     href: '/leads',         gradient: 'from-emerald-500 to-green-600' },
-  { label: 'Schedule Meeting',    icon: CalendarDays, href: '/meetings',      gradient: 'from-sky-500 to-blue-600' },
-  { label: 'Create Opportunity',  icon: Target,       href: '/opportunities', gradient: 'from-violet-600 to-indigo-600' },
-  { label: 'Add Account',         icon: Building2,    href: '/accounts',      gradient: 'from-amber-500 to-orange-500' },
+  { label: 'Add New Lead',        icon: UserPlus,     href: '/leads' },
+  { label: 'Schedule Meeting',    icon: CalendarDays, href: '/meetings' },
+  { label: 'Create Opportunity',  icon: Target,       href: '/opportunities' },
+  { label: 'Add Account',         icon: Building2,    href: '/accounts' },
 ];
 
 /* ============================================================
@@ -185,11 +185,20 @@ export default function DashboardPage() {
             Here&apos;s what&apos;s happening with your sales pipeline today
           </p>
         </div>
-        <p className="txt-faint text-[12.5px] font-medium">
-          {now?.toLocaleDateString('en-US', {
-            weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-          }) ?? ''}
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="txt-faint text-[12.5px] font-medium">
+            {now?.toLocaleDateString('en-US', {
+              weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+            }) ?? ''}
+          </p>
+          <Link
+            href="/dashboards"
+            className="ctl bd flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[12.5px] font-semibold transition hover:opacity-80"
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
+            Customize dashboard
+          </Link>
+        </div>
       </div>
 
       {status === 'error' && error !== null && (
@@ -202,50 +211,59 @@ export default function DashboardPage() {
           {/* ── KPI Cards ── */}
           <div className="grid grid-cols-2 gap-3.5 md:grid-cols-3 xl:grid-cols-6">
             <KpiCard
+              variant="neutral"
               href="/leads" label="New Leads" value={String(kpis.new_leads)}
-              delta="Last 30 days" icon={Users} iconGradient="from-emerald-500 to-green-600"
+              delta="Last 30 days" icon={Users}
             />
             <KpiCard
+              variant="neutral"
               href="/leads?status=QUALIFIED" label="Qualified" value={String(kpis.qualified_leads)}
-              icon={CheckCircle2} iconGradient="from-violet-600 to-indigo-600"
+              icon={CheckCircle2}
             />
             <KpiCard
+              variant="neutral"
               href="/opportunities" label="Open Opps" value={String(kpis.open_opportunities)}
               delta={`${kpis.opportunities_closing_soon} closing soon`}
-              icon={Target} iconGradient="from-sky-500 to-blue-600"
+              icon={Target}
             />
             <KpiCard
+              variant="neutral"
               href="/opportunities" label="Pipeline Value"
               value={formatMoney(kpis.pipeline_value)}
               delta="Open deals only"
-              icon={IndianRupee} iconGradient="from-amber-500 to-orange-500"
+              icon={IndianRupee}
             />
             <KpiCard
+              variant="neutral"
               href="/meetings" label="Meetings Today" value={String(kpis.meetings_today)}
-              icon={CalendarDays} iconGradient="from-pink-500 to-rose-500"
+              icon={CalendarDays}
             />
             <KpiCard
+              variant="neutral"
               href="/tasks" label="Tasks Due" value={String(kpis.tasks_due)}
               delta={`${kpis.tasks_due_high_priority} high priority`}
-              icon={ClipboardList} iconGradient="from-violet-500 to-purple-600"
+              icon={ClipboardList}
             />
             {/* Checkpoint 5 */}
             <KpiCard
+              variant="neutral"
               href="/opportunities" label="Weighted Pipeline"
               value={formatMoney(kpis.weighted_pipeline_value)}
               delta="By win probability"
-              icon={Scale} iconGradient="from-cyan-500 to-teal-600"
+              icon={Scale}
             />
             <KpiCard
+              variant="neutral"
               href="/opportunities" label="Won Revenue"
               value={formatMoney(kpis.won_revenue)}
               delta="Last 30 days"
-              icon={Trophy} iconGradient="from-yellow-500 to-amber-600"
+              icon={Trophy}
             />
             <KpiCard
+              variant="neutral"
               href="/leads" label="Lead Conversion" value={`${kpis.lead_conversion_rate}%`}
               delta="All-time"
-              icon={Percent} iconGradient="from-rose-500 to-red-600"
+              icon={Percent}
             />
           </div>
 
@@ -327,7 +345,6 @@ export default function DashboardPage() {
                       label={action.label}
                       icon={action.icon}
                       href={action.href}
-                      gradient={action.gradient}
                     />
                   ))}
                 </div>
@@ -350,6 +367,7 @@ export default function DashboardPage() {
                     <ActivityItem
                       key={activity.id}
                       activity={activity}
+                      variant="neutral"
                       showConnector={i < view.activities.length - 1}
                     />
                   ))}

@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>S3K CRM — Zenith Software Solutions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared/tokens.css">
+<link rel="stylesheet" href="shared/shell.css">
+<link rel="stylesheet" href="shared/views.css">
+</head>
+<body>
+
+<div class="app-shell" id="app-shell" data-shell>
+  <div class="app-main-col">
+    <main class="app-content" id="page-content">
+      <div class="detail-wrap">
+
+        <a class="back-link" href="05_accounts.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>Back to Accounts</a>
+
+        <div class="detail-header">
+          <div class="detail-id">
+            <div class="avatar avatar-xl" style="border-radius:16px;">ZS</div>
+            <div>
+              <div class="detail-name-row"><h1 class="font-display" style="font-size:23px;font-weight:800;">Zenith Software Solutions</h1><span class="badge badge-success"><span class="badge-dot"></span>Active</span></div>
+              <div class="detail-meta-row"><span>Technology</span><span class="sep"></span><span>201–500 employees</span><span class="sep"></span><span style="display:flex;align-items:center;gap:5px;"><div class="avatar avatar-xs">RM</div>Owned by Rohan Mehta</span></div>
+              <div class="tag-row"><span class="badge badge-neutral">Enterprise</span><span class="badge badge-neutral">Bengaluru</span></div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="qa-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>Call</button>
+            <button class="qa-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>Email</button>
+            <button class="qa-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M9 16l2 2 4-4"/></svg>Log Activity</button>
+            <button class="qa-btn" style="color:var(--accent);border-color:var(--accent-soft);background:var(--accent-soft);" onclick="window.location.href='05_accounts.html'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Edit</button>
+          </div>
+        </div>
+
+        <div class="highlights-row">
+          <div class="highlight-card"><div class="highlight-label">Status</div><div class="highlight-value"><span class="badge badge-success" style="padding:2px 8px;"><span class="badge-dot"></span>Active</span></div></div>
+          <div class="highlight-card"><div class="highlight-label">Owner</div><div class="highlight-value">Rohan Mehta</div></div>
+          <div class="highlight-card"><div class="highlight-label">Open Opportunities</div><div class="highlight-value">2</div></div>
+          <div class="highlight-card"><div class="highlight-label">Pipeline Value</div><div class="highlight-value">₹1.27 Cr</div></div>
+          <div class="highlight-card"><div class="highlight-label">Health Score</div><div class="highlight-value" style="color:var(--success);">88 <span style="font-size:10px;font-weight:600;color:var(--faint);">/ 100</span></div></div>
+        </div>
+
+        <div class="detail-grid">
+          <div class="min-w-0">
+            <div class="tabs-list" data-tabs>
+              <button class="tab-btn is-active" data-tab="overview">Overview</button>
+              <button class="tab-btn" data-tab="contacts">Contacts</button>
+              <button class="tab-btn" data-tab="opportunities">Opportunities</button>
+              <button class="tab-btn" data-tab="activity">Activity</button>
+              <button class="tab-btn" data-tab="notes">Notes</button>
+            </div>
+            <div style="padding-top:16px;" data-tabs>
+
+              <div class="tab-panel is-active" data-tab-panel="overview">
+                <div class="info-card"><h3>Company Information</h3><div class="info-grid">
+                  <div class="info-field"><div class="l">Website</div><div class="v"><a href="#">zenithsoft.in</a></div></div>
+                  <div class="info-field"><div class="l">Annual Revenue</div><div class="v">₹180 Cr</div></div>
+                  <div class="info-field"><div class="l">Company Size</div><div class="v">201–500</div></div>
+                  <div class="info-field"><div class="l">Lead Source</div><div class="v">Website</div></div>
+                </div></div>
+                <div class="info-card"><h3>Address</h3><div class="info-grid">
+                  <div class="info-field" style="grid-column:1/-1;"><div class="l">Street</div><div class="v">4th Floor, Prestige Tech Park, Kadubeesanahalli</div></div>
+                  <div class="info-field"><div class="l">City, State</div><div class="v">Bengaluru, Karnataka</div></div>
+                  <div class="info-field"><div class="l">Country, PIN</div><div class="v">India, 560034</div></div>
+                </div></div>
+                <div class="info-card"><h3>Description</h3><p style="font-size:13px;color:var(--muted);margin:0;line-height:1.6;">Enterprise SaaS vendor evaluating an account-wide platform expansion. Technical champion (Ananya Iyer) is a strong internal advocate.</p></div>
+              </div>
+
+              <div class="tab-panel" data-tab-panel="contacts">
+                <div class="info-card"><h3>Contacts at this Account</h3>
+                  <a href="04_contact_detail.html" class="related-row" style="text-decoration:none;color:inherit;"><div class="avatar avatar-sm">AI</div><div style="flex:1;"><div style="font-size:13px;font-weight:600;">Ananya Iyer</div><div style="font-size:11.5px;color:var(--faint);">VP Engineering · Primary Contact</div></div></a>
+                  <div class="related-row"><div class="avatar avatar-sm">MP</div><div style="flex:1;"><div style="font-size:13px;font-weight:600;">Meera Pillai</div><div style="font-size:11.5px;color:var(--faint);">HR Manager</div></div></div>
+                </div>
+              </div>
+
+              <div class="tab-panel" data-tab-panel="opportunities">
+                <div class="info-card"><h3>Open Opportunities</h3>
+                  <a href="08_opportunity_detail.html" class="related-row" style="text-decoration:none;color:inherit;"><div class="avatar avatar-sm" style="background:var(--surface-3);color:var(--accent);border-radius:9px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/></svg></div><div style="flex:1;"><div style="font-size:13px;font-weight:600;">Zenith Software — Enterprise Expansion</div><div style="font-size:11.5px;color:var(--faint);">Negotiation · closes 28 Oct</div></div><span class="font-display" style="font-size:14px;font-weight:800;">₹85L</span></a>
+                  <div class="related-row"><div class="avatar avatar-sm" style="background:var(--surface-3);color:var(--accent);border-radius:9px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/></svg></div><div style="flex:1;"><div style="font-size:13px;font-weight:600;">Zenith Software — Add-on Seats</div><div style="font-size:11.5px;color:var(--faint);">Discovery · closes 20 Nov</div></div><span class="font-display" style="font-size:14px;font-weight:800;">₹42L</span></div>
+                </div>
+              </div>
+
+              <div class="tab-panel" data-tab-panel="activity">
+                <div class="info-card"><h3>Recent Activity</h3>
+                  <div class="tl-item"><div class="tl-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg></div><div><div style="font-size:13px;font-weight:600;">Call completed with Ananya Iyer</div><div style="font-size:11px;color:var(--faint);margin-top:4px;">25 min ago</div></div></div>
+                  <div class="tl-item"><div class="tl-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/></svg></div><div><div style="font-size:13px;font-weight:600;">Opportunity moved to Negotiation</div><div style="font-size:11px;color:var(--faint);margin-top:4px;">2 hrs ago</div></div></div>
+                </div>
+              </div>
+
+              <div class="tab-panel" data-tab-panel="notes">
+                <div class="info-card"><h3>Notes</h3><p style="font-size:13px;color:var(--muted);margin:0;">No notes yet.</p></div>
+              </div>
+
+            </div>
+          </div>
+
+          <div>
+            <div class="ai-panel" style="margin-bottom:16px;">
+              <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/></svg>AI Account Health</h3>
+              <div class="ai-score-ring"><div class="ai-score-num">88</div><div><div style="font-size:12px;font-weight:700;">Healthy account</div><div style="font-size:11px;color:var(--muted);">Expansion signal detected</div></div></div>
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:10px 11px;"><div style="font-size:10.5px;font-weight:700;color:var(--accent);text-transform:uppercase;margin-bottom:4px;">Suggested next action</div><div style="font-size:12px;font-weight:500;">Propose the add-on seats expansion before the Q3 close.</div></div>
+            </div>
+            <div class="info-card"><h3>Primary Contact</h3><div class="related-row"><div class="avatar avatar-sm">AI</div><div style="flex:1;"><div style="font-size:13px;font-weight:600;">Ananya Iyer</div><div style="font-size:11px;color:var(--faint);">VP Engineering</div></div></div></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="shared/app.js"></script>
+<script src="shared/shell.js"></script>
+<script>S3K.mountShell({ active: 'accounts', breadcrumb: ['S3K CRM', 'Accounts', 'Zenith Software Solutions'] });</script>
+</body>
+</html>

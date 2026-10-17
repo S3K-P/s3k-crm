@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>S3K CRM — Ananya Iyer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared/tokens.css">
+<link rel="stylesheet" href="shared/shell.css">
+<style>
+  .detail-wrap { padding: 20px 24px 40px; max-width: 1400px; margin: 0 auto; }
+  .back-link { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; color: var(--muted); text-decoration: none; margin-bottom: 14px; background: none; border: none; cursor: pointer; }
+  .back-link:hover { color: var(--text); }
+  .back-link svg { width: 15px; height: 15px; }
+
+  .detail-header { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; justify-content: space-between; margin-bottom: 18px; }
+  .detail-id { display: flex; gap: 16px; align-items: flex-start; }
+  .detail-name-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .detail-meta-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); font-weight: 500; margin-top: 5px; }
+  .detail-meta-row .sep { width: 1px; height: 13px; background: var(--border); }
+  .tag-row { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; }
+  .qa-btn { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 9px 14px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface); cursor: pointer; font-size: 10.5px; font-weight: 600; color: var(--muted); min-width: 64px; }
+  .qa-btn:hover { background: var(--surface-2); color: var(--text); }
+  .qa-btn svg { width: 17px; height: 17px; }
+
+  .highlights-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 20px; }
+  .highlight-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 12px 14px; }
+  .highlight-label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--faint); }
+  .highlight-value { font-size: 14.5px; font-weight: 700; margin-top: 4px; display: flex; align-items: center; gap: 6px; }
+
+  .detail-grid { display: grid; grid-template-columns: 1fr 340px; gap: 20px; align-items: start; }
+  @media (max-width: 1000px) { .detail-grid { grid-template-columns: 1fr; } .highlights-row { grid-template-columns: repeat(2,1fr); } }
+
+  .info-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xl); padding: 18px; margin-bottom: 16px; }
+  .info-card h3 { font-size: 13px; font-weight: 700; margin: 0 0 12px; }
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 20px; }
+  .info-field .l { font-size: 10.5px; font-weight: 700; text-transform: uppercase; color: var(--faint); margin-bottom: 3px; }
+  .info-field .v { font-size: 13px; font-weight: 500; }
+  .info-field .v a { color: var(--accent); text-decoration: none; }
+  .info-field .v a:hover { text-decoration: underline; }
+
+  /* Composer */
+  .composer-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+  .composer-tab { display: flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: var(--radius-md); border: 1px solid var(--border); background: var(--surface-2); font-size: 11.5px; font-weight: 600; color: var(--muted); cursor: pointer; }
+  .composer-tab.is-active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-soft); }
+  .composer-tab svg { width: 13px; height: 13px; }
+
+  /* Timeline */
+  .tl-item { display: flex; gap: 12px; padding-bottom: 18px; position: relative; }
+  .tl-item::before { content: ""; position: absolute; left: 15px; top: 32px; bottom: 0; width: 1.5px; background: var(--border); }
+  .tl-item:last-child::before { display: none; }
+  .tl-dot { width: 31px; height: 31px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--surface-3); color: var(--accent); flex-shrink: 0; z-index: 1; }
+  .tl-dot svg { width: 15px; height: 15px; }
+
+  /* AI panel */
+  .ai-panel { background: linear-gradient(160deg, var(--accent-soft), var(--surface) 55%); border: 1px solid var(--accent-soft); border-radius: var(--radius-xl); padding: 16px; }
+  .ai-panel h3 { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 700; margin: 0 0 12px; }
+  .ai-panel h3 svg { width: 15px; height: 15px; color: var(--accent); }
+  .ai-score-ring { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .ai-score-num { font-family: var(--font-display); font-size: 26px; font-weight: 800; color: var(--accent); }
+
+  .related-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+  .related-row:last-child { border-bottom: none; }
+</style>
+</head>
+<body>
+
+<div class="app-shell" id="app-shell" data-shell>
+  <div class="app-main-col">
+    <main class="app-content" id="page-content">
+      <div class="detail-wrap">
+
+        <a class="back-link" href="02_contacts_list.html">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+          Back to Contacts
+        </a>
+
+        <!-- ===== Header ===== -->
+        <div class="detail-header">
+          <div class="detail-id">
+            <div class="avatar avatar-xl">AI</div>
+            <div>
+              <div class="detail-name-row">
+                <h1 class="font-display" style="font-size:23px;font-weight:800;">Ananya Iyer</h1>
+                <span class="badge badge-success"><span class="badge-dot"></span>Active</span>
+              </div>
+              <div class="detail-meta-row">
+                <span>VP Engineering</span>
+                <span class="sep"></span>
+                <span style="display:flex;align-items:center;gap:5px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;"><rect x="4" y="2" width="16" height="20" rx="1"/></svg>Zenith Software Solutions</span>
+                <span class="sep"></span>
+                <span style="display:flex;align-items:center;gap:5px;"><div class="avatar avatar-xs">RM</div>Owned by Rohan Mehta</span>
+              </div>
+              <div class="tag-row">
+                <span class="badge badge-neutral">Decision Maker</span>
+                <span class="badge badge-neutral">Enterprise</span>
+                <span class="badge badge-proposed">Tags are proposed</span>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="qa-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>Call</button>
+            <button class="qa-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>Email</button>
+            <button class="qa-btn" title="WhatsApp — proposed channel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>WhatsApp<span class="badge badge-proposed" style="font-size:8px;padding:1px 5px;">New</span></button>
+            <button class="qa-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M9 16l2 2 4-4"/></svg>Log Activity</button>
+            <a class="qa-btn" href="03_contact_form.html" style="text-decoration:none;color:var(--accent);border-color:var(--accent-soft);background:var(--accent-soft);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Edit</a>
+          </div>
+        </div>
+
+        <!-- ===== Highlights ===== -->
+        <div class="highlights-row">
+          <div class="highlight-card"><div class="highlight-label">Status</div><div class="highlight-value"><span class="badge badge-success" style="padding:2px 8px;"><span class="badge-dot"></span>Active</span></div></div>
+          <div class="highlight-card"><div class="highlight-label">Account</div><div class="highlight-value">Zenith Software</div></div>
+          <div class="highlight-card"><div class="highlight-label">Owner</div><div class="highlight-value">Rohan Mehta</div></div>
+          <div class="highlight-card"><div class="highlight-label">Last Activity</div><div class="highlight-value">25 min ago</div></div>
+          <div class="highlight-card"><div class="highlight-label">AI Relationship</div><div class="highlight-value" style="color:var(--success);">92 <span style="font-size:10px;font-weight:600;color:var(--faint);">/ 100</span></div></div>
+        </div>
+
+        <!-- ===== Tabs + right rail ===== -->
+        <div class="detail-grid">
+          <div class="min-w-0">
+            <div class="tabs-list" data-tabs>
+              <button class="tab-btn is-active" data-tab="overview">Overview</button>
+              <button class="tab-btn" data-tab="activity">Activity</button>
+              <button class="tab-btn" data-tab="deals">Deals</button>
+              <button class="tab-btn" data-tab="notes">Notes</button>
+              <button class="tab-btn" data-tab="files">Files</button>
+            </div>
+            <div style="padding-top:16px;" data-tabs>
+
+              <!-- Overview -->
+              <div class="tab-panel is-active" data-tab-panel="overview">
+                <div class="info-card">
+                  <h3>Get in Touch</h3>
+                  <div class="info-grid">
+                    <div class="info-field"><div class="l">Email</div><div class="v"><a href="mailto:ananya.iyer@zenithsoft.in">ananya.iyer@zenithsoft.in</a></div></div>
+                    <div class="info-field"><div class="l">Phone</div><div class="v">+91 98765 43210</div></div>
+                    <div class="info-field"><div class="l">Mobile</div><div class="v">+91 98765 43210</div></div>
+                    <div class="info-field"><div class="l">Preferred Communication</div><div class="v">Email</div></div>
+                    <div class="info-field"><div class="l">LinkedIn</div><div class="v"><a href="#">linkedin.com/in/ananyaiyer</a></div></div>
+                  </div>
+                </div>
+                <div class="info-card">
+                  <h3>Professional Info</h3>
+                  <div class="info-grid">
+                    <div class="info-field"><div class="l">Department</div><div class="v">Technology</div></div>
+                    <div class="info-field"><div class="l">Reporting Manager</div><div class="v">—</div></div>
+                    <div class="info-field"><div class="l">Contact Owner</div><div class="v">Rohan Mehta</div></div>
+                    <div class="info-field"><div class="l">Status</div><div class="v">Active</div></div>
+                  </div>
+                </div>
+                <div class="info-card">
+                  <h3>Address</h3>
+                  <div class="info-grid">
+                    <div class="info-field" style="grid-column:1/-1;"><div class="l">Street</div><div class="v">4th Floor, Prestige Tech Park, Kadubeesanahalli</div></div>
+                    <div class="info-field"><div class="l">City, State</div><div class="v">Bengaluru, Karnataka</div></div>
+                    <div class="info-field"><div class="l">Country, PIN</div><div class="v">India, 560034</div></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Activity -->
+              <div class="tab-panel" data-tab-panel="activity">
+                <div class="info-card">
+                  <div class="composer-tabs">
+                    <div class="composer-tab is-active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>Log Call</div>
+                    <div class="composer-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Note</div>
+                    <div class="composer-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M9 16l2 2 4-4"/></svg>Task</div>
+                    <div class="composer-tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>Email</div>
+                  </div>
+                  <textarea class="input" rows="2" placeholder="Log a call with Ananya Iyer…"></textarea>
+                  <div style="display:flex;justify-content:flex-end;margin-top:10px;">
+                    <button class="btn btn-primary btn-sm" onclick="S3K.toast('Activity logged')">Log</button>
+                  </div>
+                </div>
+                <div class="info-card">
+                  <h3>Timeline</h3>
+                  <div class="tl-item">
+                    <div class="tl-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg></div>
+                    <div><div style="font-size:13px;font-weight:600;">Call completed with Ananya Iyer</div><div style="font-size:12px;color:var(--muted);margin-top:2px;">Discussed platform migration timeline and pricing for Q3 renewal.</div><div style="font-size:11px;color:var(--faint);margin-top:4px;">25 min ago · Rohan Mehta</div></div>
+                  </div>
+                  <div class="tl-item">
+                    <div class="tl-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg></div>
+                    <div><div style="font-size:13px;font-weight:600;">Email opened</div><div style="font-size:12px;color:var(--muted);margin-top:2px;">Subject: "Zenith Enterprise — Q3 Roadmap Preview"</div><div style="font-size:11px;color:var(--faint);margin-top:4px;">2 hrs ago</div></div>
+                  </div>
+                  <div class="tl-item">
+                    <div class="tl-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></div>
+                    <div><div style="font-size:13px;font-weight:600;">Downloaded case study</div><div style="font-size:12px;color:var(--muted);margin-top:2px;">"Enterprise ROI 2026"</div><div style="font-size:11px;color:var(--faint);margin-top:4px;">2 weeks ago</div></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Deals -->
+              <div class="tab-panel" data-tab-panel="deals">
+                <div class="info-card">
+                  <h3>Open Deals</h3>
+                  <div class="related-row">
+                    <div class="avatar avatar-sm" style="background:var(--surface-3);color:var(--accent);border-radius:9px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/></svg></div>
+                    <div style="flex:1;"><div style="font-size:13px;font-weight:600;">Zenith Software — Enterprise Expansion</div><div style="font-size:11.5px;color:var(--faint);">Negotiation · Role: Decision Maker · closes 28 Oct</div></div>
+                    <span class="font-display" style="font-size:14px;font-weight:800;">₹85L</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Notes -->
+              <div class="tab-panel" data-tab-panel="notes">
+                <div class="info-card">
+                  <h3>Notes</h3>
+                  <p style="font-size:13px;color:var(--muted);line-height:1.6;margin:0;">Technical champion for the platform migration. Prefers concise, data-driven proposals and async email updates over spontaneous calls.</p>
+                </div>
+              </div>
+
+              <!-- Files -->
+              <div class="tab-panel" data-tab-panel="files">
+                <div class="info-card">
+                  <div class="empty-state" style="padding:30px;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7"/></svg>
+                    <h4>No files uploaded</h4>
+                    <p>Proposals, contracts and other documents shared with this contact will appear here.</p>
+                    <button class="btn btn-secondary btn-sm">Upload File</button>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Right rail -->
+          <div>
+            <div class="ai-panel" style="margin-bottom:16px;">
+              <h3><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/></svg>AI Relationship Insights</h3>
+              <div class="ai-score-ring">
+                <div class="ai-score-num">92</div>
+                <div><div style="font-size:12px;font-weight:700;">Strong relationship</div><div style="font-size:11px;color:var(--muted);">Positive sentiment · trending up</div></div>
+              </div>
+              <div style="font-size:11.5px;line-height:1.55;color:var(--muted);margin-bottom:10px;">Ananya is a technical champion within Zenith Software. High engagement with recent content; currently evaluating a full-department expansion.</div>
+              <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:10px 11px;">
+                <div style="font-size:10.5px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px;">Suggested next action</div>
+                <div style="font-size:12px;font-weight:500;">Share the Q3 enterprise ROI case study before Friday's renewal call.</div>
+              </div>
+            </div>
+
+            <div class="info-card" style="margin-bottom:16px;">
+              <h3>Associated Account</h3>
+              <div class="related-row">
+                <div class="avatar avatar-sm" style="background:var(--surface-3);color:var(--accent);border-radius:9px;">ZS</div>
+                <div style="flex:1;"><div style="font-size:13px;font-weight:600;">Zenith Software Solutions</div><div style="font-size:11px;color:var(--faint);">Technology · Enterprise · Bengaluru</div></div>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;color:var(--accent);"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              </div>
+            </div>
+
+            <div class="info-card">
+              <h3>Upcoming Tasks</h3>
+              <div class="related-row">
+                <input type="checkbox" class="check-box">
+                <div style="flex:1;"><div style="font-size:12.5px;font-weight:600;">Send Q3 ROI case study</div><div style="font-size:11px;color:var(--faint);">Due tomorrow</div></div>
+              </div>
+              <div class="related-row">
+                <input type="checkbox" class="check-box">
+                <div style="flex:1;"><div style="font-size:12.5px;font-weight:600;">Renewal pricing call</div><div style="font-size:11px;color:var(--faint);">Fri, 17 Oct · 10:00 AM</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="shared/app.js"></script>
+<script src="shared/shell.js"></script>
+<script>
+  S3K.mountShell({ active: 'contacts', breadcrumb: ['S3K CRM', 'Contacts', 'Ananya Iyer'] });
+
+  document.querySelectorAll('.composer-tab').forEach(function (t) {
+    t.addEventListener('click', function () {
+      document.querySelectorAll('.composer-tab').forEach(function (x) { x.classList.remove('is-active'); });
+      t.classList.add('is-active');
+    });
+  });
+</script>
+</body>
+</html>

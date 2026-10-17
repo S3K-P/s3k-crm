@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>S3K CRM — Contacts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared/tokens.css">
+<link rel="stylesheet" href="shared/shell.css">
+<style>
+  .list-head { padding: 20px 24px 0; }
+  .view-switcher { display: flex; align-items: center; gap: 6px; }
+  .view-tab { display: flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: var(--radius-md); font-size: 12.5px; font-weight: 600; color: var(--muted); cursor: pointer; border: 1px solid transparent; }
+  .view-tab.is-active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-soft); }
+  .view-tab:hover:not(.is-active) { background: var(--surface-2); }
+  .view-tab svg { width: 13px; height: 13px; }
+  .pin-star { width: 13px; height: 13px; color: var(--warning); }
+
+  .list-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--faint); padding: 8px 24px 0; }
+  .list-meta b { color: var(--muted); font-weight: 600; }
+  .list-meta .sep { opacity: .5; }
+
+  .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 24px; }
+  .toolbar-search { flex: 1; min-width: 180px; max-width: 320px; }
+
+  .contacts-table-wrap { margin: 0 24px 20px; border: 1px solid var(--border); border-radius: var(--radius-xl); overflow: hidden; background: var(--surface); }
+  .contacts-table-scroll { overflow-x: auto; }
+  table.ct { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 980px; }
+  table.ct th { text-align: left; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 10px 14px; background: var(--surface-2); border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.ct th.sortable { cursor: pointer; user-select: none; }
+  table.ct th.sortable:hover { color: var(--text); }
+  table.ct th .sort-ico { width: 11px; height: 11px; vertical-align: -1px; opacity: .5; margin-left: 3px; }
+  table.ct td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; white-space: nowrap; }
+  table.ct tbody tr { transition: background .1s ease; cursor: pointer; }
+  table.ct tbody tr:hover { background: var(--surface-2); }
+  table.ct tbody tr:last-child td { border-bottom: none; }
+  table.ct tbody tr.is-selected { background: var(--accent-soft); }
+  .name-cell { display: flex; align-items: center; gap: 9px; }
+  .name-cell a { color: var(--text); font-weight: 600; text-decoration: none; }
+  .name-cell a:hover { color: var(--accent); text-decoration: underline; }
+  .ai-score { font-family: var(--font-display); font-weight: 800; font-size: 13px; }
+  .row-actions { display: inline-flex; gap: 3px; opacity: 0; transition: opacity .1s ease; }
+  tr:hover .row-actions { opacity: 1; }
+  .row-actions button { width: 26px; height: 26px; border-radius: 8px; border: none; background: var(--surface); color: var(--muted); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 0 0 1px var(--border); }
+  .row-actions button:hover { background: var(--surface-3); color: var(--accent); }
+  .row-actions svg { width: 13px; height: 13px; }
+  .tags-wrap { display: flex; gap: 4px; flex-wrap: wrap; max-width: 150px; }
+  .proposed-th { display: inline-flex; align-items: center; gap: 4px; }
+
+  .table-footer { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-top: 1px solid var(--border); background: var(--surface); flex-wrap: wrap; gap: 10px; }
+  .pager-btn { width: 30px; height: 30px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--muted); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+  .pager-btn:hover { background: var(--surface-2); }
+  .pager-btn[disabled] { opacity: .4; cursor: not-allowed; }
+
+  /* Bulk action bar (appears on selection) */
+  .bulk-bar {
+    position: sticky; top: 0; z-index: 5; display: none; align-items: center; gap: 10px; padding: 10px 16px;
+    background: var(--accent-soft); border-bottom: 1px solid var(--border);
+  }
+  .bulk-bar.is-visible { display: flex; }
+  .bulk-bar b { color: var(--accent); }
+
+  /* Filter side panel */
+  .filter-panel-backdrop { position: fixed; inset: 0; background: rgba(10,8,20,.4); z-index: var(--z-overlay); display: none; }
+  .filter-panel-backdrop.is-open { display: block; }
+  .filter-panel {
+    position: fixed; top: 0; right: -360px; width: 340px; height: 100%; background: var(--surface);
+    border-left: 1px solid var(--border); box-shadow: var(--shadow-xl); z-index: var(--z-modal);
+    transition: right .2s ease; display: flex; flex-direction: column;
+  }
+  .filter-panel-backdrop.is-open .filter-panel { right: 0; }
+  .filter-panel-head { padding: 16px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .filter-panel-body { padding: 16px 18px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 18px; }
+  .filter-panel-foot { padding: 14px 18px; border-top: 1px solid var(--border); display: flex; gap: 10px; }
+
+  /* Column chooser */
+  .col-chooser { padding: 8px; }
+  .col-chooser .menu-item { cursor: pointer; }
+
+  /* Mobile card layout for table */
+  @media (max-width: 760px) {
+    .contacts-table-wrap { margin: 0 12px 16px; }
+    table.ct, table.ct thead, table.ct tbody, table.ct th, table.ct td, table.ct tr { display: block; }
+    table.ct thead { display: none; }
+    table.ct tr { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+    table.ct td { border: none; padding: 3px 0; white-space: normal; }
+    table.ct td[data-label]::before { content: attr(data-label); display: inline-block; width: 86px; font-size: 10.5px; font-weight: 700; color: var(--faint); text-transform: uppercase; }
+    table.ct td.cell-name { padding-bottom: 6px; }
+    table.ct td.cell-name::before { display: none; }
+    .row-actions { opacity: 1; margin-top: 6px; }
+    table.ct { min-width: 0; }
+    .toolbar-search { max-width: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app-shell" id="app-shell" data-shell>
+  <div class="app-main-col">
+    <main class="app-content" id="page-content">
+
+      <!-- ===== Page header ===== -->
+      <div class="list-head">
+        <div class="page-head">
+          <div class="page-head-left">
+            <div class="page-icon-tile">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><circle cx="12" cy="12" r="3"/></svg>
+            </div>
+            <div>
+              <h1 class="page-title">Contacts</h1>
+              <p class="page-subtitle">People associated with your accounts</p>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-secondary btn-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/></svg>Import</button>
+            <button class="btn btn-secondary btn-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 8l5-5 5 5M12 3v12"/></svg>Export</button>
+            <a class="btn btn-primary btn-sm" href="03_contact_form.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14"/></svg>New Contact</a>
+          </div>
+        </div>
+
+        <!-- View switcher -->
+        <div class="view-switcher" style="margin-top:16px;">
+          <div class="view-tab is-active"><svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15 9 22 9.5 17 14.5 18.5 22 12 18 5.5 22 7 14.5 2 9.5 9 9"/></svg>All Contacts</div>
+          <div class="view-tab">My Contacts</div>
+          <div class="view-tab">Recently Viewed</div>
+          <div class="view-tab" style="color:var(--faint);"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14"/></svg>New View</div>
+        </div>
+
+        <div class="list-meta">
+          <b>128 items</b><span class="sep">•</span>Sorted by <b>Last Activity</b><span class="sep">•</span>Filtered by <b>Status: Active</b><span class="sep">•</span>Updated 2 min ago
+        </div>
+      </div>
+
+      <!-- ===== Toolbar ===== -->
+      <div class="toolbar">
+        <div class="input-icon-wrap toolbar-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input class="input" placeholder="Search this list…" id="list-search">
+        </div>
+        <div style="position:relative;">
+          <button class="btn btn-secondary btn-sm" data-menu-trigger="#filter-chip-menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>Filters <span class="badge badge-accent" style="padding:1px 6px;">1</span></button>
+        </div>
+        <button class="btn btn-secondary btn-sm" data-open="#filter-panel-backdrop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>Filter panel</button>
+        <div style="position:relative;">
+          <button class="btn btn-secondary btn-sm" data-menu-trigger="#col-chooser-menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="14" y="3" width="7" height="18" rx="1"/></svg>Columns</button>
+          <div class="menu col-chooser" id="col-chooser-menu">
+            <label class="menu-item"><input type="checkbox" class="check-box" checked style="margin-right:4px;">Company</label>
+            <label class="menu-item"><input type="checkbox" class="check-box" checked style="margin-right:4px;">Phone</label>
+            <label class="menu-item"><input type="checkbox" class="check-box" checked style="margin-right:4px;">Email</label>
+            <label class="menu-item"><input type="checkbox" class="check-box" checked style="margin-right:4px;">City</label>
+            <label class="menu-item"><input type="checkbox" class="check-box" checked style="margin-right:4px;">Owner</label>
+            <label class="menu-item"><input type="checkbox" class="check-box" checked style="margin-right:4px;">Tags <span class="badge badge-proposed" style="margin-left:4px;">Proposed</span></label>
+            <label class="menu-item"><input type="checkbox" class="check-box" checked style="margin-right:4px;">Last Activity</label>
+          </div>
+        </div>
+        <div style="display:inline-flex;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-md);padding:2px;">
+          <button class="icon-btn" style="width:30px;height:30px;background:var(--surface);" title="Comfortable density" aria-label="Comfortable density"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg></button>
+          <button class="icon-btn" style="width:30px;height:30px;background:transparent;border:none;" title="Compact density" aria-label="Compact density"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><line x1="4" y1="5" x2="20" y2="5"/><line x1="4" y1="10" x2="20" y2="10"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="4" y1="20" x2="20" y2="20"/></svg></button>
+        </div>
+        <button class="icon-btn" aria-label="Refresh list"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
+      </div>
+
+      <!-- ===== Table ===== -->
+      <div class="contacts-table-wrap">
+        <div class="bulk-bar" id="bulk-bar">
+          <span style="font-size:12.5px;"><b id="bulk-count">0</b> selected</span>
+          <button class="btn btn-secondary btn-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>Add to Campaign</button>
+          <button class="btn btn-secondary btn-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>Send Email</button>
+          <button class="btn btn-danger-ghost btn-sm">Delete</button>
+          <button class="btn btn-ghost btn-sm" style="margin-left:auto;" id="bulk-clear">Clear selection</button>
+        </div>
+        <div class="contacts-table-scroll">
+        <table class="ct">
+          <thead>
+            <tr>
+              <th style="width:36px;"><input type="checkbox" class="check-box" id="select-all"></th>
+              <th class="sortable">Full Name <svg class="sort-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></th>
+              <th class="sortable">Company</th>
+              <th>Phone</th>
+              <th>Email</th>
+              <th>City</th>
+              <th>Contact Owner</th>
+              <th><span class="proposed-th">Tags <span class="badge badge-proposed">Proposed</span></span></th>
+              <th class="sortable">Last Activity <svg class="sort-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></th>
+              <th class="sortable" style="text-align:center;">Relationship</th>
+              <th style="width:120px;"></th>
+            </tr>
+          </thead>
+          <tbody id="contacts-tbody">
+            <!-- rows injected by JS from CONTACTS data so 02/03/04 stay in sync -->
+          </tbody>
+        </table>
+        </div>
+        <div class="table-footer">
+          <span style="font-size:12px;color:var(--faint);">Showing <b class="txt">1–8</b> of <b class="txt">128</b></span>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <button class="pager-btn" disabled aria-label="Previous page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><path d="m15 18-6-6 6-6"/></svg></button>
+            <span style="font-size:12px;font-weight:600;padding:0 4px;">Page 1 of 16</span>
+            <button class="pager-btn" aria-label="Next page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><path d="m9 18 6-6-6-6"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ===== Filter chip quick menu ===== -->
+<div class="menu" id="filter-chip-menu" style="position:fixed;">
+  <div class="menu-item" style="cursor:default;font-weight:700;color:var(--text);">Status: Active ✓</div>
+  <div class="menu-sep"></div>
+  <button class="menu-item">Status: Inactive</button>
+  <button class="menu-item">Status: Any</button>
+</div>
+
+<!-- ===== Filter side panel ===== -->
+<div class="filter-panel-backdrop" id="filter-panel-backdrop">
+  <div class="filter-panel">
+    <div class="filter-panel-head">
+      <div style="font-weight:700;font-size:15px;">Filters</div>
+      <button class="btn btn-ghost btn-icon" data-close="#filter-panel-backdrop" aria-label="Close filters"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="filter-panel-body">
+      <div>
+        <label class="field-label">Status</label>
+        <label class="check-row" style="margin-bottom:6px;"><input type="checkbox" class="check-box" checked>Active</label>
+        <label class="check-row"><input type="checkbox" class="check-box">Inactive</label>
+      </div>
+      <div>
+        <label class="field-label">Account</label>
+        <select class="input"><option>Any account</option><option>Zenith Software Solutions</option><option>Himalaya Dairy Pvt Ltd</option><option>Konkan Logistics</option><option>Bharat Textiles Pvt Ltd</option><option>Shree Enterprises</option></select>
+      </div>
+      <div>
+        <label class="field-label">Contact Owner</label>
+        <select class="input"><option>Anyone</option><option>Rohan Mehta</option><option>Priya Nair</option><option>Meera Pillai</option></select>
+      </div>
+      <div>
+        <label class="field-label">City</label>
+        <select class="input"><option>Any city</option><option>Mumbai</option><option>Pune</option><option>Bengaluru</option><option>Ahmedabad</option><option>Kochi</option></select>
+      </div>
+      <div>
+        <label class="field-label">AI Relationship score</label>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input type="range" min="0" max="100" value="0" style="flex:1;">
+          <span class="txt-muted" style="font-size:11.5px;width:70px;">0 – 100</span>
+        </div>
+      </div>
+    </div>
+    <div class="filter-panel-foot">
+      <button class="btn btn-secondary" style="flex:1;" data-close="#filter-panel-backdrop">Reset</button>
+      <button class="btn btn-primary" style="flex:1;" data-close="#filter-panel-backdrop">Apply Filters</button>
+    </div>
+  </div>
+</div>
+
+<script src="shared/app.js"></script>
+<script src="shared/shell.js"></script>
+<script src="shared/contacts-data.js"></script>
+<script>
+  S3K.mountShell({ active: 'contacts', breadcrumb: ['S3K CRM', 'Contacts'] });
+
+  function initials(name) { return name.split(' ').map(function(p){return p[0];}).slice(0,2).join('').toUpperCase(); }
+  function scoreColor(s) { return s >= 80 ? 'var(--success)' : s >= 60 ? 'var(--warning)' : 'var(--danger)'; }
+
+  var tbody = document.getElementById('contacts-tbody');
+  tbody.innerHTML = S3K_CONTACTS.map(function (c) {
+    var tagsHtml = (c.tags || []).map(function (t) { return '<span class="badge badge-neutral">' + t + '</span>'; }).join('');
+    return (
+      '<tr data-id="' + c.id + '">' +
+        '<td><input type="checkbox" class="check-box row-check" onclick="event.stopPropagation()"></td>' +
+        '<td class="cell-name"><div class="name-cell"><div class="avatar avatar-sm">' + initials(c.firstName + ' ' + c.lastName) + '</div><div><a href="04_contact_detail.html">' + c.firstName + ' ' + c.lastName + '</a><div style="font-size:11px;color:var(--faint);">' + c.jobTitle + '</div></div></div></td>' +
+        '<td data-label="Company">' + c.account + '</td>' +
+        '<td data-label="Phone">' + c.phone + '</td>' +
+        '<td data-label="Email">' + c.email + '</td>' +
+        '<td data-label="City">' + c.city + '</td>' +
+        '<td data-label="Owner">' + c.owner + '</td>' +
+        '<td data-label="Tags"><div class="tags-wrap">' + (tagsHtml || '<span style="color:var(--faint);">—</span>') + '</div></td>' +
+        '<td data-label="Last Activity" style="color:var(--faint);">' + c.lastActivity + '</td>' +
+        '<td data-label="Relationship" style="text-align:center;"><span class="ai-score" style="color:' + scoreColor(c.aiScore) + ';">' + c.aiScore + '</span></td>' +
+        '<td><div class="row-actions">' +
+          '<button aria-label="Call" title="Call" onclick="event.stopPropagation()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg></button>' +
+          '<button aria-label="Email" title="Email" onclick="event.stopPropagation()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg></button>' +
+          '<button aria-label="Edit" title="Edit" onclick="event.stopPropagation();window.location.href=\'03_contact_form.html\'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>' +
+          '<button aria-label="More" title="More" onclick="event.stopPropagation()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg></button>' +
+        '</div></td>' +
+      '</tr>'
+    );
+  }).join('');
+
+  // Row click -> detail page; row checkbox selection -> bulk bar
+  tbody.addEventListener('click', function (e) {
+    var tr = e.target.closest('tr');
+    if (tr && !e.target.closest('.row-check') && !e.target.closest('.row-actions')) {
+      window.location.href = '04_contact_detail.html';
+    }
+  });
+  function syncBulkBar() {
+    var checked = tbody.querySelectorAll('.row-check:checked');
+    document.getElementById('bulk-bar').classList.toggle('is-visible', checked.length > 0);
+    document.getElementById('bulk-count').textContent = checked.length;
+    tbody.querySelectorAll('tr').forEach(function (tr) {
+      tr.classList.toggle('is-selected', tr.querySelector('.row-check').checked);
+    });
+  }
+  tbody.addEventListener('change', function (e) { if (e.target.classList.contains('row-check')) syncBulkBar(); });
+  document.getElementById('select-all').addEventListener('change', function () {
+    tbody.querySelectorAll('.row-check').forEach(function (cb) { cb.checked = this.checked; }.bind(this));
+    syncBulkBar();
+  });
+  document.getElementById('bulk-clear').addEventListener('click', function () {
+    tbody.querySelectorAll('.row-check').forEach(function (cb) { cb.checked = false; });
+    document.getElementById('select-all').checked = false;
+    syncBulkBar();
+  });
+
+  // Live search filter (client-side demo over the loaded rows)
+  document.getElementById('list-search').addEventListener('input', function (e) {
+    var q = e.target.value.toLowerCase();
+    tbody.querySelectorAll('tr').forEach(function (tr) {
+      tr.style.display = tr.textContent.toLowerCase().indexOf(q) > -1 ? '' : 'none';
+    });
+  });
+
+  // Position the filter-chip quick menu under its trigger
+  document.addEventListener('click', function (e) {
+    var trigger = e.target.closest('[data-menu-trigger="#filter-chip-menu"]');
+    if (trigger) {
+      var r = trigger.getBoundingClientRect();
+      var menu = document.getElementById('filter-chip-menu');
+      menu.style.top = (r.bottom + 6) + 'px';
+      menu.style.left = r.left + 'px';
+    }
+  });
+</script>
+
+</body>
+</html>

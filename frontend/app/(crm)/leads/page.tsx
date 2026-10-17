@@ -8,7 +8,7 @@ import {
 
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
 import KanbanBoard, { type KanbanColumnDef } from '@/components/crm/kanban/KanbanBoard';
-import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
+import Modal from '@/components/crm/dialogs/Modal';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess, notifyWarning } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
@@ -478,8 +478,8 @@ export default function LeadsPage() {
     <div className="flex h-full flex-col space-y-6 p-6 lg:p-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3.5">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-emerald-500 to-green-600">
-            <Users className="h-5 w-5 text-white" />
+          <div className="surface-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]">
+            <Users className="h-5 w-5" style={{ color: 'var(--accent)' }} />
           </div>
           <div>
             <h1 className="font-display txt text-[22px] font-extrabold">Leads</h1>
@@ -724,7 +724,7 @@ export default function LeadsPage() {
         />
       )}
 
-      <SlideDrawer
+      <Modal
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         title={editing ? 'Edit lead' : 'New lead'}
@@ -890,7 +890,7 @@ export default function LeadsPage() {
             recordContext={{ ...editing, ...form }}
           />
         </div>
-      </SlideDrawer>
+      </Modal>
       {mergeOpen && mergeCandidates(items, selectedIds).length > 1 && (
         <MergeDialog
           open={mergeOpen}
@@ -966,10 +966,11 @@ function BulkStatusDrawer({
   }
 
   return (
-    <SlideDrawer
+    <Modal
       open
       onClose={onClose}
       title={`Move ${count} leads`}
+      maxWidth="max-w-md"
       footer={
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} className="btn-ghost px-4 py-2 text-[13px]">
@@ -1008,7 +1009,7 @@ function BulkStatusDrawer({
           </FormField>
         )}
       </div>
-    </SlideDrawer>
+    </Modal>
   );
 }
 

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>S3K CRM — Nimbus Channel Partners</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared/tokens.css">
+<link rel="stylesheet" href="shared/shell.css">
+<link rel="stylesheet" href="shared/views.css">
+<style>.metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}@media (max-width:700px){.metric-grid{grid-template-columns:repeat(2,1fr);}}</style>
+</head>
+<body>
+
+<div class="app-shell" id="app-shell" data-shell>
+  <div class="app-main-col">
+    <main class="app-content" id="page-content">
+      <div class="detail-wrap">
+
+        <a class="back-link" href="19_partners.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>Back to Partners</a>
+
+        <div class="detail-header">
+          <div class="detail-id">
+            <div class="avatar avatar-xl" style="border-radius:16px;">NC</div>
+            <div>
+              <div class="detail-name-row"><h1 class="font-display" style="font-size:22px;font-weight:800;">Nimbus Channel Partners</h1><span class="badge badge-success"><span class="badge-dot"></span>Active</span></div>
+              <div class="detail-meta-row"><span>Channel Partner</span><span class="sep"></span><span>West India</span><span class="sep"></span><span style="display:flex;align-items:center;gap:5px;"><div class="avatar avatar-xs">PN</div>Managed by Priya Nair</span></div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="qa-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M9 16l2 2 4-4"/></svg>Log Activity</button>
+            <button class="qa-btn" style="color:var(--accent);border-color:var(--accent-soft);background:var(--accent-soft);" onclick="window.location.href='19_partners.html'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Edit</button>
+          </div>
+        </div>
+
+        <div class="metric-grid" style="margin-bottom:22px;">
+          <div class="highlight-card"><div class="highlight-label">Leads Generated</div><div class="highlight-value">64</div></div>
+          <div class="highlight-card"><div class="highlight-label">Qualified Leads</div><div class="highlight-value">28</div></div>
+          <div class="highlight-card"><div class="highlight-label">Converted Leads</div><div class="highlight-value">9</div></div>
+          <div class="highlight-card"><div class="highlight-label">Won Deals</div><div class="highlight-value">7</div></div>
+          <div class="highlight-card"><div class="highlight-label">Conversion %</div><div class="highlight-value">14.1%</div></div>
+          <div class="highlight-card"><div class="highlight-label">Revenue Generated</div><div class="highlight-value">₹2.1 Cr</div></div>
+          <div class="highlight-card"><div class="highlight-label">Pipeline Value</div><div class="highlight-value">₹1.4 Cr</div></div>
+          <div class="highlight-card"><div class="highlight-label">Avg. Deal Size</div><div class="highlight-value">₹30 L</div></div>
+        </div>
+
+        <div class="detail-grid">
+          <div class="min-w-0">
+            <div class="info-card"><h3>Leads from this Partner</h3>
+              <div class="related-row"><div class="avatar avatar-sm">DS</div><div style="flex:1;"><div style="font-size:13px;font-weight:600;">Devika Shah</div><div style="font-size:11.5px;color:var(--faint);">Trident Marine Exports</div></div><span class="badge badge-warning">Qualified</span></div>
+              <div class="related-row"><div class="avatar avatar-sm">FS</div><div style="flex:1;"><div style="font-size:13px;font-weight:600;">Farhan Shaikh</div><div style="font-size:11.5px;color:var(--faint);">Orion Steel Works</div></div><span class="badge badge-warning">Proposal Sent</span></div>
+            </div>
+          </div>
+          <div>
+            <div class="info-card"><h3>Partner Details</h3>
+              <div class="info-field" style="margin-bottom:12px;"><div class="l">Last Lead Generated</div><div class="v">2 days ago</div></div>
+              <div class="info-field" style="margin-bottom:12px;"><div class="l">Last Activity</div><div class="v">1 day ago</div></div>
+              <div class="info-field"><div class="l">Linked Account</div><div class="v">—</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="shared/app.js"></script>
+<script src="shared/shell.js"></script>
+<script>S3K.mountShell({ active: 'partners', breadcrumb: ['S3K CRM', 'Partners', 'Nimbus Channel Partners'] });</script>
+</body>
+</html>

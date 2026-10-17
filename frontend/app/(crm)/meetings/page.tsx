@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CalendarDays, Loader2, Pencil, Plus, Trash2 } from 'lucide-react';
 
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
-import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
+import Modal from '@/components/crm/dialogs/Modal';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
@@ -34,6 +34,7 @@ import {
 } from '@/features/crm/meetings';
 import type { ActivityStatus } from '@/features/crm/activities';
 import type { CrmEntityType } from '@/features/crm/tasks';
+import { listMembers, type OrganizationMember } from '@/features/admin/users';
 
 /* ============================================================
    MEETINGS
@@ -60,12 +61,15 @@ interface MeetingForm {
   subject: string;
   description: string;
   status: ActivityStatus;
+  owner_id: string;
   meeting_type: MeetingType;
   start_time: string;
   end_time: string;
   location: string;
   meeting_link: string;
   agenda: string;
+  internal_participant_ids: string[];
+  external_participants: string;
   related_entity_type: CrmEntityType | '';
   related_entity_id: string;
 }
@@ -74,12 +78,15 @@ const EMPTY_FORM: MeetingForm = {
   subject: '',
   description: '',
   status: 'PLANNED',
+  owner_id: '',
   meeting_type: 'VIDEO',
   start_time: '',
   end_time: '',
   location: '',
   meeting_link: '',
   agenda: '',
+  internal_participant_ids: [],
+  external_participants: '',
   related_entity_type: '',
   related_entity_id: '',
 };
@@ -119,6 +126,7 @@ export default function MeetingsPage() {
   const mayCreate = can('activities', 'CREATE');
   const mayEdit = can('activities', 'EDIT');
   const mayDelete = can('activities', 'DELETE');
+  const mayViewMembers = can('users', 'VIEW');
 
   const [search, setSearch] = useState('');
   // `/meetings?status=PLANNED` is where the dashboard's "Meetings Today" tile
@@ -149,6 +157,25 @@ export default function MeetingsPage() {
 
   const related = useRelatedRecordOptions();
 
+  const [members, setMembers] = useState<OrganizationMember[]>([]);
+  useEffect(() => {
+    if (!mayViewMembers) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await listMembers();
+        if (!cancelled) {
+          setMembers(result.data.filter((member) => member.status === 'ACTIVE'));
+        }
+      } catch {
+        // Non-fatal — pickers stay empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mayViewMembers]);
+
   /* ---- Drawer ---- */
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState<Meeting | null>(null);
@@ -172,12 +199,15 @@ export default function MeetingsPage() {
       subject: row.subject,
       description: row.description ?? '',
       status: row.status,
+      owner_id: row.owner_id ?? '',
       meeting_type: detail?.meeting_type ?? 'VIDEO',
       start_time: toLocalInput(detail?.start_time),
       end_time: toLocalInput(detail?.end_time),
       location: detail?.location ?? '',
       meeting_link: detail?.meeting_link ?? '',
       agenda: detail?.agenda ?? '',
+      internal_participant_ids: detail?.internal_participant_ids ?? [],
+      external_participants: detail?.external_participants ?? '',
       related_entity_type: row.related_entity_type ?? '',
       related_entity_id: row.related_entity_id ?? '',
     });
@@ -204,6 +234,7 @@ export default function MeetingsPage() {
       subject: form.subject.trim(),
       description: form.description.trim() || null,
       status: form.status,
+      owner_id: form.owner_id || null,
       related_entity_type: form.related_entity_type || null,
       related_entity_id: form.related_entity_id || null,
       meeting: {
@@ -213,6 +244,8 @@ export default function MeetingsPage() {
         location: form.location.trim() || null,
         meeting_link: form.meeting_link.trim() || null,
         agenda: form.agenda.trim() || null,
+        internal_participant_ids: form.internal_participant_ids,
+        external_participants: form.external_participants.trim() || null,
       },
     };
 
@@ -333,8 +366,8 @@ export default function MeetingsPage() {
     <div className="flex h-full flex-col space-y-6 p-6 lg:p-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3.5">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-sky-500 to-blue-600">
-            <CalendarDays className="h-5 w-5 text-white" />
+          <div className="surface-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]">
+            <CalendarDays className="h-5 w-5" style={{ color: 'var(--accent)' }} />
           </div>
           <div>
             <h1 className="font-display txt text-[22px] font-extrabold">Meetings</h1>
@@ -403,7 +436,7 @@ export default function MeetingsPage() {
         />
       )}
 
-      <SlideDrawer
+      <Modal
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         title={editing ? 'Edit meeting' : 'Schedule meeting'}
@@ -494,6 +527,60 @@ export default function MeetingsPage() {
             />
           </FormField>
 
+          <FormField
+            label="Participants (external)"
+            hint="Free text — not necessarily existing contacts."
+          >
+            <FormInput
+              value={form.external_participants}
+              onChange={(event) => setForm({ ...form, external_participants: event.target.value })}
+              placeholder="e.g. Ananya Iyer"
+            />
+          </FormField>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FormField
+              label="Meeting owner"
+              hint={!mayViewMembers ? 'You do not have permission to browse members.' : undefined}
+            >
+              <FormSelect
+                value={form.owner_id}
+                onChange={(event) => setForm({ ...form, owner_id: event.target.value })}
+                placeholder="Unassigned"
+                disabled={!mayViewMembers}
+                options={members.map((member) => ({
+                  value: member.user_id,
+                  label: member.full_name?.trim() || member.email,
+                }))}
+              />
+            </FormField>
+            <FormField
+              label="Internal participants"
+              hint={!mayViewMembers ? 'You do not have permission to browse members.' : 'Hold Ctrl/Cmd to select more than one.'}
+            >
+              <select
+                multiple
+                className="ctl w-full px-3.5 py-2.5 text-sm outline-none transition-colors focus:border-[var(--accent)]"
+                value={form.internal_participant_ids}
+                disabled={!mayViewMembers}
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    internal_participant_ids: Array.from(event.target.selectedOptions).map(
+                      (option) => option.value,
+                    ),
+                  })
+                }
+              >
+                {members.map((member) => (
+                  <option key={member.user_id} value={member.user_id}>
+                    {member.full_name?.trim() || member.email}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+          </div>
+
           <RelatedRecordFields
             options={related}
             entityType={form.related_entity_type}
@@ -521,7 +608,7 @@ export default function MeetingsPage() {
 
           <FormError message={validation ?? saveError} />
         </div>
-      </SlideDrawer>
+      </Modal>
     </div>
   );
 }

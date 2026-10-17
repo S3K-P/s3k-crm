@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>S3K CRM — Lead Sources</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared/tokens.css">
+<link rel="stylesheet" href="shared/shell.css">
+<link rel="stylesheet" href="shared/views.css">
+</head>
+<body>
+
+<div class="app-shell" id="app-shell" data-shell>
+  <div class="app-main-col">
+    <main class="app-content" id="page-content">
+
+      <div class="list-head">
+        <div class="page-head">
+          <div class="page-head-left">
+            <div class="page-icon-tile">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20z"/></svg>
+            </div>
+            <div><h1 class="page-title">Lead Sources</h1><p class="page-subtitle">Where your leads come from</p></div>
+          </div>
+          <button class="btn btn-primary btn-sm" data-open="#ls-modal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14"/></svg>New Source</button>
+        </div>
+        <div class="list-meta"><b>7 items</b><span class="sep">•</span>Sorted by <b>Leads Generated</b><span class="sep">•</span>Updated 2 min ago</div>
+      </div>
+
+      <div class="toolbar">
+        <div class="input-icon-wrap toolbar-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input class="input" id="list-search" placeholder="Search sources…"></div>
+      </div>
+
+      <div class="dt-wrap">
+        <div class="dt-scroll">
+        <table class="dt">
+          <thead><tr><th>Source Name</th><th>Category</th><th>Description</th><th style="text-align:center;">Generated</th><th style="text-align:center;">Converted</th><th>Status</th><th>Last Updated</th><th style="width:70px;"></th></tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        </div>
+      </div>
+
+      <p style="padding:0 24px 24px;font-size:11.5px;color:var(--faint);">Note: Lead Sources has no separate record detail page in S3K today — clicking a row opens Edit directly, same as the real app.</p>
+
+    </main>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="ls-modal">
+  <div class="modal contact-form-root" data-form-root style="max-width:520px;">
+    <div class="modal-header"><div><div style="font-weight:700;font-size:15.5px;" id="ls-modal-title">New Lead Source</div></div><button class="btn btn-ghost btn-icon" data-close="#ls-modal" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-body">
+      <div class="error-summary" data-error-summary><b>We couldn't save this source.</b><ul data-error-list></ul></div>
+      <div style="display:grid;gap:14px;">
+        <div><label class="field-label">Source Name <span class="req">*</span></label><input class="input" data-field="name" placeholder="e.g. Google Ads"></div>
+        <div><label class="field-label">Category <span class="req">*</span></label><select class="input" data-field="category"><option value="">Select a category</option><option>Digital</option><option>Social Media</option><option>Partnership</option><option>Internal</option><option>Marketing</option><option>Outbound</option><option>Events</option></select></div>
+        <div><label class="field-label">Description</label><textarea class="input" rows="3" data-field="description"></textarea></div>
+        <div><label class="field-label">Status</label><select class="input" data-field="status"><option>Active</option><option>Inactive</option></select></div>
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" data-close="#ls-modal">Cancel</button><button class="btn btn-primary" id="ls-save">Save</button></div>
+  </div>
+</div>
+
+<script src="shared/app.js"></script>
+<script src="shared/shell.js"></script>
+<script src="shared/form-helpers.js"></script>
+<script src="shared/lead-sources-data.js"></script>
+<script>
+  S3K.mountShell({ active: 'lead-sources', breadcrumb: ['S3K CRM', 'Lead Sources'] });
+
+  var tbody = document.getElementById('tbody');
+  tbody.innerHTML = S3K_LEAD_SOURCES.map(function (s) {
+    return '<tr data-id="' + s.id + '">' +
+      '<td class="cell-name" style="font-weight:600;">' + s.name + '</td>' +
+      '<td data-label="Category"><span class="badge badge-accent">' + s.category + '</span></td>' +
+      '<td data-label="Description" style="color:var(--muted);max-width:260px;white-space:normal;">' + s.description + '</td>' +
+      '<td data-label="Generated" style="text-align:center;">' + s.leadsGenerated + '</td>' +
+      '<td data-label="Converted" style="text-align:center;color:var(--success);font-weight:700;">' + s.leadsConverted + '</td>' +
+      '<td data-label="Status"><span class="badge badge-' + (s.status === 'Active' ? 'success' : 'neutral') + '"><span class="badge-dot"></span>' + s.status + '</span></td>' +
+      '<td data-label="Updated" style="color:var(--faint);">' + s.lastUpdated + '</td>' +
+      '<td><div class="row-actions"><button aria-label="Edit" onclick="event.stopPropagation();document.getElementById(\'ls-modal\').classList.add(\'is-open\')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div></td></tr>';
+  }).join('');
+  tbody.addEventListener('click', function (e) {
+    var tr = e.target.closest('tr');
+    if (tr && !e.target.closest('.row-actions')) document.getElementById('ls-modal').classList.add('is-open');
+  });
+  document.getElementById('list-search').addEventListener('input', function (e) { var q = e.target.value.toLowerCase(); tbody.querySelectorAll('tr').forEach(function (tr) { tr.style.display = tr.textContent.toLowerCase().indexOf(q) > -1 ? '' : 'none'; }); });
+
+  var root = document.querySelector('#ls-modal .contact-form-root');
+  document.getElementById('ls-save').addEventListener('click', function () {
+    S3K.trySaveForm(root, [
+      { selector: '[data-field="name"]', label: 'Source Name is required' },
+      { selector: '[data-field="category"]', label: 'Category is required' }
+    ], { successMessage: 'Lead source saved successfully', onSuccess: function () { document.getElementById('ls-modal').classList.remove('is-open'); } });
+  });
+</script>
+</body>
+</html>

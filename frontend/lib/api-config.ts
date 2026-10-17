@@ -33,9 +33,8 @@ export const LOGIN_PATH = '/login';
 /**
  * Where a signed-in user lands.
  *
- * The S3K workspace, not the CRM dashboard: a user may hold several apps, and
- * dropping them straight into one of them is the thing that made the CRM feel
- * like the whole product. `/dashboard` still works and is still the CRM's own
- * landing page — it is simply no longer the platform's front door.
+ * The CRM dashboard directly — product decision: skip the S3K workspace/app
+ * picker as the front door and go straight into the CRM. `/workspace` still
+ * exists and still lists every S3K app for someone who holds more than one.
  */
-export const POST_LOGIN_PATH = '/workspace';
+export const POST_LOGIN_PATH = '/dashboard';

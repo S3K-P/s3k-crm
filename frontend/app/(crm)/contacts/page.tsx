@@ -5,10 +5,10 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Contact as ContactIcon, GitMerge, Loader2, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
-import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
+import Modal from '@/components/crm/dialogs/Modal';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess, notifyWarning } from '@/components/crm/feedback/notify';
-import FormField, { FormInput, FormSelect } from '@/components/crm/forms/FormField';
+import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
 import MergeDialog from '@/components/crm/dialogs/MergeDialog';
 import BulkActionsToolbar from '@/components/crm/toolbar/BulkActionsToolbar';
 import SavedViewPicker from '@/components/crm/toolbar/SavedViewPicker';
@@ -26,6 +26,7 @@ import { changedValues, type CustomFieldValues } from '@/features/crm/custom-fie
 import { usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
 import { listAccounts, type Account } from '@/features/crm/accounts';
+import { listMembers, type OrganizationMember } from '@/features/admin/users';
 import {
   CONTACT_STATUSES,
   archiveContact,
@@ -60,9 +61,28 @@ const EMPTY_FORM: ContactInput = {
   account_id: '',
   email: '',
   phone: '',
+  mobile: '',
   job_title: '',
+  department: '',
+  owner_id: '',
+  preferred_communication: '',
+  linkedin_url: '',
+  reporting_manager_id: '',
+  address_line1: '',
+  city: '',
+  state: '',
+  postal_code: '',
+  country: '',
+  notes: '',
   status: 'ACTIVE',
 };
+
+const PREFERRED_COMMUNICATION_OPTIONS = [
+  { value: 'Email', label: 'Email' },
+  { value: 'Phone', label: 'Phone' },
+  { value: 'Mobile', label: 'Mobile' },
+  { value: 'LinkedIn', label: 'LinkedIn' },
+];
 
 function ContactsPageContent() {
   const router = useRouter();
@@ -80,6 +100,7 @@ function ContactsPageContent() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [mergeOpen, setMergeOpen] = useState(false);
   const mayViewAccounts = can('accounts', 'VIEW');
+  const mayViewMembers = can('users', 'VIEW');
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -134,6 +155,47 @@ function ContactsPageContent() {
     [accounts],
   );
 
+  /* ---- Full contact list, for the reporting-manager picker ---- */
+  const [allContacts, setAllContacts] = useState<Contact[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await listContacts({
+          page_size: 200,
+          sort_by: 'last_name',
+          sort_dir: 'asc',
+        });
+        if (!cancelled) setAllContacts(result.data);
+      } catch {
+        // Non-fatal — the picker is simply empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /* ---- Owner options for the picker ---- */
+  const [members, setMembers] = useState<OrganizationMember[]>([]);
+  useEffect(() => {
+    if (!mayViewMembers) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await listMembers();
+        if (!cancelled) {
+          setMembers(result.data.filter((member) => member.status === 'ACTIVE'));
+        }
+      } catch {
+        // Non-fatal — owner picker stays empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mayViewMembers]);
+
   /* Deep link from an account: `/contacts?account_id=…` opens the New contact
      drawer with that account already linked, so someone who arrived from an
      account never has to find it again in a picker. The value goes straight
@@ -175,7 +237,19 @@ function ContactsPageContent() {
       account_id: row.account_id ?? '',
       email: row.email ?? '',
       phone: row.phone ?? '',
+      mobile: row.mobile ?? '',
       job_title: row.job_title ?? '',
+      department: row.department ?? '',
+      owner_id: row.owner_id ?? '',
+      reporting_manager_id: row.reporting_manager_id ?? '',
+      preferred_communication: row.preferred_communication ?? '',
+      linkedin_url: row.linkedin_url ?? '',
+      address_line1: row.address_line1 ?? '',
+      city: row.city ?? '',
+      state: row.state ?? '',
+      postal_code: row.postal_code ?? '',
+      country: row.country ?? '',
+      notes: row.notes ?? '',
       status: row.status,
     });
     setDuplicateWarning(false);
@@ -191,7 +265,19 @@ function ContactsPageContent() {
       account_id: form.account_id || null,
       email: form.email?.trim() || null,
       phone: form.phone?.trim() || null,
+      mobile: form.mobile?.trim() || null,
       job_title: form.job_title?.trim() || null,
+      department: form.department?.trim() || null,
+      owner_id: form.owner_id || null,
+      reporting_manager_id: form.reporting_manager_id || null,
+      preferred_communication: form.preferred_communication || null,
+      linkedin_url: form.linkedin_url?.trim() || null,
+      address_line1: form.address_line1?.trim() || null,
+      city: form.city?.trim() || null,
+      state: form.state?.trim() || null,
+      postal_code: form.postal_code?.trim() || null,
+      country: form.country?.trim() || null,
+      notes: form.notes?.trim() || null,
       status: form.status,
       // Only what the user actually touched. Sending the whole document would
       // be harmless but noisy; sending `{}` when they touched nothing would
@@ -327,8 +413,8 @@ function ContactsPageContent() {
     <div className="flex h-full flex-col space-y-6 p-6 lg:p-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3.5">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-violet-600 to-indigo-600">
-            <ContactIcon className="h-5 w-5 text-white" />
+          <div className="surface-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]">
+            <ContactIcon className="h-5 w-5" style={{ color: 'var(--accent)' }} />
           </div>
           <div>
             <h1 className="font-display txt text-[22px] font-extrabold">Contacts</h1>
@@ -486,7 +572,7 @@ function ContactsPageContent() {
         />
       )}
 
-      <SlideDrawer
+      <Modal
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         title={editing ? 'Edit contact' : 'New contact'}
@@ -555,18 +641,115 @@ function ContactsPageContent() {
               placeholder="person@company.com"
             />
           </FormField>
-          <FormField label="Phone">
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Phone">
+              <FormInput
+                value={form.phone ?? ''}
+                onChange={(event) => setForm({ ...form, phone: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Mobile">
+              <FormInput
+                value={form.mobile ?? ''}
+                onChange={(event) => setForm({ ...form, mobile: event.target.value })}
+              />
+            </FormField>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Job title">
+              <FormInput
+                value={form.job_title ?? ''}
+                onChange={(event) => setForm({ ...form, job_title: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Department">
+              <FormInput
+                value={form.department ?? ''}
+                onChange={(event) => setForm({ ...form, department: event.target.value })}
+              />
+            </FormField>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField
+              label="Contact owner"
+              hint={!mayViewMembers ? 'You do not have permission to browse members.' : undefined}
+            >
+              <FormSelect
+                value={form.owner_id ?? ''}
+                onChange={(event) => setForm({ ...form, owner_id: event.target.value })}
+                placeholder="Unassigned"
+                disabled={!mayViewMembers}
+                options={members.map((member) => ({
+                  value: member.user_id,
+                  label: member.full_name?.trim() || member.email,
+                }))}
+              />
+            </FormField>
+            <FormField label="Reporting manager" hint="Another contact at their own company.">
+              <FormSelect
+                value={form.reporting_manager_id ?? ''}
+                onChange={(event) => setForm({ ...form, reporting_manager_id: event.target.value })}
+                placeholder="None"
+                options={allContacts
+                  .filter((contact) => contact.id !== editing?.id)
+                  .map((contact) => ({ value: contact.id, label: contact.full_name }))}
+              />
+            </FormField>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Preferred communication">
+              <FormSelect
+                value={form.preferred_communication ?? ''}
+                onChange={(event) =>
+                  setForm({ ...form, preferred_communication: event.target.value })
+                }
+                placeholder="No preference"
+                options={PREFERRED_COMMUNICATION_OPTIONS}
+              />
+            </FormField>
+            <FormField label="LinkedIn URL">
+              <FormInput
+                type="url"
+                value={form.linkedin_url ?? ''}
+                onChange={(event) => setForm({ ...form, linkedin_url: event.target.value })}
+                placeholder="https://linkedin.com/in/…"
+              />
+            </FormField>
+          </div>
+          <FormField label="Street address">
             <FormInput
-              value={form.phone ?? ''}
-              onChange={(event) => setForm({ ...form, phone: event.target.value })}
+              value={form.address_line1 ?? ''}
+              onChange={(event) => setForm({ ...form, address_line1: event.target.value })}
             />
           </FormField>
-          <FormField label="Job title">
-            <FormInput
-              value={form.job_title ?? ''}
-              onChange={(event) => setForm({ ...form, job_title: event.target.value })}
-            />
-          </FormField>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="City">
+              <FormInput
+                value={form.city ?? ''}
+                onChange={(event) => setForm({ ...form, city: event.target.value })}
+              />
+            </FormField>
+            <FormField label="State">
+              <FormInput
+                value={form.state ?? ''}
+                onChange={(event) => setForm({ ...form, state: event.target.value })}
+              />
+            </FormField>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Postal code">
+              <FormInput
+                value={form.postal_code ?? ''}
+                onChange={(event) => setForm({ ...form, postal_code: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Country">
+              <FormInput
+                value={form.country ?? ''}
+                onChange={(event) => setForm({ ...form, country: event.target.value })}
+              />
+            </FormField>
+          </div>
           <FormField label="Status">
             <FormSelect
               value={form.status ?? 'ACTIVE'}
@@ -574,6 +757,13 @@ function ContactsPageContent() {
                 setForm({ ...form, status: event.target.value as ContactStatus })
               }
               options={CONTACT_STATUSES.map((value) => ({ value, label: humanize(value) }))}
+            />
+          </FormField>
+          <FormField label="Notes">
+            <FormTextarea
+              value={form.notes ?? ''}
+              onChange={(event) => setForm({ ...form, notes: event.target.value })}
+              rows={3}
             />
           </FormField>
           <FormError message={saveError} />
@@ -584,7 +774,7 @@ function ContactsPageContent() {
             recordContext={{ ...editing, ...form }}
           />
         </div>
-      </SlideDrawer>
+      </Modal>
       {mergeOpen && mergeCandidates(items, selectedIds).length > 1 && (
         <MergeDialog
           open={mergeOpen}

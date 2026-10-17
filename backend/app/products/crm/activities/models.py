@@ -146,6 +146,10 @@ class Meeting(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     internal_participant_ids: Mapped[list[uuid.UUID]] = mapped_column(
         ARRAY(Uuid(as_uuid=True)), nullable=False, default=list, server_default="{}"
     )
+    #: Free text, not a lookup: an external attendee is not necessarily an
+    #: existing CRM contact (a prospect's colleague with no record yet, a
+    #: vendor, a last-minute CC).
+    external_participants: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 __all__ = [

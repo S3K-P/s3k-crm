@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>S3K CRM — Meetings</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared/tokens.css">
+<link rel="stylesheet" href="shared/shell.css">
+<link rel="stylesheet" href="shared/views.css">
+</head>
+<body>
+
+<div class="app-shell" id="app-shell" data-shell>
+  <div class="app-main-col">
+    <main class="app-content" id="page-content">
+
+      <div class="list-head">
+        <div class="page-head">
+          <div class="page-head-left">
+            <div class="page-icon-tile">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+            </div>
+            <div><h1 class="page-title">Meetings</h1><p class="page-subtitle">Calls and meetings across your pipeline</p></div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-secondary btn-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Calendar view</button>
+            <button class="btn btn-primary btn-sm" data-open="#mtg-modal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5v14"/></svg>New Meeting</button>
+          </div>
+        </div>
+        <div class="view-switcher" style="margin-top:16px;"><div class="view-tab is-active">Upcoming</div><div class="view-tab">Past</div><div class="view-tab">My Meetings</div></div>
+        <div class="list-meta"><b>5 items</b><span class="sep">•</span>Sorted by <b>Date</b><span class="sep">•</span>Updated 2 min ago</div>
+      </div>
+
+      <div class="toolbar">
+        <div class="input-icon-wrap toolbar-search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input class="input" id="list-search" placeholder="Search this list…"></div>
+        <button class="btn btn-secondary btn-sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>Filters</button>
+      </div>
+
+      <div class="dt-wrap">
+        <div class="dt-scroll">
+        <table class="dt">
+          <thead><tr><th class="sortable">Meeting Title</th><th>Account</th><th>Participants</th><th>Owner</th><th>Type</th><th>Status</th><th style="width:70px;"></th></tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="mtg-modal">
+  <div class="modal contact-form-root" data-form-root style="max-width:680px;">
+    <div class="modal-header"><div><div style="font-weight:700;font-size:15.5px;">New Meeting</div></div><button class="btn btn-ghost btn-icon" data-close="#mtg-modal" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-body" id="mtg-form-mount"></div>
+    <div class="modal-footer"><button class="btn btn-secondary" data-close="#mtg-modal">Cancel</button><button class="btn btn-primary" id="mtg-save">Save</button></div>
+  </div>
+</div>
+
+<script src="shared/app.js"></script>
+<script src="shared/shell.js"></script>
+<script src="shared/form-helpers.js"></script>
+<script src="shared/accounts-data.js"></script>
+<script src="shared/meetings-data.js"></script>
+<script>
+  S3K.mountShell({ active: 'meetings', breadcrumb: ['S3K CRM', 'Meetings'] });
+  var S3K_ACCOUNT_NAMES = S3K_ACCOUNTS.map(function (a) { return { label: a.name, sub: a.city + ', ' + a.state }; });
+  function statusVariant(s) { return { Scheduled: 'info', Completed: 'success', Cancelled: 'neutral', Rescheduled: 'warning' }[s] || 'neutral'; }
+  function fmtDate(iso) { var d = new Date(iso); return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); }
+
+  var tbody = document.getElementById('tbody');
+  tbody.innerHTML = S3K_MEETINGS.map(function (m) {
+    return '<tr data-id="' + m.id + '">' +
+      '<td class="cell-name"><div style="font-weight:600;"><a href="15_meeting_detail.html" style="color:inherit;text-decoration:none;">' + m.title + '</a></div><div style="font-size:11px;color:var(--faint);">' + fmtDate(m.date) + ' · ' + m.startTime + '–' + m.endTime + '</div></td>' +
+      '<td data-label="Account">' + m.account + '</td>' +
+      '<td data-label="Participants">' + m.participants + '</td>' +
+      '<td data-label="Owner">' + m.owner + '</td>' +
+      '<td data-label="Type"><span class="badge badge-neutral">' + m.type + '</span></td>' +
+      '<td data-label="Status"><span class="badge badge-' + statusVariant(m.status) + '">' + m.status + '</span></td>' +
+      '<td><div class="row-actions"><button aria-label="Edit" onclick="event.stopPropagation();document.getElementById(\'mtg-modal\').classList.add(\'is-open\')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div></td></tr>';
+  }).join('');
+  tbody.addEventListener('click', function (e) { var tr = e.target.closest('tr'); if (tr && !e.target.closest('.row-actions') && !e.target.closest('a')) window.location.href = '15_meeting_detail.html'; });
+  document.getElementById('list-search').addEventListener('input', function (e) { var q = e.target.value.toLowerCase(); tbody.querySelectorAll('tr').forEach(function (tr) { tr.style.display = tr.textContent.toLowerCase().indexOf(q) > -1 ? '' : 'none'; }); });
+
+  var formHtml =
+    '<div class="error-summary" data-error-summary><b>We couldn\'t save this meeting.</b><ul data-error-list></ul></div>' +
+    '<div class="form-section"><div class="form-section-head" data-toggle-section><span class="title">Meeting Information</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></div><div class="form-section-body">' +
+      '<div class="form-span-2"><label class="field-label">Title <span class="req">*</span></label><input class="input" data-field="title"></div>' +
+      '<div><label class="field-label">Meeting Type</label><select class="input" data-field="type"><option>Online</option><option>In Person</option><option>Call</option></select></div>' +
+      '<div><label class="field-label">Date <span class="req">*</span></label><input class="input" type="date" data-field="date"></div>' +
+      '<div><label class="field-label">Start Time</label><input class="input" type="time" data-field="startTime"></div>' +
+      '<div><label class="field-label">End Time</label><input class="input" type="time" data-field="endTime"></div>' +
+    '</div></div>' +
+    '<div class="form-section"><div class="form-section-head" data-toggle-section><span class="title">Participants &amp; Records</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></div><div class="form-section-body">' +
+      '<div class="form-span-2"><label class="field-label">Participants (External)</label><input class="input" data-field="participants" placeholder="e.g. Ananya Iyer"></div>' +
+      '<div><label class="field-label">Related Account</label><div class="lookup-wrap"><input class="input" data-field="account" data-lookup data-lookup-var="S3K_ACCOUNT_NAMES" autocomplete="off"><div class="lookup-dropdown" data-lookup-dropdown></div></div></div>' +
+      '<div><label class="field-label">Related Opportunity</label><input class="input" data-field="opportunity"></div>' +
+      '<div><label class="field-label">Internal Participants</label><input class="input" data-field="internalParticipants"></div>' +
+      '<div><label class="field-label">Meeting Owner</label><select class="input" data-field="owner"><option>Rohan Mehta</option><option>Priya Nair</option><option>Meera Pillai</option></select></div>' +
+    '</div></div>' +
+    '<div class="form-section"><div class="form-section-head" data-toggle-section><span class="title">Meeting Details</span><svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></div><div class="form-section-body">' +
+      '<div><label class="field-label">Location</label><input class="input" data-field="location" placeholder="e.g. Google Meet"></div>' +
+      '<div><label class="field-label">Meeting Link</label><input class="input" data-field="link"></div>' +
+      '<div><label class="field-label">Status</label><select class="input" data-field="status"><option>Scheduled</option><option>Completed</option><option>Cancelled</option><option>Rescheduled</option></select></div>' +
+      '<div class="form-span-2"><label class="field-label">Agenda</label><textarea class="input" rows="3" data-field="agenda"></textarea></div>' +
+    '</div></div>';
+  document.getElementById('mtg-form-mount').innerHTML = formHtml;
+  S3K.initFormSections();
+
+  var root = document.querySelector('#mtg-modal .contact-form-root');
+  var required = [{ selector: '[data-field="title"]', label: 'Title is required' }, { selector: '[data-field="date"]', label: 'Date is required' }];
+  document.getElementById('mtg-save').addEventListener('click', function () { S3K.trySaveForm(root, required, { successMessage: 'Meeting saved successfully', onSuccess: function () { document.getElementById('mtg-modal').classList.remove('is-open'); } }); });
+</script>
+</body>
+</html>

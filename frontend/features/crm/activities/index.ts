@@ -26,6 +26,7 @@ export interface MeetingDetail {
   agenda: string | null;
   reminder_minutes: number | null;
   internal_participant_ids: string[];
+  external_participants: string | null;
 }
 
 export interface Activity extends RecordMeta {

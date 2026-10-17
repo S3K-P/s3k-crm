@@ -9,8 +9,11 @@ Two rules beyond generic CRUD:
   account duplicate-name rule and decision C03 — the caller re-submits with
   ``allow_duplicate``.
 
-``account_id`` is validated against the caller's organization before it is
-written: a contact must never be attachable to another tenant's account.
+``account_id`` and ``reporting_manager_id`` are each validated against the
+caller's organization before being written: a contact must never be
+attachable to another tenant's account, or reference another tenant's
+contact as its manager. ``reporting_manager_id`` is additionally checked
+against self-reference — a contact cannot be its own manager.
 """
 
 from __future__ import annotations
@@ -50,6 +53,13 @@ class DuplicateContactEmailError(ConflictError):
 
     code = "duplicate_contact_email"
     message = "A contact with that email already exists. Re-submit with allow_duplicate to proceed."
+
+
+class SelfReportingManagerError(ConflictError):
+    """A contact cannot be its own reporting manager."""
+
+    code = "self_reporting_manager"
+    message = "A contact cannot be its own reporting manager."
 
 
 class ContactService(TenantScopedService[Contact]):
@@ -131,6 +141,10 @@ class ContactService(TenantScopedService[Contact]):
         if account_id is not None:
             await self._require_account(account_id, organization_id)
 
+        reporting_manager_id = payload.get("reporting_manager_id")
+        if reporting_manager_id is not None:
+            await self._require_contact(reporting_manager_id, organization_id)
+
         email = payload.get("email")
         if email and not allow_duplicate and await self._email_exists(organization_id, str(email)):
             raise DuplicateContactEmailError
@@ -157,6 +171,12 @@ class ContactService(TenantScopedService[Contact]):
 
         if "account_id" in payload and payload["account_id"] is not None:
             await self._require_account(payload["account_id"], contact.organization_id)
+
+        if "reporting_manager_id" in payload and payload["reporting_manager_id"] is not None:
+            reporting_manager_id = payload["reporting_manager_id"]
+            if reporting_manager_id == contact.id:
+                raise SelfReportingManagerError
+            await self._require_contact(reporting_manager_id, contact.organization_id)
 
         email = payload.get("email")
         if (
@@ -339,6 +359,18 @@ class ContactService(TenantScopedService[Contact]):
         if result.scalar_one_or_none() is None:
             raise NotFoundError("Account not found.")
 
+    async def _require_contact(self, contact_id: uuid.UUID, organization_id: uuid.UUID) -> None:
+        """Reject a (reporting manager) contact id outside the caller's organization."""
+        result = await self._session.execute(
+            select(Contact.id).where(
+                Contact.id == contact_id,
+                Contact.organization_id == organization_id,
+                Contact.deleted_at.is_(None),
+            )
+        )
+        if result.scalar_one_or_none() is None:
+            raise NotFoundError("Contact not found.")
+
     async def _email_exists(self, organization_id: uuid.UUID, email: str) -> bool:
         result = await self._session.execute(
             select(func.count())
@@ -352,4 +384,4 @@ class ContactService(TenantScopedService[Contact]):
         return int(result.scalar_one()) > 0
 
 
-__all__ = ["ContactService", "DuplicateContactEmailError"]
+__all__ = ["ContactService", "DuplicateContactEmailError", "SelfReportingManagerError"]

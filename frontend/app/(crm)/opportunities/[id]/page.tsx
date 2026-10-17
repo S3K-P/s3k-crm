@@ -284,8 +284,8 @@ export default function OpportunityDetailPage() {
       </button>
 
       <div className="flex flex-wrap items-center gap-3.5">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-sky-500 to-blue-600">
-          <Target className="h-5 w-5 text-white" />
+        <div className="surface-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]">
+          <Target className="h-5 w-5" style={{ color: 'var(--accent)' }} />
         </div>
         <div>
           <h1 className="font-display txt text-[22px] font-extrabold">{opportunity.name}</h1>

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, LayoutGrid, Lock, Plus, Star, Users } from 'lucide-react';
 
-import SlideDrawer from '@/components/crm/dialogs/SlideDrawer';
+import Modal from '@/components/crm/dialogs/Modal';
 import { ListEmpty, ListError } from '@/components/crm/shared/ListStates';
 import { describeApiError } from '@/features/shared/hooks/useCollection';
 import {
@@ -86,8 +86,8 @@ export default function DashboardsPage() {
     <div className="flex h-full flex-col space-y-5 p-4 sm:p-6 lg:p-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3.5">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-violet-500 to-indigo-600">
-            <LayoutGrid className="h-5 w-5 text-white" />
+          <div className="surface-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]">
+            <LayoutGrid className="h-5 w-5" style={{ color: 'var(--accent)' }} />
           </div>
           <div>
             {/* The way back. This screen has no sidebar entry of its own — it
@@ -168,11 +168,12 @@ export default function DashboardsPage() {
         </div>
       )}
 
-      <SlideDrawer
+      <Modal
         open={open}
         onClose={() => setOpen(false)}
         title="New dashboard"
         subtitle="Add tiles once it exists."
+        maxWidth="max-w-md"
         footer={
           <div className="flex justify-end gap-2">
             <button
@@ -240,7 +241,7 @@ export default function DashboardsPage() {
             </p>
           </label>
         </div>
-      </SlideDrawer>
+      </Modal>
     </div>
   );
 }

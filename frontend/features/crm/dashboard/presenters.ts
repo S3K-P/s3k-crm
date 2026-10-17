@@ -148,11 +148,11 @@ export function toMeetingItem(meeting: DashboardMeeting, now: Date): MeetingItem
    ------------------------------------------------------------------ */
 
 const STAGE_GRADIENTS = [
-  'from-sky-500 to-blue-600',
-  'from-violet-600 to-indigo-600',
-  'from-amber-500 to-orange-500',
-  'from-pink-500 to-rose-500',
-  'from-emerald-500 to-green-600',
+  'from-indigo-300 to-indigo-500',
+  'from-indigo-400 to-indigo-600',
+  'from-indigo-500 to-indigo-700',
+  'from-indigo-600 to-indigo-800',
+  'from-indigo-700 to-indigo-900',
 ];
 
 /**
