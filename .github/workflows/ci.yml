@@ -152,6 +152,11 @@ jobs:
       STORAGE_REGION: auto
       STORAGE_FORCE_PATH_STYLE: 'true'
       CORS_ALLOWED_ORIGINS: http://localhost:3000
+      # Unset by default in every environment (see config.py) — MFA enrollment
+      # answers 503 mfa_not_configured without it, so test_mfa.py's whole file
+      # never actually exercised MFA until this ran. Throwaway, generated with
+      # the same `Fernet.generate_key()` the deployment docs call for.
+      MFA_ENCRYPTION_KEY: SaPMkSDDVfXcFkZVIV1E1T0bEgLXbEfZPGzGrPqtU4M=
 
     steps:
       - uses: actions/checkout@v4
