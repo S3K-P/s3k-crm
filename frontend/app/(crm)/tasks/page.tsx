@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ClipboardList, Plus, Pencil, Trash2, Loader2, Check } from 'lucide-react';
 
 import DataTable, { type ColumnDef } from '@/components/crm/tables/DataTable';
@@ -19,6 +19,7 @@ import RelatedRecordFields, {
 import { useAuth, usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
 import { useQueryFilter } from '@/features/shared/hooks/useQueryFilter';
+import { listMembers, type OrganizationMember } from '@/features/admin/users';
 import {
   CLOSED_TASK_STATUSES,
   TASK_PRIORITIES,
@@ -77,6 +78,7 @@ const EMPTY_FORM: TaskInput = {
   status: 'PENDING',
   priority: 'MEDIUM',
   due_date: '',
+  assigned_to_id: '',
   related_entity_type: null,
   related_entity_id: null,
 };
@@ -109,6 +111,7 @@ export default function TasksPage() {
   const mayCreate = can('tasks', 'CREATE');
   const mayEdit = can('tasks', 'EDIT');
   const mayDelete = can('tasks', 'DELETE');
+  const mayViewMembers = can('users', 'VIEW');
 
   // Status and priority are seeded from the query string, so the dashboard's
   // "Tasks Due" tile can land on the slice of tasks it counted rather than on
@@ -167,6 +170,33 @@ export default function TasksPage() {
 
   const related = useRelatedRecordOptions();
 
+  /* ---- Assignee options for the picker, same pattern as Contacts' owner
+     picker: loaded once into a map so the table can show a name instead of
+     a UUID without a request per row. ---- */
+  const [members, setMembers] = useState<OrganizationMember[]>([]);
+  useEffect(() => {
+    if (!mayViewMembers) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await listMembers();
+        if (!cancelled) {
+          setMembers(result.data.filter((member) => member.status === 'ACTIVE'));
+        }
+      } catch {
+        // Non-fatal — the assignee picker and column stay empty.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mayViewMembers]);
+
+  const memberNames = useMemo(
+    () => new Map(members.map((member) => [member.user_id, member.full_name?.trim() || member.email])),
+    [members],
+  );
+
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState<Task | null>(null);
   const [form, setForm] = useState<TaskInput>(EMPTY_FORM);
@@ -187,6 +217,7 @@ export default function TasksPage() {
       status: row.status,
       priority: row.priority,
       due_date: toLocalInput(row.due_date),
+      assigned_to_id: row.assigned_to_id ?? '',
       related_entity_type: row.related_entity_type,
       related_entity_id: row.related_entity_id,
     });
@@ -203,6 +234,7 @@ export default function TasksPage() {
       priority: form.priority,
       // An empty input means "no due date", not "the epoch".
       due_date: form.due_date ? new Date(form.due_date).toISOString() : null,
+      assigned_to_id: form.assigned_to_id || null,
       // Both halves of the polymorphic link travel together or not at all:
       // the backend rejects a type without an id.
       related_entity_type: form.related_entity_id ? (form.related_entity_type ?? null) : null,
@@ -265,14 +297,8 @@ export default function TasksPage() {
         ),
       },
       {
-        key: 'due_date',
-        label: 'Due',
-        hideBelow: 'md',
-        render: (row) => <span className="tabular-nums">{formatDue(row.due_date)}</span>,
-      },
-      {
         key: 'related',
-        label: 'Linked to',
+        label: 'Related To',
         hideBelow: 'lg',
         render: (row) =>
           row.related_entity_type && row.related_entity_id ? (
@@ -284,12 +310,29 @@ export default function TasksPage() {
           ),
       },
       {
+        key: 'assigned_to_id',
+        label: 'Assigned To',
+        hideBelow: 'lg',
+        render: (row) =>
+          row.assigned_to_id ? (
+            memberNames.get(row.assigned_to_id) ?? <span className="txt-faint">—</span>
+          ) : (
+            <span className="txt-faint">Unassigned</span>
+          ),
+      },
+      {
         key: 'priority',
         label: 'Priority',
         hideBelow: 'lg',
         render: (row) => (
           <StatusBadge label={humanize(row.priority)} variant={statusVariant(row.priority)} />
         ),
+      },
+      {
+        key: 'due_date',
+        label: 'Due',
+        hideBelow: 'md',
+        render: (row) => <span className="tabular-nums">{formatDue(row.due_date)}</span>,
       },
       {
         key: 'status',
@@ -350,15 +393,15 @@ export default function TasksPage() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mayEdit, mayDelete, related],
+    [mayEdit, mayDelete, related, memberNames],
   );
 
   return (
     <div className="flex h-full flex-col space-y-6 p-6 lg:p-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3.5">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-violet-500 to-purple-600">
-            <ClipboardList className="h-5 w-5 text-white" />
+          <div className="surface-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]">
+            <ClipboardList className="h-5 w-5" style={{ color: 'var(--accent)' }} />
           </div>
           <div>
             <h1 className="font-display txt text-[22px] font-extrabold">Tasks</h1>
@@ -491,31 +534,55 @@ export default function TasksPage() {
               placeholder="Follow up with…"
             />
           </FormField>
-          <FormField label="Due">
-            <FormInput
-              type="datetime-local"
-              value={form.due_date ?? ''}
-              onChange={(event) => setForm({ ...form, due_date: event.target.value })}
+          <FormField label="Description">
+            <FormTextarea
+              value={form.description ?? ''}
+              onChange={(event) => setForm({ ...form, description: event.target.value })}
+              rows={2}
             />
           </FormField>
-          <FormField label="Priority">
-            <FormSelect
-              value={form.priority ?? 'MEDIUM'}
-              onChange={(event) =>
-                setForm({ ...form, priority: event.target.value as Priority })
-              }
-              options={TASK_PRIORITIES.map((value) => ({ value, label: humanize(value) }))}
-            />
-          </FormField>
-          <FormField label="Status">
-            <FormSelect
-              value={form.status ?? 'PENDING'}
-              onChange={(event) =>
-                setForm({ ...form, status: event.target.value as TaskStatus })
-              }
-              options={TASK_STATUSES.map((value) => ({ value, label: humanize(value) }))}
-            />
-          </FormField>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <FormField label="Priority">
+              <FormSelect
+                value={form.priority ?? 'MEDIUM'}
+                onChange={(event) =>
+                  setForm({ ...form, priority: event.target.value as Priority })
+                }
+                options={TASK_PRIORITIES.map((value) => ({ value, label: humanize(value) }))}
+              />
+            </FormField>
+            <FormField label="Due">
+              <FormInput
+                type="datetime-local"
+                value={form.due_date ?? ''}
+                onChange={(event) => setForm({ ...form, due_date: event.target.value })}
+              />
+            </FormField>
+            <FormField
+              label="Assigned to"
+              hint={!mayViewMembers ? 'You do not have permission to browse members.' : undefined}
+            >
+              <FormSelect
+                value={form.assigned_to_id ?? ''}
+                onChange={(event) => setForm({ ...form, assigned_to_id: event.target.value })}
+                placeholder="Unassigned"
+                disabled={!mayViewMembers}
+                options={members.map((member) => ({
+                  value: member.user_id,
+                  label: member.full_name?.trim() || member.email,
+                }))}
+              />
+            </FormField>
+            <FormField label="Status">
+              <FormSelect
+                value={form.status ?? 'PENDING'}
+                onChange={(event) =>
+                  setForm({ ...form, status: event.target.value as TaskStatus })
+                }
+                options={TASK_STATUSES.map((value) => ({ value, label: humanize(value) }))}
+              />
+            </FormField>
+          </div>
           <RelatedRecordFields
             options={related}
             entityType={form.related_entity_type ?? ''}
@@ -528,13 +595,6 @@ export default function TasksPage() {
               })
             }
           />
-          <FormField label="Description">
-            <FormTextarea
-              value={form.description ?? ''}
-              onChange={(event) => setForm({ ...form, description: event.target.value })}
-              rows={3}
-            />
-          </FormField>
           <FormError message={saveError} />
         </div>
       </SlideDrawer>

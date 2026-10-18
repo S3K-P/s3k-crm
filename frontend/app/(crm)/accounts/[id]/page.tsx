@@ -120,10 +120,15 @@ export default function AccountDetailPage() {
               <SectionHeader title="Company details" />
               <div className="space-y-4 pt-2">
                 <Field label="Website" value={account.website} />
-                <Field label="Phone" value={account.phone} />
-                <Field label="Industry" value={account.industry} />
+                <Field label="Annual revenue" value={account.annual_revenue} />
                 <Field label="Company size" value={account.company_size} />
                 <Field label="Source" value={account.source} />
+                <Field label="Phone" value={account.phone} />
+                <Field label="Industry" value={account.industry} />
+                <Field
+                  label="Health score"
+                  value={account.health_score !== null ? `${account.health_score} / 100` : null}
+                />
               </div>
             </div>
 

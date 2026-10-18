@@ -7,6 +7,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
 } from 'react';
 import { AlertTriangle, Info, ShieldAlert } from 'lucide-react';
 
@@ -88,21 +89,24 @@ export function useConfirm(): ConfirmFn {
 
 const TONE_STYLES: Record<
   ConfirmTone,
-  { icon: typeof AlertTriangle; iconClass: string; button: string }
+  { icon: typeof AlertTriangle; iconClass: string; iconStyle: CSSProperties; button: string }
 > = {
   danger: {
     icon: AlertTriangle,
     iconClass: 'bg-gradient-to-br from-rose-500 to-red-600',
+    iconStyle: { color: '#fff' },
     button: 'bg-red-500 hover:bg-red-600',
   },
   warning: {
     icon: ShieldAlert,
     iconClass: 'bg-gradient-to-br from-amber-500 to-orange-500',
+    iconStyle: { color: '#fff' },
     button: 'bg-amber-500 hover:bg-amber-600',
   },
   accent: {
     icon: Info,
-    iconClass: 'bg-gradient-to-br from-violet-500 to-indigo-600',
+    iconClass: 'surface-2',
+    iconStyle: { color: 'var(--accent)' },
     button: '',
   },
 };
@@ -240,7 +244,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                   toneStyle.iconClass,
                 )}
               >
-                <ToneIcon className="h-5 w-5 text-white" aria-hidden="true" />
+                <ToneIcon className="h-5 w-5" style={toneStyle.iconStyle} aria-hidden="true" />
               </div>
               <div className="min-w-0 flex-1">
                 <h2 id="confirm-dialog-title" className="font-display txt text-[16px] font-bold">

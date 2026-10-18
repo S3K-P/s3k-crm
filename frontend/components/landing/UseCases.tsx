@@ -18,7 +18,7 @@ const cases = [
     desc: 'Track campaigns, capture leads seamlessly, and measure ROI across all your channels.',
     metric: '45%',
     metricLabel: 'Higher Conversion Rate',
-    gradient: 'from-brand-indigo to-purple-500',
+    gradient: 'from-accent to-accent-2',
   },
   {
     title: 'Business Leaders',

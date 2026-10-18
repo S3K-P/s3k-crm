@@ -529,8 +529,8 @@ function PageFrame({ children }: { children: React.ReactNode }) {
   return (
     <div className="space-y-5 p-6 lg:p-8">
       <header className="flex items-center gap-3.5">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-violet-600 to-indigo-600">
-          <TelescopeIcon className="h-5 w-5 text-white" aria-hidden="true" />
+        <div className="surface-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]">
+          <TelescopeIcon className="h-5 w-5" style={{ color: 'var(--accent)' }} aria-hidden="true" />
         </div>
         <div>
           <h1 className="font-display txt text-[22px] font-extrabold leading-tight tracking-tight">

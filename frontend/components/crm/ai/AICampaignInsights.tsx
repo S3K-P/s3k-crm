@@ -34,7 +34,7 @@ export default function AICampaignInsights({ data, className }: AICampaignInsigh
   return (
     <div className={cn('surface bd flex flex-col gap-4 rounded-2xl border p-4 sm:p-5', className)}>
       <div className="flex items-center gap-2">
-        <Sparkles className="h-5 w-5 text-violet-500" />
+        <Sparkles className="h-5 w-5 text-accent" />
         <h3 className="font-display txt text-[16px] font-bold">Campaign AI</h3>
       </div>
 
@@ -65,7 +65,7 @@ export default function AICampaignInsights({ data, className }: AICampaignInsigh
 
       <div className="surface-2 rounded-xl border border-[var(--border)] p-4 flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          <Target className="h-4 w-4 text-violet-500" />
+          <Target className="h-4 w-4 text-accent" />
           <h4 className="txt text-[13px] font-semibold">Best Channel</h4>
         </div>
         <span className="txt text-[13px] font-bold">{data.bestPerformingChannel}</span>

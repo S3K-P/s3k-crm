@@ -291,7 +291,7 @@ function kpisFor(summary: DashboardSummary): JourneyKpi[] {
       caption: `${summary.pipeline.length} open ${
         summary.pipeline.length === 1 ? 'stage' : 'stages'
       }`,
-      iconGradient: 'from-violet-600 to-purple-600',
+      iconGradient: 'from-accent to-accent-2',
     },
     {
       id: 'deals',
@@ -299,7 +299,7 @@ function kpisFor(summary: DashboardSummary): JourneyKpi[] {
       delta: '',
       deltaTone: 'accent',
       caption: `${summary.kpis.opportunities_closing_soon} closing within 30 days`,
-      iconGradient: 'from-violet-700 to-violet-600',
+      iconGradient: 'from-accent to-accent-2',
     },
   ];
 }

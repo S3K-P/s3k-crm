@@ -9,6 +9,7 @@ import Modal from '@/components/crm/dialogs/Modal';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess, notifyWarning } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
+import FormSection from '@/components/crm/forms/FormSection';
 import MergeDialog from '@/components/crm/dialogs/MergeDialog';
 import BulkActionsToolbar from '@/components/crm/toolbar/BulkActionsToolbar';
 import SavedViewPicker from '@/components/crm/toolbar/SavedViewPicker';
@@ -196,6 +197,11 @@ function ContactsPageContent() {
     };
   }, [mayViewMembers]);
 
+  const ownerNames = useMemo(
+    () => new Map(members.map((member) => [member.user_id, member.full_name?.trim() || member.email])),
+    [members],
+  );
+
   /* Deep link from an account: `/contacts?account_id=…` opens the New contact
      drawer with that account already linked, so someone who arrived from an
      account never has to find it again in a picker. The value goes straight
@@ -345,6 +351,13 @@ function ContactsPageContent() {
           ),
       },
       {
+        key: 'phone',
+        label: 'Phone',
+        hideBelow: 'lg',
+        editable: () => mayEdit,
+        render: (row) => row.phone ?? <span className="txt-faint">—</span>,
+      },
+      {
         key: 'email',
         label: 'Email',
         hideBelow: 'lg',
@@ -353,11 +366,40 @@ function ContactsPageContent() {
         render: (row) => row.email ?? <span className="txt-faint">—</span>,
       },
       {
+        key: 'city',
+        label: 'City',
+        hideBelow: 'xl',
+        editable: () => mayEdit,
+        render: (row) => row.city ?? <span className="txt-faint">—</span>,
+      },
+      {
+        key: 'owner_id',
+        label: 'Contact Owner',
+        hideBelow: 'xl',
+        render: (row) =>
+          row.owner_id ? (ownerNames.get(row.owner_id) ?? <span className="txt-faint">—</span>) : (
+            <span className="txt-faint">Unassigned</span>
+          ),
+      },
+      {
         key: 'job_title',
         label: 'Title',
         hideBelow: 'xl',
         editable: () => mayEdit,
         render: (row) => row.job_title ?? <span className="txt-faint">—</span>,
+      },
+      {
+        key: 'updated_at',
+        label: 'Last Activity',
+        hideBelow: 'xl',
+        render: (row) => new Date(row.updated_at).toLocaleDateString(),
+      },
+      {
+        key: 'ai_score',
+        label: 'Relationship',
+        hideBelow: 'xl',
+        align: 'right',
+        render: (row) => row.ai_score ?? <span className="txt-faint">—</span>,
       },
       {
         key: 'status',
@@ -406,7 +448,7 @@ function ContactsPageContent() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mayEdit, mayDelete, accountNames],
+    [mayEdit, mayDelete, accountNames, ownerNames],
   );
 
   return (
@@ -599,8 +641,8 @@ function ContactsPageContent() {
           </div>
         }
       >
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-3.5">
+          <FormSection title="Basic Info">
             <FormField label="First name" required>
               <FormInput
                 value={form.first_name}
@@ -613,35 +655,38 @@ function ContactsPageContent() {
                 onChange={(event) => setForm({ ...form, last_name: event.target.value })}
               />
             </FormField>
-          </div>
-          <FormField
-            label="Account"
-            hint={
-              mayViewAccounts
-                ? 'Links this person to a company record.'
-                : 'You do not have permission to browse accounts.'
-            }
-          >
-            <FormSelect
-              value={form.account_id ?? ''}
-              onChange={(event) => setForm({ ...form, account_id: event.target.value })}
-              placeholder="No account"
-              disabled={!mayViewAccounts}
-              options={accounts.map((account) => ({
-                value: account.id,
-                label: account.name,
-              }))}
-            />
-          </FormField>
-          <FormField label="Email">
-            <FormInput
-              type="email"
-              value={form.email ?? ''}
-              onChange={(event) => setForm({ ...form, email: event.target.value })}
-              placeholder="person@company.com"
-            />
-          </FormField>
-          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Status">
+              <FormSelect
+                value={form.status ?? 'ACTIVE'}
+                onChange={(event) =>
+                  setForm({ ...form, status: event.target.value as ContactStatus })
+                }
+                options={CONTACT_STATUSES.map((value) => ({ value, label: humanize(value) }))}
+              />
+            </FormField>
+            <FormField label="Job title">
+              <FormInput
+                value={form.job_title ?? ''}
+                onChange={(event) => setForm({ ...form, job_title: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Department" className="sm:col-span-2">
+              <FormInput
+                value={form.department ?? ''}
+                onChange={(event) => setForm({ ...form, department: event.target.value })}
+              />
+            </FormField>
+          </FormSection>
+
+          <FormSection title="Get in Touch">
+            <FormField label="Email" className="sm:col-span-2">
+              <FormInput
+                type="email"
+                value={form.email ?? ''}
+                onChange={(event) => setForm({ ...form, email: event.target.value })}
+                placeholder="person@company.com"
+              />
+            </FormField>
             <FormField label="Phone">
               <FormInput
                 value={form.phone ?? ''}
@@ -654,22 +699,80 @@ function ContactsPageContent() {
                 onChange={(event) => setForm({ ...form, mobile: event.target.value })}
               />
             </FormField>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label="Job title">
-              <FormInput
-                value={form.job_title ?? ''}
-                onChange={(event) => setForm({ ...form, job_title: event.target.value })}
+            <FormField label="Preferred communication">
+              <FormSelect
+                value={form.preferred_communication ?? ''}
+                onChange={(event) =>
+                  setForm({ ...form, preferred_communication: event.target.value })
+                }
+                placeholder="No preference"
+                options={PREFERRED_COMMUNICATION_OPTIONS}
               />
             </FormField>
-            <FormField label="Department">
+            <FormField label="LinkedIn URL">
               <FormInput
-                value={form.department ?? ''}
-                onChange={(event) => setForm({ ...form, department: event.target.value })}
+                type="url"
+                value={form.linkedin_url ?? ''}
+                onChange={(event) => setForm({ ...form, linkedin_url: event.target.value })}
+                placeholder="https://linkedin.com/in/…"
               />
             </FormField>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+          </FormSection>
+
+          <FormSection title="Address">
+            <FormField label="Country">
+              <FormInput
+                value={form.country ?? ''}
+                onChange={(event) => setForm({ ...form, country: event.target.value })}
+              />
+            </FormField>
+            <FormField label="State">
+              <FormInput
+                value={form.state ?? ''}
+                onChange={(event) => setForm({ ...form, state: event.target.value })}
+              />
+            </FormField>
+            <FormField label="City">
+              <FormInput
+                value={form.city ?? ''}
+                onChange={(event) => setForm({ ...form, city: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Postal code">
+              <FormInput
+                value={form.postal_code ?? ''}
+                onChange={(event) => setForm({ ...form, postal_code: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Street address" className="sm:col-span-2">
+              <FormInput
+                value={form.address_line1 ?? ''}
+                onChange={(event) => setForm({ ...form, address_line1: event.target.value })}
+              />
+            </FormField>
+          </FormSection>
+
+          <FormSection title="Professional Info">
+            <FormField
+              label="Account"
+              className="sm:col-span-2"
+              hint={
+                mayViewAccounts
+                  ? 'Links this person to a company record.'
+                  : 'You do not have permission to browse accounts.'
+              }
+            >
+              <FormSelect
+                value={form.account_id ?? ''}
+                onChange={(event) => setForm({ ...form, account_id: event.target.value })}
+                placeholder="No account"
+                disabled={!mayViewAccounts}
+                options={accounts.map((account) => ({
+                  value: account.id,
+                  label: account.name,
+                }))}
+              />
+            </FormField>
             <FormField
               label="Contact owner"
               hint={!mayViewMembers ? 'You do not have permission to browse members.' : undefined}
@@ -695,84 +798,28 @@ function ContactsPageContent() {
                   .map((contact) => ({ value: contact.id, label: contact.full_name }))}
               />
             </FormField>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label="Preferred communication">
-              <FormSelect
-                value={form.preferred_communication ?? ''}
-                onChange={(event) =>
-                  setForm({ ...form, preferred_communication: event.target.value })
-                }
-                placeholder="No preference"
-                options={PREFERRED_COMMUNICATION_OPTIONS}
-              />
-            </FormField>
-            <FormField label="LinkedIn URL">
-              <FormInput
-                type="url"
-                value={form.linkedin_url ?? ''}
-                onChange={(event) => setForm({ ...form, linkedin_url: event.target.value })}
-                placeholder="https://linkedin.com/in/…"
-              />
-            </FormField>
-          </div>
-          <FormField label="Street address">
-            <FormInput
-              value={form.address_line1 ?? ''}
-              onChange={(event) => setForm({ ...form, address_line1: event.target.value })}
+          </FormSection>
+
+          <FormSection title="Additional / Custom Fields" defaultCollapsed>
+            <CustomFieldInputs
+              entityType="CONTACT"
+              values={customValues}
+              onChange={setCustomValues}
+              recordContext={{ ...editing, ...form }}
             />
-          </FormField>
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label="City">
-              <FormInput
-                value={form.city ?? ''}
-                onChange={(event) => setForm({ ...form, city: event.target.value })}
+          </FormSection>
+
+          <FormSection title="Description" defaultCollapsed>
+            <FormField label="Notes" className="sm:col-span-2">
+              <FormTextarea
+                value={form.notes ?? ''}
+                onChange={(event) => setForm({ ...form, notes: event.target.value })}
+                rows={3}
               />
             </FormField>
-            <FormField label="State">
-              <FormInput
-                value={form.state ?? ''}
-                onChange={(event) => setForm({ ...form, state: event.target.value })}
-              />
-            </FormField>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label="Postal code">
-              <FormInput
-                value={form.postal_code ?? ''}
-                onChange={(event) => setForm({ ...form, postal_code: event.target.value })}
-              />
-            </FormField>
-            <FormField label="Country">
-              <FormInput
-                value={form.country ?? ''}
-                onChange={(event) => setForm({ ...form, country: event.target.value })}
-              />
-            </FormField>
-          </div>
-          <FormField label="Status">
-            <FormSelect
-              value={form.status ?? 'ACTIVE'}
-              onChange={(event) =>
-                setForm({ ...form, status: event.target.value as ContactStatus })
-              }
-              options={CONTACT_STATUSES.map((value) => ({ value, label: humanize(value) }))}
-            />
-          </FormField>
-          <FormField label="Notes">
-            <FormTextarea
-              value={form.notes ?? ''}
-              onChange={(event) => setForm({ ...form, notes: event.target.value })}
-              rows={3}
-            />
-          </FormField>
+          </FormSection>
+
           <FormError message={saveError} />
-          <CustomFieldInputs
-            entityType="CONTACT"
-            values={customValues}
-            onChange={setCustomValues}
-            recordContext={{ ...editing, ...form }}
-          />
         </div>
       </Modal>
       {mergeOpen && mergeCandidates(items, selectedIds).length > 1 && (

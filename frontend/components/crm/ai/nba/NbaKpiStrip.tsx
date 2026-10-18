@@ -81,7 +81,7 @@ export default function NbaKpiStrip({
         value={String(kpis.queued)}
         delta={`${kpis.deals} ${kpis.deals === 1 ? 'deal' : 'deals'} · ${kpis.leads} ${kpis.leads === 1 ? 'lead' : 'leads'}`}
         icon={ListChecks}
-        gradient="from-violet-600 to-indigo-600"
+        gradient="from-accent to-accent-2"
       />
       <Tile
         active={active === 'HIGH'}

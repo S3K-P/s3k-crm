@@ -32,8 +32,8 @@ export default function AiExecutiveSummary({ report, focusNote }: AiExecutiveSum
       {/* ── Heading ── */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-violet-600 to-indigo-600">
-            <Building2 className="h-5 w-5 text-white" aria-hidden="true" />
+          <div className="surface-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]">
+            <Building2 className="h-5 w-5" style={{ color: 'var(--accent)' }} aria-hidden="true" />
           </div>
           <div className="min-w-0">
             <h2 id="ai-executive-summary" className="font-display txt text-[18px] font-extrabold leading-tight">

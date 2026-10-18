@@ -96,7 +96,7 @@ export default function AccountSummary({
         label="Contacts"
         value={String(overview.contacts_count)}
         icon={Users}
-        iconGradient="from-violet-600 to-indigo-600"
+        iconGradient="from-accent to-accent-2"
       />
       <KpiCard
         label="Open tasks"

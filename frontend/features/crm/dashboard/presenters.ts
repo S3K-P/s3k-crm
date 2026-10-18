@@ -144,7 +144,7 @@ export function toPipelineStages(
 const ACTIVITY_ICONS: Record<DashboardActivityType, { icon: LucideIcon; gradient: string }> = {
   CALL: { icon: Phone, gradient: 'from-emerald-500 to-green-600' },
   EMAIL: { icon: Mail, gradient: 'from-sky-500 to-blue-600' },
-  MEETING: { icon: CalendarDays, gradient: 'from-violet-600 to-indigo-600' },
+  MEETING: { icon: CalendarDays, gradient: 'from-accent to-accent-2' },
   NOTE: { icon: NotebookPen, gradient: 'from-amber-500 to-orange-500' },
   TASK: { icon: ClipboardList, gradient: 'from-pink-500 to-rose-500' },
 };

@@ -16,7 +16,7 @@ import type { SalesIntelligenceSnapshot as SnapshotData } from '@/features/ai/in
 
 const KPI_ICONS = [Wallet, TrendingUp, Filter, BarChart3];
 const KPI_GRADIENTS = [
-  'from-violet-600 to-indigo-600',
+  'from-accent to-accent-2',
   'from-emerald-500 to-green-600',
   'from-amber-500 to-orange-500',
   'from-sky-500 to-blue-600',

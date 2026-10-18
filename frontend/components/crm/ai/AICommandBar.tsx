@@ -14,7 +14,7 @@ interface AICommandBarProps {
 
 export default function AICommandBar({ className }: AICommandBarProps) {
   const actions = [
-    { label: 'Summarize', icon: FileText, color: 'text-violet-500', bg: 'bg-violet-500/10' },
+    { label: 'Summarize', icon: FileText, color: 'text-accent', bg: 'bg-[var(--accent-soft)]' },
     { label: 'Predict Win Prob.', icon: TrendingUp, color: 'text-emerald-500', bg: 'bg-emerald-500/10' },
     { label: 'Gen. Briefing', icon: FileText, color: 'text-sky-500', bg: 'bg-sky-500/10' },
     { label: 'Next Action', icon: Map, color: 'text-amber-500', bg: 'bg-amber-500/10' },
@@ -24,7 +24,7 @@ export default function AICommandBar({ className }: AICommandBarProps) {
   return (
     <div className={cn('flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-2xl bg-gradient-to-r from-[var(--surface)] to-[var(--surface-2)] border border-[var(--border)]', className)}>
       <div className="flex items-center gap-2 pl-2 pr-4 sm:border-r border-[var(--border)]">
-        <Sparkles className="h-5 w-5 text-violet-500" />
+        <Sparkles className="h-5 w-5 text-accent" />
         <span className="font-display txt text-[14px] font-bold">Ask AI</span>
       </div>
       <div className="flex flex-wrap items-center gap-2 flex-1">

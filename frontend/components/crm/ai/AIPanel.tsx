@@ -73,7 +73,7 @@ export default function AIPanel({ data, className }: AIPanelProps) {
   return (
     <div className={cn('surface bd flex flex-col gap-4 rounded-2xl border p-5', className)}>
       <div className="flex items-center gap-2">
-        <Sparkles className="h-5 w-5 text-violet-500" />
+        <Sparkles className="h-5 w-5 text-accent" />
         <h3 className="font-display txt text-[16px] font-bold">AI Insights</h3>
       </div>
 
@@ -165,7 +165,7 @@ export default function AIPanel({ data, className }: AIPanelProps) {
       {data.stakeholdersToEngage && (
         <div className="surface-2 rounded-xl border border-[var(--border)] p-4">
           <div className="mb-2 flex items-center gap-1.5">
-            <Users className="h-4 w-4 text-violet-500" />
+            <Users className="h-4 w-4 text-accent" />
             <h4 className="txt text-[13px] font-semibold">Stakeholders to Engage</h4>
           </div>
           <p className="txt-muted text-[12.5px] leading-relaxed">{data.stakeholdersToEngage}</p>

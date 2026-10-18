@@ -37,7 +37,7 @@ export default function DashboardAvatar({ label, variant = 'person', className }
   return (
     <span
       className={cn(
-        'grid h-7 w-7 shrink-0 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 text-[11px] font-bold text-white',
+        'grid h-7 w-7 shrink-0 place-items-center rounded-full bg-gradient-to-br from-accent to-accent-2 text-[11px] font-bold text-white',
         className,
       )}
     >

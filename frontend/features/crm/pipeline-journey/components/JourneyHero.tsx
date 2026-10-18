@@ -41,7 +41,7 @@ export default function JourneyHero({
     <section
       className="anim-fade-up relative overflow-hidden rounded-[28px] px-[34px] py-8 text-white"
       style={{
-        background: 'linear-gradient(135deg, #2a1d4d 0%, #6d28d9 58%, #9333ea 100%)',
+        background: 'linear-gradient(135deg, #241b40 0%, #4f39c9 58%, #6657c9 100%)',
         boxShadow: '0 30px 60px -30px rgba(76, 29, 149, 0.65)',
       }}
     >
@@ -100,7 +100,7 @@ export default function JourneyHero({
                   className="anim-bar-grow h-2 rounded-full"
                   style={{
                     width: `${totals.goalPct}%`,
-                    background: 'linear-gradient(90deg, #a78bfa, #f0abfc 60%, #7dd3fc)',
+                    background: 'linear-gradient(90deg, #8b7ae8, #f0abfc 60%, #7dd3fc)',
                     boxShadow: '0 0 18px rgba(240, 171, 252, 0.8)',
                     animationDelay: '0.25s',
                   }}
@@ -130,7 +130,7 @@ export default function JourneyHero({
               <button
                 type="button"
                 onClick={onOpenClosing}
-                className="mt-3 rounded-[10px] bg-white px-3.5 py-2 text-[12.5px] font-bold text-violet-900 transition hover:opacity-90"
+                className="mt-3 rounded-[10px] bg-white px-3.5 py-2 text-[12.5px] font-bold text-accent transition hover:opacity-90"
               >
                 {content.nextMoveCta}
               </button>
