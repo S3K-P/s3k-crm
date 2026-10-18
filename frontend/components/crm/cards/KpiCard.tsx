@@ -36,8 +36,8 @@ export default function KpiCard({
   delta,
   trend = 'flat',
   icon: Icon,
-  iconGradient = 'from-violet-600 to-indigo-600',
-  variant = 'gradient',
+  iconGradient = 'from-accent to-accent-2',
+  variant = 'neutral',
   className,
   href,
 }: KpiCardProps) {

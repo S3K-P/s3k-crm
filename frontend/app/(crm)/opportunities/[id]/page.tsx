@@ -21,6 +21,7 @@ import { usePermissions } from '@/context/AuthContext';
 import { describeApiError } from '@/features/shared/hooks/useCollection';
 import { getAccount } from '@/features/crm/accounts';
 import { getContact } from '@/features/crm/contacts';
+import { getLeadSource } from '@/features/crm/lead-sources';
 import {
   changeStage,
   getOpportunity,
@@ -116,8 +117,10 @@ export default function OpportunityDetailPage() {
      text rather than removing the only route to the account. */
   const accountId = data?.account_id ?? null;
   const contactId = data?.primary_contact_id ?? null;
+  const leadSourceId = data?.lead_source_id ?? null;
   const [accountName, setAccountName] = useState<string | null>(null);
   const [contactName, setContactName] = useState<string | null>(null);
+  const [leadSourceName, setLeadSourceName] = useState<string | null>(null);
 
   useEffect(() => {
     if (!accountId) return;
@@ -150,6 +153,22 @@ export default function OpportunityDetailPage() {
       cancelled = true;
     };
   }, [contactId]);
+
+  useEffect(() => {
+    if (!leadSourceId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const source = await getLeadSource(leadSourceId);
+        if (!cancelled) setLeadSourceName(source.name);
+      } catch {
+        if (!cancelled) setLeadSourceName(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [leadSourceId]);
 
   if (status === 'loading') {
     return (
@@ -378,6 +397,8 @@ export default function OpportunityDetailPage() {
               </div>
             )}
             <Field label="Currency" value={CRM_CURRENCY} />
+            <Field label="Forecast category" value={opportunity.forecast_category} />
+            <Field label="Lead source" value={leadSourceName} />
             <Field
               label="Win probability"
               value={
@@ -387,8 +408,12 @@ export default function OpportunityDetailPage() {
               }
             />
             <Field label="Expected close" value={opportunity.expected_close_date} />
-            <Field label="Forecast category" value={opportunity.forecast_category} />
             <Field label="Competitor" value={opportunity.competitor} />
+            <Field label="Products / services" value={opportunity.products} />
+            <Field
+              label="Health score"
+              value={opportunity.health_score !== null ? `${opportunity.health_score} / 100` : null}
+            />
           </div>
         </div>
 

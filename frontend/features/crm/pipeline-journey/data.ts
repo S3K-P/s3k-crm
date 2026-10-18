@@ -38,15 +38,15 @@ export interface StageCore {
  * entries; ten stages repeat the darkest end rather than running out.
  */
 const GRADIENTS = [
-  'from-violet-900 to-violet-700',
-  'from-violet-700 to-violet-600',
-  'from-violet-600 to-purple-600',
-  'from-purple-600 to-fuchsia-600',
-  'from-fuchsia-600 to-pink-600',
+  'from-indigo-900 to-indigo-700',
+  'from-indigo-700 to-indigo-600',
+  'from-indigo-600 to-indigo-500',
+  'from-indigo-500 to-indigo-400',
+  'from-indigo-400 to-indigo-300',
 ] as const;
 
 /** Conversion-figure colours, matched to the ramp above for contrast. */
-const CONVERSION_COLORS = ['#c4b5fd', '#ddd6fe', '#f0abfc', '#f5d0fe', '#fbcfe8'] as const;
+const CONVERSION_COLORS = ['#e0e7ff', '#c7d2fe', '#a5b4fc', '#818cf8', '#6366f1'] as const;
 
 /** Widest and narrowest row, as a percentage of the container. */
 const WIDEST_PCT = 100;

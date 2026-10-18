@@ -57,7 +57,7 @@ export default function NbaKpiSummary({ records }: NbaKpiSummaryProps) {
         value={String(dueThisWeek)}
         delta="Follow-ups within 7 days"
         icon={CalendarClock}
-        iconGradient="from-violet-600 to-indigo-600"
+        iconGradient="from-accent to-accent-2"
       />
       <KpiCard
         label="Expected Revenue"

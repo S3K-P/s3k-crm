@@ -14,10 +14,11 @@ import { useRecord } from '@/components/crm/shared/useRecord';
 import Modal from '@/components/crm/dialogs/Modal';
 import FormField, { FormTextarea } from '@/components/crm/forms/FormField';
 import { notifySuccess } from '@/components/crm/feedback/notify';
-import { usePermissions } from '@/context/AuthContext';
+import { useAuth, usePermissions } from '@/context/AuthContext';
 import { useMutation } from '@/features/shared/hooks/useCollection';
 import { getLead } from '@/features/crm/leads';
 import { getLeadSource, type LeadSource } from '@/features/crm/lead-sources';
+import { listMembers, type OrganizationMember } from '@/features/admin/users';
 import {
   SCORECARD_UNAVAILABLE,
   STAGE_LABELS,
@@ -58,9 +59,12 @@ export default function QualificationDetailPage() {
   const params = useParams<{ id: string }>();
   const id = typeof params?.id === 'string' ? params.id : undefined;
 
+  const { currentUser } = useAuth();
+  const signedInUserId = currentUser?.user.id ?? null;
   const { can } = usePermissions();
   const mayEdit = can('leads', 'EDIT');
   const mayViewSources = can('lead_sources', 'VIEW');
+  const mayViewMembers = can('users', 'VIEW');
 
   const { status, data, error, reload } = useRecord<Lead>(getLead, id, {
     errorMessage: 'Could not load this lead.',
@@ -89,6 +93,35 @@ export default function QualificationDetailPage() {
   }, [sourceId, mayViewSources]);
 
   const sourceName = source !== null && source.id === sourceId ? source.record.name : null;
+
+  /* Owner, resolved the same way the Leads detail page resolves it: via the
+     member directory, which needs `users.VIEW` — a permission a rep does not
+     hold. Falling back to the raw id would print a UUID at them, so an
+     unresolvable owner reads as "You" or as unknown instead. */
+  const [members, setMembers] = useState<OrganizationMember[]>([]);
+  useEffect(() => {
+    if (!mayViewMembers) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const page = await listMembers();
+        if (!cancelled) setMembers(page.data);
+      } catch {
+        // Non-fatal — the owner field falls back to unresolved below.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mayViewMembers]);
+
+  const ownerName = (() => {
+    if (!data?.owner_id) return null;
+    const member = members.find((row) => row.user_id === data.owner_id);
+    if (member) return member.full_name?.trim() || member.email;
+    if (data.owner_id === signedInUserId) return 'You';
+    return 'Another user';
+  })();
 
   const { pending, error: actionError, clearError, run } = useMutation();
   const [disqualifyOpen, setDisqualifyOpen] = useState(false);
@@ -229,6 +262,8 @@ export default function QualificationDetailPage() {
             <Field label="Phone" value={lead.phone} />
             <Field label="Company" value={lead.company} />
             <Field label="Industry" value={lead.industry} />
+            <Field label="Owner" value={ownerName} />
+            <Field label="Created" value={new Date(lead.created_at).toLocaleDateString()} />
           </div>
         </div>
 

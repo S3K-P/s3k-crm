@@ -175,7 +175,7 @@ export default function AdminDashboardPage() {
             value={String(counts.roles)}
             href={mayViewRoles ? '/admin/roles' : undefined}
             icon={Workflow}
-            tint="text-violet-500"
+            tint="text-accent"
           />
           <StatCard
             label="Pipeline stages"

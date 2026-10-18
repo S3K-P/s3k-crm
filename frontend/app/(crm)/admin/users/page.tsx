@@ -597,8 +597,8 @@ export default function AdminUsersPage() {
     <div className="mx-auto flex h-full max-w-7xl flex-col space-y-5 p-6 lg:p-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3.5">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-indigo-500 to-violet-600">
-            <Users className="h-5 w-5 text-white" />
+          <div className="surface-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]">
+            <Users className="h-5 w-5" style={{ color: 'var(--accent)' }} />
           </div>
           <div>
             <h1 className="font-display txt text-[22px] font-extrabold">Users</h1>

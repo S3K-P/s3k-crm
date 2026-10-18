@@ -55,7 +55,7 @@ export const ACTIVITY_ICONS: Record<
 > = {
   call: { icon: Phone, gradient: 'from-emerald-500 to-green-600' },
   email: { icon: Mail, gradient: 'from-sky-500 to-blue-600' },
-  meeting: { icon: Users, gradient: 'from-violet-600 to-indigo-600' },
+  meeting: { icon: Users, gradient: 'from-accent to-accent-2' },
   proposal: { icon: FileSignature, gradient: 'from-amber-500 to-orange-500' },
   stage: { icon: ArrowRightLeft, gradient: 'from-pink-500 to-rose-500' },
   document: { icon: FileText, gradient: 'from-sky-500 to-blue-600' },

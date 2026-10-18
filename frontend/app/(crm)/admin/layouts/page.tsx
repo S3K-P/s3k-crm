@@ -254,8 +254,8 @@ export default function AdminLayoutsPage() {
     <div className="flex h-full flex-col space-y-5 p-6 lg:p-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3.5">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-violet-500 to-purple-600">
-            <LayoutTemplate className="h-5 w-5 text-white" />
+          <div className="surface-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px]">
+            <LayoutTemplate className="h-5 w-5" style={{ color: 'var(--accent)' }} />
           </div>
           <div>
             <h1 className="font-display txt text-[22px] font-extrabold">Form Layouts</h1>

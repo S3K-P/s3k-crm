@@ -10,6 +10,7 @@ import Modal from '@/components/crm/dialogs/Modal';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
+import FormSection from '@/components/crm/forms/FormSection';
 import BulkActionsToolbar, { type BulkEditableField } from '@/components/crm/toolbar/BulkActionsToolbar';
 import SavedViewPicker from '@/components/crm/toolbar/SavedViewPicker';
 import AdvancedFilterBar from '@/components/crm/toolbar/AdvancedFilterBar';
@@ -240,6 +241,10 @@ function OpportunitiesPageContent() {
   const accountNames = useMemo(
     () => new Map(accounts.map((account) => [account.id, account.name])),
     [accounts],
+  );
+  const ownerNames = useMemo(
+    () => new Map(members.map((member) => [member.user_id, member.full_name?.trim() || member.email])),
+    [members],
   );
   const openStages = useMemo(() => stages.filter((s) => !s.is_won && !s.is_lost), [stages]);
 
@@ -496,14 +501,6 @@ function OpportunitiesPageContent() {
         ),
       },
       {
-        key: 'expected_close_date',
-        label: 'Close',
-        hideBelow: 'lg',
-        editable: (row) => mayEdit && !isClosed(row),
-        editType: 'date',
-        render: (row) => row.expected_close_date ?? <span className="txt-faint">—</span>,
-      },
-      {
         key: 'stage_id',
         label: 'Stage',
         render: (row) => (
@@ -512,6 +509,40 @@ function OpportunitiesPageContent() {
             variant={row.won_at ? 'success' : row.lost_at ? 'danger' : 'accent'}
           />
         ),
+      },
+      {
+        key: 'win_probability',
+        label: 'Prob.',
+        hideBelow: 'lg',
+        align: 'right',
+        editable: (row) => mayEdit && !isClosed(row),
+        editType: 'number',
+        render: (row) =>
+          row.win_probability !== null ? `${row.win_probability}%` : <span className="txt-faint">—</span>,
+      },
+      {
+        key: 'expected_close_date',
+        label: 'Close',
+        hideBelow: 'lg',
+        editable: (row) => mayEdit && !isClosed(row),
+        editType: 'date',
+        render: (row) => row.expected_close_date ?? <span className="txt-faint">—</span>,
+      },
+      {
+        key: 'owner_id',
+        label: 'Owner',
+        hideBelow: 'xl',
+        render: (row) =>
+          row.owner_id ? (ownerNames.get(row.owner_id) ?? <span className="txt-faint">—</span>) : (
+            <span className="txt-faint">Unassigned</span>
+          ),
+      },
+      {
+        key: 'health_score',
+        label: 'Health',
+        hideBelow: 'xl',
+        align: 'right',
+        render: (row) => row.health_score ?? <span className="txt-faint">—</span>,
       },
       {
         key: 'actions',
@@ -550,7 +581,7 @@ function OpportunitiesPageContent() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mayEdit, mayDelete, accountNames, stageNames],
+    [mayEdit, mayDelete, accountNames, stageNames, ownerNames],
   );
 
   const bulkFields = useMemo<BulkEditableField[]>(
@@ -807,75 +838,102 @@ function OpportunitiesPageContent() {
           </div>
         }
       >
-        <div className="space-y-4">
-          <FormField label="Name" required>
-            <FormInput
-              value={form.name}
-              onChange={(event) => setForm({ ...form, name: event.target.value })}
-              placeholder="Acme — platform rollout"
-            />
-          </FormField>
-          <FormField
-            label="Account"
-            required
-            hint={
-              accounts.length === 0
-                ? 'Create an account first — a deal cannot exist without one.'
-                : 'Selecting a contact first will fill this automatically.'
-            }
-          >
-            <FormSelect
-              value={form.account_id}
-              onChange={(event) =>
-                setForm({
-                  ...form,
-                  account_id: event.target.value,
-                  primary_contact_id: '',
-                })
+        <div className="space-y-3.5">
+          <FormSection title="Opportunity Details">
+            <FormField label="Name" required className="sm:col-span-2">
+              <FormInput
+                value={form.name}
+                onChange={(event) => setForm({ ...form, name: event.target.value })}
+                placeholder="Acme — platform rollout"
+              />
+            </FormField>
+            <FormField
+              label="Account"
+              required
+              hint={
+                accounts.length === 0
+                  ? 'Create an account first — a deal cannot exist without one.'
+                  : 'Selecting a contact first will fill this automatically.'
               }
-              placeholder="Select an account"
-              disabled={!mayViewAccounts}
-              options={accounts.map((account) => ({
-                value: account.id,
-                label: account.name,
-              }))}
-            />
-          </FormField>
-          <FormField
-            label="Primary contact"
-            hint={
-              !mayViewContacts
-                ? 'You do not have permission to browse contacts.'
-                : form.account_id && accountContacts.length === 0
-                  ? 'No contacts on this account yet — pick another contact to re-home, or leave blank.'
-                  : 'Pick a contact to auto-select its account.'
-            }
-          >
-            <FormSelect
-              value={form.primary_contact_id ?? ''}
-              onChange={(event) => {
-                const contactId = event.target.value;
-                const contact =
-                  accountContacts.find((row) => row.id === contactId) ??
-                  allContacts.find((row) => row.id === contactId);
-                setForm({
-                  ...form,
-                  primary_contact_id: contactId,
-                  account_id: contact?.account_id || form.account_id,
-                });
-              }}
-              placeholder="No primary contact"
-              disabled={!mayViewContacts}
-              options={(form.account_id ? accountContacts : allContacts).map((contact) => ({
-                value: contact.id,
-                label: contact.email
-                  ? `${contact.full_name} <${contact.email}>`
-                  : contact.full_name,
-              }))}
-            />
-          </FormField>
-          {!editing && (
-            <div className="grid grid-cols-2 gap-3">
+            >
+              <FormSelect
+                value={form.account_id}
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    account_id: event.target.value,
+                    primary_contact_id: '',
+                  })
+                }
+                placeholder="Select an account"
+                disabled={!mayViewAccounts}
+                options={accounts.map((account) => ({
+                  value: account.id,
+                  label: account.name,
+                }))}
+              />
+            </FormField>
+            <FormField
+              label="Primary contact"
+              hint={
+                !mayViewContacts
+                  ? 'You do not have permission to browse contacts.'
+                  : form.account_id && accountContacts.length === 0
+                    ? 'No contacts on this account yet — pick another contact to re-home, or leave blank.'
+                    : 'Pick a contact to auto-select its account.'
+              }
+            >
+              <FormSelect
+                value={form.primary_contact_id ?? ''}
+                onChange={(event) => {
+                  const contactId = event.target.value;
+                  const contact =
+                    accountContacts.find((row) => row.id === contactId) ??
+                    allContacts.find((row) => row.id === contactId);
+                  setForm({
+                    ...form,
+                    primary_contact_id: contactId,
+                    account_id: contact?.account_id || form.account_id,
+                  });
+                }}
+                placeholder="No primary contact"
+                disabled={!mayViewContacts}
+                options={(form.account_id ? accountContacts : allContacts).map((contact) => ({
+                  value: contact.id,
+                  label: contact.email
+                    ? `${contact.full_name} <${contact.email}>`
+                    : contact.full_name,
+                }))}
+              />
+            </FormField>
+            <FormField
+              label="Owner"
+              hint={!mayViewMembers ? 'You do not have permission to browse members.' : undefined}
+            >
+              <FormSelect
+                value={form.owner_id ?? ''}
+                onChange={(event) => setForm({ ...form, owner_id: event.target.value })}
+                placeholder="Unassigned"
+                disabled={!mayViewMembers}
+                options={members.map((member) => ({
+                  value: member.user_id,
+                  label: member.full_name?.trim() || member.email,
+                }))}
+              />
+            </FormField>
+          </FormSection>
+
+          <FormSection title="Deal Information">
+            <FormField label="Deal value">
+              <FormInput
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.deal_value ?? ''}
+                onChange={(event) => setForm({ ...form, deal_value: event.target.value })}
+              />
+            </FormField>
+            {!editing && (
               <FormField label="Starting stage">
                 <FormSelect
                   value={startingStageId}
@@ -886,45 +944,7 @@ function OpportunitiesPageContent() {
                   }))}
                 />
               </FormField>
-              <FormField
-                label="Lead source"
-                hint={!mayViewSources ? 'You do not have permission to browse sources.' : undefined}
-              >
-                <FormSelect
-                  value={form.lead_source_id ?? ''}
-                  onChange={(event) => setForm({ ...form, lead_source_id: event.target.value })}
-                  placeholder="No source"
-                  disabled={!mayViewSources}
-                  options={sources.map((source) => ({ value: source.id, label: source.name }))}
-                />
-              </FormField>
-            </div>
-          )}
-          <FormField
-            label="Owner"
-            hint={!mayViewMembers ? 'You do not have permission to browse members.' : undefined}
-          >
-            <FormSelect
-              value={form.owner_id ?? ''}
-              onChange={(event) => setForm({ ...form, owner_id: event.target.value })}
-              placeholder="Unassigned"
-              disabled={!mayViewMembers}
-              options={members.map((member) => ({
-                value: member.user_id,
-                label: member.full_name?.trim() || member.email,
-              }))}
-            />
-          </FormField>
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label="Deal value">
-              <FormInput
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.deal_value ?? ''}
-                onChange={(event) => setForm({ ...form, deal_value: event.target.value })}
-              />
-            </FormField>
+            )}
             <FormField label="Probability (%)">
               <FormInput
                 type="number"
@@ -939,8 +959,6 @@ function OpportunitiesPageContent() {
                 }
               />
             </FormField>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
             <FormField label="Expected close">
               <FormInput
                 type="date"
@@ -958,35 +976,54 @@ function OpportunitiesPageContent() {
                 options={FORECAST_CATEGORY_OPTIONS}
               />
             </FormField>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+          </FormSection>
+
+          <FormSection title="Additional Details" defaultCollapsed>
             <FormField label="Competitor">
               <FormInput
                 value={form.competitor ?? ''}
                 onChange={(event) => setForm({ ...form, competitor: event.target.value })}
               />
             </FormField>
-            <FormField label="Products / services">
+            {!editing && (
+              <FormField
+                label="Lead source"
+                hint={!mayViewSources ? 'You do not have permission to browse sources.' : undefined}
+              >
+                <FormSelect
+                  value={form.lead_source_id ?? ''}
+                  onChange={(event) => setForm({ ...form, lead_source_id: event.target.value })}
+                  placeholder="No source"
+                  disabled={!mayViewSources}
+                  options={sources.map((source) => ({ value: source.id, label: source.name }))}
+                />
+              </FormField>
+            )}
+            <FormField label="Products / services" className="sm:col-span-2">
               <FormInput
                 value={form.products ?? ''}
                 onChange={(event) => setForm({ ...form, products: event.target.value })}
               />
             </FormField>
-          </div>
-          <FormField label="Notes">
-            <FormTextarea
-              value={form.notes ?? ''}
-              onChange={(event) => setForm({ ...form, notes: event.target.value })}
-              rows={3}
+            <FormField label="Notes" className="sm:col-span-2">
+              <FormTextarea
+                value={form.notes ?? ''}
+                onChange={(event) => setForm({ ...form, notes: event.target.value })}
+                rows={3}
+              />
+            </FormField>
+          </FormSection>
+
+          <FormSection title="Additional / Custom Fields" defaultCollapsed>
+            <CustomFieldInputs
+              entityType="OPPORTUNITY"
+              values={customValues}
+              onChange={setCustomValues}
+              recordContext={{ ...editing, ...form }}
             />
-          </FormField>
+          </FormSection>
+
           <FormError message={saveError} />
-          <CustomFieldInputs
-            entityType="OPPORTUNITY"
-            values={customValues}
-            onChange={setCustomValues}
-            recordContext={{ ...editing, ...form }}
-          />
         </div>
       </Modal>
       {bulkStageOpen && (

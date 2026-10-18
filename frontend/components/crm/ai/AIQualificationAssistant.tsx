@@ -29,7 +29,7 @@ export default function AIQualificationAssistant({ data, className }: AIQualific
   return (
     <div className={cn('surface bd flex flex-col gap-4 rounded-2xl border p-5', className)}>
       <div className="flex items-center gap-2 mb-2">
-        <BrainCircuit className="h-5 w-5 text-violet-500" />
+        <BrainCircuit className="h-5 w-5 text-accent" />
         <h3 className="font-display txt text-[16px] font-bold">AI Qualification</h3>
       </div>
 

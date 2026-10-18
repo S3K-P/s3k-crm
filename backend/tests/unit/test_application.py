@@ -99,6 +99,13 @@ def test_production_settings_disable_docs() -> None:
         redis_url="redis://cache:6379/0",
         jwt_private_key=TEST_JWT_PRIVATE_KEY,
         jwt_public_key=TEST_JWT_PUBLIC_KEY,
+        storage_bucket="bucket",
+        storage_access_key_id="key",
+        storage_secret_access_key="secret",
+        # Explicit rather than inherited from the developer's .env, which
+        # commonly sets EMAIL_PROVIDER=console for local convenience — the
+        # production validator refuses that combination.
+        email_provider="null",
     )
 
     app = create_app(production)

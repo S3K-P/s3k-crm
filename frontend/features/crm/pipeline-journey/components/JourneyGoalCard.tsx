@@ -69,8 +69,8 @@ export default function JourneyGoalCard({ goal, totals, progress }: JourneyGoalC
           />
           <defs>
             <linearGradient id="journeyGoalGradient" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="#6d28d9" />
-              <stop offset="55%" stopColor="#a855f7" />
+              <stop offset="0%" stopColor="#4f39c9" />
+              <stop offset="55%" stopColor="#6657c9" />
               <stop offset="100%" stopColor="#38bdf8" />
             </linearGradient>
           </defs>

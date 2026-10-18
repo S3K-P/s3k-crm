@@ -106,7 +106,7 @@ export default function LeadSourcesPage() {
   };
 
   const handleSave = async () => {
-    if (!form.name.trim()) return;
+    if (!form.name.trim() || !form.category?.trim()) return;
     const body: LeadSourceInput = {
       name: form.name.trim(),
       category: form.category?.trim() || null,
@@ -148,6 +148,16 @@ export default function LeadSourcesPage() {
         label: 'Category',
         hideBelow: 'md',
         render: (row) => row.category ?? <span className="txt-faint">—</span>,
+      },
+      {
+        key: 'description',
+        label: 'Description',
+        hideBelow: 'lg',
+        render: (row) => (
+          <span className="txt-muted line-clamp-1">
+            {row.description ?? <span className="txt-faint">—</span>}
+          </span>
+        ),
       },
       {
         key: 'lead_count',
@@ -292,7 +302,7 @@ export default function LeadSourcesPage() {
             <button
               type="button"
               onClick={() => void handleSave()}
-              disabled={pending || !form.name.trim()}
+              disabled={pending || !form.name.trim() || !form.category?.trim()}
               className="flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               style={{ background: 'var(--accent)' }}
             >
@@ -310,11 +320,18 @@ export default function LeadSourcesPage() {
               placeholder="Website, Referral, Trade show…"
             />
           </FormField>
-          <FormField label="Category">
+          <FormField label="Category" required>
             <FormInput
               value={form.category ?? ''}
               onChange={(event) => setForm({ ...form, category: event.target.value })}
               placeholder="Inbound, Outbound, Partner…"
+            />
+          </FormField>
+          <FormField label="Description">
+            <FormTextarea
+              value={form.description ?? ''}
+              onChange={(event) => setForm({ ...form, description: event.target.value })}
+              rows={3}
             />
           </FormField>
           <FormField label="Status">
@@ -327,13 +344,6 @@ export default function LeadSourcesPage() {
                 { value: 'ACTIVE', label: 'Active' },
                 { value: 'INACTIVE', label: 'Inactive' },
               ]}
-            />
-          </FormField>
-          <FormField label="Description">
-            <FormTextarea
-              value={form.description ?? ''}
-              onChange={(event) => setForm({ ...form, description: event.target.value })}
-              rows={3}
             />
           </FormField>
           <FormError message={saveError} />

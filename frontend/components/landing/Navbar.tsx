@@ -23,7 +23,7 @@ export function Navbar() {
     >
       <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2">
-          <div className="font-display flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-indigo-500 text-[11px] font-extrabold tracking-tight text-white shadow-md">
+          <div className="font-display flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-accent to-accent-2 text-[11px] font-extrabold tracking-tight text-white shadow-md">
             {BRAND.mark}
           </div>
           <span className="text-xl font-bold text-white tracking-tight">

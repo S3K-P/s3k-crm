@@ -368,7 +368,7 @@ export default function NbaDetailsDrawer({
             <li key={person.id} className="surface-2 bd rounded-xl border p-3">
               <div className="flex items-start gap-2.5">
                 <span
-                  className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 text-[11px] font-bold text-white"
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gradient-to-br from-accent to-accent-2 text-[11px] font-bold text-white"
                   aria-hidden="true"
                 >
                   {initials(person.name)}

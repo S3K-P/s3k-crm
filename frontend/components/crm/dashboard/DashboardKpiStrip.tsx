@@ -53,7 +53,7 @@ export default function DashboardKpiStrip({ kpis }: DashboardKpiStripProps) {
         }
         trend={kpis.deals_won_this_month > 0 ? 'up' : 'flat'}
         icon={CheckCircle2}
-        iconGradient="from-violet-600 to-indigo-600"
+        iconGradient="from-accent to-accent-2"
       />
       <KpiCard
         href="/tasks"

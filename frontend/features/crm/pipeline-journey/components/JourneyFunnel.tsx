@@ -25,11 +25,11 @@ interface JourneyFunnelProps {
 
 /** Decorative deal-flow particles: left offset, size, colour, timing. */
 const PARTICLES = [
-  { left: '22%', size: 9, radius: '3px', color: '#a78bfa', duration: '5.2s', delay: '0s' },
-  { left: '38%', size: 7, radius: '99px', color: '#c084fc', duration: '6.4s', delay: '0.8s' },
-  { left: '50%', size: 10, radius: '3px', color: '#8b5cf6', duration: '4.6s', delay: '1.6s' },
+  { left: '22%', size: 9, radius: '3px', color: '#8b7ae8', duration: '5.2s', delay: '0s' },
+  { left: '38%', size: 7, radius: '99px', color: '#6657c9', duration: '6.4s', delay: '0.8s' },
+  { left: '50%', size: 10, radius: '3px', color: '#4f39c9', duration: '4.6s', delay: '1.6s' },
   { left: '62%', size: 7, radius: '99px', color: '#38bdf8', duration: '7s', delay: '2.4s' },
-  { left: '76%', size: 8, radius: '3px', color: '#a78bfa', duration: '5.8s', delay: '3.2s' },
+  { left: '76%', size: 8, radius: '3px', color: '#8b7ae8', duration: '5.8s', delay: '3.2s' },
   { left: '46%', size: 6, radius: '99px', color: '#34d399', duration: '6.8s', delay: '4s' },
 ];
 

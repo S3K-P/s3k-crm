@@ -12,6 +12,7 @@ import Modal from '@/components/crm/dialogs/Modal';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess, notifyWarning } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
+import FormSection from '@/components/crm/forms/FormSection';
 import MergeDialog from '@/components/crm/dialogs/MergeDialog';
 import BulkActionsToolbar, { type BulkEditableField } from '@/components/crm/toolbar/BulkActionsToolbar';
 import ColumnChooser, { type ColumnOption } from '@/components/crm/toolbar/ColumnChooser';
@@ -105,6 +106,9 @@ type ViewMode = 'table' | 'kanban';
 const OPTIONAL_COLUMNS: ColumnOption[] = [
   { key: 'company', label: 'Company' },
   { key: 'email', label: 'Email' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'lead_source_id', label: 'Source' },
+  { key: 'owner_id', label: 'Owner' },
   { key: 'priority', label: 'Priority' },
   { key: 'status', label: 'Status' },
 ];
@@ -183,6 +187,11 @@ export default function LeadsPage() {
     };
   }, [mayViewSources]);
 
+  const sourceNames = useMemo(
+    () => new Map(sources.map((source) => [source.id, source.name])),
+    [sources],
+  );
+
   const [members, setMembers] = useState<OrganizationMember[]>([]);
   useEffect(() => {
     if (!mayViewMembers) return;
@@ -201,6 +210,11 @@ export default function LeadsPage() {
       cancelled = true;
     };
   }, [mayViewMembers]);
+
+  const ownerNames = useMemo(
+    () => new Map(members.map((member) => [member.user_id, member.full_name?.trim() || member.email])),
+    [members],
+  );
 
   /* Campaigns, for attribution on a new lead. Only the ones still running are
      offered: attributing a fresh lead to a completed campaign is almost always
@@ -413,6 +427,33 @@ export default function LeadsPage() {
         render: (row) => row.email ?? <span className="txt-faint">—</span>,
       },
       {
+        key: 'phone',
+        label: 'Phone',
+        hideBelow: 'lg',
+        editable: () => mayEdit,
+        render: (row) => row.phone ?? <span className="txt-faint">—</span>,
+      },
+      {
+        key: 'lead_source_id',
+        label: 'Source',
+        hideBelow: 'xl',
+        render: (row) =>
+          row.lead_source_id ? (
+            sourceNames.get(row.lead_source_id) ?? <span className="txt-faint">—</span>
+          ) : (
+            <span className="txt-faint">—</span>
+          ),
+      },
+      {
+        key: 'owner_id',
+        label: 'Owner',
+        hideBelow: 'xl',
+        render: (row) =>
+          row.owner_id ? (ownerNames.get(row.owner_id) ?? <span className="txt-faint">—</span>) : (
+            <span className="txt-faint">Unassigned</span>
+          ),
+      },
+      {
         key: 'priority',
         label: 'Priority',
         hideBelow: 'xl',
@@ -433,6 +474,13 @@ export default function LeadsPage() {
         render: (row) => (
           <StatusBadge label={humanize(row.status)} variant={statusVariant(row.status)} />
         ),
+      },
+      {
+        key: 'ai_score',
+        label: 'AI Score',
+        hideBelow: 'xl',
+        align: 'right',
+        render: (row) => row.ai_score ?? <span className="txt-faint">—</span>,
       },
       {
         key: 'actions',
@@ -471,7 +519,7 @@ export default function LeadsPage() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mayEdit, mayDelete],
+    [mayEdit, mayDelete, sourceNames, ownerNames],
   );
 
   return (
@@ -755,8 +803,8 @@ export default function LeadsPage() {
           </div>
         }
       >
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-3.5">
+          <FormSection title="Personal Information">
             <FormField label="First name" required>
               <FormInput
                 value={form.first_name}
@@ -769,126 +817,136 @@ export default function LeadsPage() {
                 onChange={(event) => setForm({ ...form, last_name: event.target.value })}
               />
             </FormField>
-          </div>
-          <FormField label="Company">
-            <FormInput
-              value={form.company ?? ''}
-              onChange={(event) => setForm({ ...form, company: event.target.value })}
-            />
-          </FormField>
-          <FormField label="Email">
-            <FormInput
-              type="email"
-              value={form.email ?? ''}
-              onChange={(event) => setForm({ ...form, email: event.target.value })}
-            />
-          </FormField>
-          <FormField label="Phone">
-            <FormInput
-              value={form.phone ?? ''}
-              onChange={(event) => setForm({ ...form, phone: event.target.value })}
-            />
-          </FormField>
-          <FormField label="Industry">
-            <FormInput
-              value={form.industry ?? ''}
-              onChange={(event) => setForm({ ...form, industry: event.target.value })}
-            />
-          </FormField>
-          <FormField label="Website">
-            <FormInput
-              value={form.website ?? ''}
-              onChange={(event) => setForm({ ...form, website: event.target.value })}
-              placeholder="https://"
-            />
-          </FormField>
-          <FormField label="Company size">
-            <FormInput
-              value={form.company_size ?? ''}
-              onChange={(event) => setForm({ ...form, company_size: event.target.value })}
-              placeholder="e.g. 51–200"
-            />
-          </FormField>
-          <FormField label="Product / service interest">
-            <FormInput
-              value={form.product_interest ?? ''}
-              onChange={(event) =>
-                setForm({ ...form, product_interest: event.target.value })
-              }
-              placeholder="What are they evaluating?"
-            />
-          </FormField>
-          <FormField label="Expected deal size">
-            <FormInput
-              type="number"
-              min="0"
-              step="0.01"
-              value={form.expected_deal_size ?? ''}
-              onChange={(event) =>
-                setForm({ ...form, expected_deal_size: event.target.value })
-              }
-            />
-          </FormField>
-          <FormField label="Priority">
-            <FormSelect
-              value={form.priority ?? 'MEDIUM'}
-              onChange={(event) =>
-                setForm({ ...form, priority: event.target.value as Priority })
-              }
-              options={PRIORITIES.map((value) => ({ value, label: humanize(value) }))}
-            />
-          </FormField>
-          <FormField label="Lead owner">
-            <FormSelect
-              value={form.owner_id ?? ''}
-              onChange={(event) => setForm({ ...form, owner_id: event.target.value })}
-              placeholder="Unassigned"
-              disabled={!mayViewMembers}
-              options={members.map((member) => ({
-                value: member.user_id,
-                label: member.full_name?.trim() || member.email,
-              }))}
-            />
-          </FormField>
-          <FormField label="Lead source">
-            <FormSelect
-              value={form.lead_source_id ?? ''}
-              onChange={(event) => setForm({ ...form, lead_source_id: event.target.value })}
-              placeholder="No source"
-              disabled={!mayViewSources}
-              options={sources.map((source) => ({ value: source.id, label: source.name }))}
-            />
-          </FormField>
-          {!editing && mayViewCampaigns && (
-            <FormField
-              label="Campaign"
-              hint="Attribution can only be set when the lead is created."
-            >
+            <FormField label="Email">
+              <FormInput
+                type="email"
+                value={form.email ?? ''}
+                onChange={(event) => setForm({ ...form, email: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Phone">
+              <FormInput
+                value={form.phone ?? ''}
+                onChange={(event) => setForm({ ...form, phone: event.target.value })}
+              />
+            </FormField>
+          </FormSection>
+
+          <FormSection title="Company Information">
+            <FormField label="Company" className="sm:col-span-2">
+              <FormInput
+                value={form.company ?? ''}
+                onChange={(event) => setForm({ ...form, company: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Industry">
+              <FormInput
+                value={form.industry ?? ''}
+                onChange={(event) => setForm({ ...form, industry: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Website">
+              <FormInput
+                value={form.website ?? ''}
+                onChange={(event) => setForm({ ...form, website: event.target.value })}
+                placeholder="https://"
+              />
+            </FormField>
+            <FormField label="Company size">
+              <FormInput
+                value={form.company_size ?? ''}
+                onChange={(event) => setForm({ ...form, company_size: event.target.value })}
+                placeholder="e.g. 51–200"
+              />
+            </FormField>
+          </FormSection>
+
+          <FormSection title="Sales Information">
+            <FormField label="Lead source">
               <FormSelect
-                value={form.campaign_id ?? ''}
-                onChange={(event) => setForm({ ...form, campaign_id: event.target.value })}
-                placeholder="No campaign"
-                options={campaigns.map((campaign) => ({
-                  value: campaign.id,
-                  label: campaign.name,
+                value={form.lead_source_id ?? ''}
+                onChange={(event) => setForm({ ...form, lead_source_id: event.target.value })}
+                placeholder="No source"
+                disabled={!mayViewSources}
+                options={sources.map((source) => ({ value: source.id, label: source.name }))}
+              />
+            </FormField>
+            <FormField label="Priority">
+              <FormSelect
+                value={form.priority ?? 'MEDIUM'}
+                onChange={(event) =>
+                  setForm({ ...form, priority: event.target.value as Priority })
+                }
+                options={PRIORITIES.map((value) => ({ value, label: humanize(value) }))}
+              />
+            </FormField>
+            <FormField label="Expected deal size">
+              <FormInput
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.expected_deal_size ?? ''}
+                onChange={(event) =>
+                  setForm({ ...form, expected_deal_size: event.target.value })
+                }
+              />
+            </FormField>
+            <FormField label="Product / service interest">
+              <FormInput
+                value={form.product_interest ?? ''}
+                onChange={(event) =>
+                  setForm({ ...form, product_interest: event.target.value })
+                }
+                placeholder="What are they evaluating?"
+              />
+            </FormField>
+            <FormField label="Lead owner">
+              <FormSelect
+                value={form.owner_id ?? ''}
+                onChange={(event) => setForm({ ...form, owner_id: event.target.value })}
+                placeholder="Unassigned"
+                disabled={!mayViewMembers}
+                options={members.map((member) => ({
+                  value: member.user_id,
+                  label: member.full_name?.trim() || member.email,
                 }))}
               />
             </FormField>
-          )}
-          <FormField label="Notes">
-            <FormTextarea
-              value={form.notes ?? ''}
-              onChange={(event) => setForm({ ...form, notes: event.target.value })}
-              rows={3}
+            {!editing && mayViewCampaigns && (
+              <FormField
+                label="Campaign"
+                hint="Attribution can only be set when the lead is created."
+              >
+                <FormSelect
+                  value={form.campaign_id ?? ''}
+                  onChange={(event) => setForm({ ...form, campaign_id: event.target.value })}
+                  placeholder="No campaign"
+                  options={campaigns.map((campaign) => ({
+                    value: campaign.id,
+                    label: campaign.name,
+                  }))}
+                />
+              </FormField>
+            )}
+            <FormField label="Notes" className="sm:col-span-2">
+              <FormTextarea
+                value={form.notes ?? ''}
+                onChange={(event) => setForm({ ...form, notes: event.target.value })}
+                rows={3}
+              />
+            </FormField>
+          </FormSection>
+
+          <FormSection title="Additional / Custom Fields" defaultCollapsed>
+            <CustomFieldInputs
+              entityType="LEAD"
+              values={customValues}
+              onChange={setCustomValues}
+              recordContext={{ ...editing, ...form }}
             />
-          </FormField>
+          </FormSection>
+
           <FormError message={saveError} />
-          <CustomFieldInputs
-            entityType="LEAD"
-            values={customValues}
-            onChange={setCustomValues}
-            recordContext={{ ...editing, ...form }}
-          />
         </div>
       </Modal>
       {mergeOpen && mergeCandidates(items, selectedIds).length > 1 && (

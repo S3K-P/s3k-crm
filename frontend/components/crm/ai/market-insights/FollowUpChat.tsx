@@ -67,7 +67,7 @@ function MessageBubble({ message }: { message: ResearchMessage }) {
   return (
     <div className="flex items-start gap-2.5">
       <span
-        className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-gradient-to-br from-violet-600 to-indigo-600"
+        className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-gradient-to-br from-accent to-accent-2"
         aria-hidden="true"
       >
         <Sparkles className="h-3.5 w-3.5 text-white" />
@@ -145,7 +145,7 @@ export default function FollowUpChat({
           {pending && (
             <div className="flex items-start gap-2.5" aria-live="polite">
               <span
-                className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-gradient-to-br from-violet-600 to-indigo-600"
+                className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-gradient-to-br from-accent to-accent-2"
                 aria-hidden="true"
               >
                 <Sparkles className="h-3.5 w-3.5 text-white" />

@@ -40,7 +40,7 @@ const ICONS: Record<JourneyKpi['id'], LucideIcon> = {
  * rather than nulled: it was seven invented bars, and there is no
  * pipeline-creation history to plot in its place.
  */
-const SPLIT_COLORS = ['#8b5cf6', '#a78bfa', '#c4b5fd', '#ddd6fe', '#34d399'];
+const SPLIT_COLORS = ['#4f39c9', '#6d5ce0', '#a5b4fc', '#c7d2fe', '#34d399'];
 
 export default function JourneyKpiRow({ kpis, totals, split, progress }: JourneyKpiRowProps) {
   // Formatted in the CRM's display currency. `null` figures render as an em

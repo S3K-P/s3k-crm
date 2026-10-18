@@ -24,7 +24,15 @@ const config: Config = {
           purple: "#7C3AED",
           magenta: "#C03BE8",
           lavender: "#F4F2FF",
-        }
+        },
+        // Theme tokens from app/globals.css, exposed as Tailwind utilities
+        // (bg-accent, from-accent, border-accent, ...) so components use the
+        // live brand colour instead of hard-coded palette classes.
+        accent: {
+          DEFAULT: "var(--accent)",
+          2: "var(--accent-2)",
+          soft: "var(--accent-soft)",
+        },
       },
     },
   },

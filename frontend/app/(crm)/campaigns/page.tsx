@@ -9,6 +9,7 @@ import Modal from '@/components/crm/dialogs/Modal';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
+import FormSection from '@/components/crm/forms/FormSection';
 import SavedViewPicker from '@/components/crm/toolbar/SavedViewPicker';
 import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
@@ -170,6 +171,11 @@ export default function CampaignsPage() {
     };
   }, [mayViewMembers]);
 
+  const ownerNames = useMemo(
+    () => new Map(members.map((member) => [member.user_id, member.full_name?.trim() || member.email])),
+    [members],
+  );
+
   /* ---- Drawer ---- */
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Custom values are held apart from `form` because they are keyed by tenant
@@ -210,7 +216,7 @@ export default function CampaignsPage() {
   };
 
   const handleSave = async () => {
-    if (!form.name.trim()) return;
+    if (!form.name.trim() || !form.budget?.trim()) return;
     // Empty strings are dropped rather than sent: the backend types these as
     // optional dates and decimals, and "" is neither.
     const body: CampaignInput = {
@@ -270,13 +276,6 @@ export default function CampaignsPage() {
         render: (row) => <span className="txt-muted text-[12.5px]">{humanize(row.type)}</span>,
       },
       {
-        key: 'status',
-        label: 'Status',
-        render: (row) => (
-          <StatusBadge label={humanize(row.status)} variant={statusVariant(row.status)} />
-        ),
-      },
-      {
         key: 'budget',
         label: 'Budget',
         align: 'right',
@@ -290,11 +289,41 @@ export default function CampaignsPage() {
         render: (row) => <span className="tabular-nums">{row.leads_generated}</span>,
       },
       {
+        key: 'opportunities_generated',
+        label: 'Opportunities',
+        align: 'right',
+        hideBelow: 'lg',
+        render: (row) => <span className="tabular-nums">{row.opportunities_generated}</span>,
+      },
+      {
+        key: 'roi',
+        label: 'ROI',
+        align: 'right',
+        hideBelow: 'xl',
+        render: (row) => <span className="tabular-nums">{formatPercent(row.roi)}</span>,
+      },
+      {
+        key: 'owner_id',
+        label: 'Owner',
+        hideBelow: 'xl',
+        render: (row) =>
+          row.owner_id ? (ownerNames.get(row.owner_id) ?? <span className="txt-faint">—</span>) : (
+            <span className="txt-faint">Unassigned</span>
+          ),
+      },
+      {
         key: 'member_count',
         label: 'Members',
         align: 'right',
         hideBelow: 'md',
         render: (row) => <span className="tabular-nums">{row.member_count}</span>,
+      },
+      {
+        key: 'status',
+        label: 'Status',
+        render: (row) => (
+          <StatusBadge label={humanize(row.status)} variant={statusVariant(row.status)} />
+        ),
       },
       {
         key: 'actions',
@@ -333,7 +362,7 @@ export default function CampaignsPage() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mayEdit, mayDelete],
+    [mayEdit, mayDelete, ownerNames],
   );
 
   const emptyState = (
@@ -536,7 +565,7 @@ export default function CampaignsPage() {
             <button
               type="button"
               onClick={() => void handleSave()}
-              disabled={pending || !form.name.trim()}
+              disabled={pending || !form.name.trim() || !form.budget?.trim()}
               className="flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               style={{ background: 'var(--accent)' }}
             >
@@ -546,16 +575,15 @@ export default function CampaignsPage() {
           </div>
         }
       >
-        <div className="space-y-4">
-          <FormField label="Name" required>
-            <FormInput
-              value={form.name}
-              onChange={(event) => setForm({ ...form, name: event.target.value })}
-              placeholder="Q3 enterprise outreach"
-            />
-          </FormField>
-
-          <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-3.5">
+          <FormSection title="Campaign Information">
+            <FormField label="Name" required className="sm:col-span-2">
+              <FormInput
+                value={form.name}
+                onChange={(event) => setForm({ ...form, name: event.target.value })}
+                placeholder="Q3 enterprise outreach"
+              />
+            </FormField>
             <FormField label="Type" required>
               <FormSelect
                 value={form.type}
@@ -565,7 +593,46 @@ export default function CampaignsPage() {
                 options={CAMPAIGN_TYPES.map((value) => ({ value, label: humanize(value) }))}
               />
             </FormField>
-            <FormField label="Status">
+            <FormField
+              label="Owner"
+              hint={!mayViewMembers ? 'You do not have permission to browse members.' : undefined}
+            >
+              <FormSelect
+                value={form.owner_id ?? ''}
+                onChange={(event) => setForm({ ...form, owner_id: event.target.value })}
+                placeholder="Unassigned"
+                disabled={!mayViewMembers}
+                options={members.map((member) => ({
+                  value: member.user_id,
+                  label: member.full_name?.trim() || member.email,
+                }))}
+              />
+            </FormField>
+            <FormField label="Description" className="sm:col-span-2">
+              <FormTextarea
+                value={form.notes ?? ''}
+                onChange={(event) => setForm({ ...form, notes: event.target.value })}
+                rows={2}
+              />
+            </FormField>
+          </FormSection>
+
+          <FormSection title="Schedule & Status">
+            <FormField label="Start date">
+              <FormInput
+                type="date"
+                value={form.start_date ?? ''}
+                onChange={(event) => setForm({ ...form, start_date: event.target.value })}
+              />
+            </FormField>
+            <FormField label="End date" hint="Must not fall before the start date.">
+              <FormInput
+                type="date"
+                value={form.end_date ?? ''}
+                onChange={(event) => setForm({ ...form, end_date: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Status" className="sm:col-span-2">
               <FormSelect
                 value={form.status ?? 'PLANNING'}
                 onChange={(event) =>
@@ -574,43 +641,10 @@ export default function CampaignsPage() {
                 options={CAMPAIGN_STATUSES.map((value) => ({ value, label: humanize(value) }))}
               />
             </FormField>
-          </div>
+          </FormSection>
 
-          <FormField
-            label="Owner"
-            hint={!mayViewMembers ? 'You do not have permission to browse members.' : undefined}
-          >
-            <FormSelect
-              value={form.owner_id ?? ''}
-              onChange={(event) => setForm({ ...form, owner_id: event.target.value })}
-              placeholder="Unassigned"
-              disabled={!mayViewMembers}
-              options={members.map((member) => ({
-                value: member.user_id,
-                label: member.full_name?.trim() || member.email,
-              }))}
-            />
-          </FormField>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <FormField label="Starts">
-              <FormInput
-                type="date"
-                value={form.start_date ?? ''}
-                onChange={(event) => setForm({ ...form, start_date: event.target.value })}
-              />
-            </FormField>
-            <FormField label="Ends" hint="Must not fall before the start date.">
-              <FormInput
-                type="date"
-                value={form.end_date ?? ''}
-                onChange={(event) => setForm({ ...form, end_date: event.target.value })}
-              />
-            </FormField>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <FormField label="Budget">
+          <FormSection title="Budget">
+            <FormField label="Allocated budget" required>
               <FormInput
                 type="number"
                 min="0"
@@ -630,50 +664,45 @@ export default function CampaignsPage() {
                 placeholder="150000"
               />
             </FormField>
-          </div>
+          </FormSection>
 
-          <FormField
-            label="Attributed lead source"
-            hint="Leads created from this campaign roll up to the source you pick."
-          >
-            <FormSelect
-              value={form.lead_source_id ?? ''}
-              onChange={(event) => setForm({ ...form, lead_source_id: event.target.value })}
-              placeholder="No source"
-              disabled={!mayViewSources}
-              options={sources.map((source) => ({ value: source.id, label: source.name }))}
-            />
-          </FormField>
+          <FormSection title="Audience & Integration" defaultCollapsed>
+            <FormField label="Target audience" className="sm:col-span-2">
+              <FormInput
+                value={form.target_audience ?? ''}
+                onChange={(event) => setForm({ ...form, target_audience: event.target.value })}
+                placeholder="CTOs, IT directors"
+              />
+            </FormField>
+            <FormField
+              label="Attributed lead source"
+              hint="Leads created from this campaign roll up to the source you pick."
+            >
+              <FormSelect
+                value={form.lead_source_id ?? ''}
+                onChange={(event) => setForm({ ...form, lead_source_id: event.target.value })}
+                placeholder="No source"
+                disabled={!mayViewSources}
+                options={sources.map((source) => ({ value: source.id, label: source.name }))}
+              />
+            </FormField>
+            <FormField label="Products">
+              <FormInput
+                value={form.products ?? ''}
+                onChange={(event) => setForm({ ...form, products: event.target.value })}
+              />
+            </FormField>
+          </FormSection>
 
-          <FormField label="Target audience">
-            <FormInput
-              value={form.target_audience ?? ''}
-              onChange={(event) => setForm({ ...form, target_audience: event.target.value })}
-              placeholder="CTOs, IT directors"
+          <FormSection title="Additional / Custom Fields" defaultCollapsed>
+            <CustomFieldInputs
+              entityType="CAMPAIGN"
+              values={customValues}
+              onChange={setCustomValues}
             />
-          </FormField>
-
-          <FormField label="Products">
-            <FormInput
-              value={form.products ?? ''}
-              onChange={(event) => setForm({ ...form, products: event.target.value })}
-            />
-          </FormField>
-
-          <FormField label="Notes">
-            <FormTextarea
-              value={form.notes ?? ''}
-              onChange={(event) => setForm({ ...form, notes: event.target.value })}
-              rows={3}
-            />
-          </FormField>
+          </FormSection>
 
           <FormError message={saveError} />
-          <CustomFieldInputs
-            entityType="CAMPAIGN"
-            values={customValues}
-            onChange={setCustomValues}
-          />
         </div>
       </Modal>
     </div>

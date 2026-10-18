@@ -37,6 +37,8 @@ test.describe('Custom fields', () => {
     // a rep fills in, without a deployment.
     await page.goto('/leads');
     await page.getByRole('button', { name: /New lead/ }).click();
+    // Custom fields live in a collapsed-by-default section of the drawer.
+    await page.getByRole('button', { name: 'Additional / Custom Fields' }).click();
     await expect(page.getByLabel(label)).toBeVisible();
   });
 
@@ -55,6 +57,8 @@ test.describe('Custom fields', () => {
     await page.getByRole('button', { name: /New lead/ }).click();
     await page.getByLabel('First name').fill(leadName);
     await page.getByLabel('Last name').fill('Value');
+    // Custom fields live in a collapsed-by-default section of the drawer.
+    await page.getByRole('button', { name: 'Additional / Custom Fields' }).click();
     await page.getByLabel(label).fill('Enterprise');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
 

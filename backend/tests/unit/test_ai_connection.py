@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 from types import SimpleNamespace
 from typing import Any
@@ -20,7 +21,6 @@ import httpx
 import pytest
 from google.genai import errors as genai_errors
 from pydantic import SecretStr
-from structlog.testing import capture_logs
 
 from app.core.config import Settings
 from app.platform.ai import service as ai_service
@@ -663,18 +663,31 @@ async def test_a_refused_research_turn_is_recorded_and_still_raised(
 
 
 @pytest.mark.asyncio
-async def test_no_trace_of_the_key_in_redis_logs_or_results(gemini_settings: Settings) -> None:
+async def test_no_trace_of_the_key_in_redis_logs_or_results(
+    gemini_settings: Settings, caplog: pytest.LogCaptureFixture
+) -> None:
     redis = FakeRedis()
     stub = StubCheck(ConnectionCheck(state=AiConnectionState.AVAILABLE, model="gemini-x"))
 
-    with capture_logs() as logs:
-        check = await service(gemini_settings, redis, stub).check(
-            organization_id=ORG, actor_id=None
-        )
-        status = await service(gemini_settings, redis).status()
+    # `structlog.testing.capture_logs()` swaps in its own processors, but
+    # `app.platform.ai.service`'s logger (`logger_factory=LoggerFactory()`,
+    # production's stdlib integration) is a module-level proxy that — once
+    # any earlier test in the suite has logged through it even once — caches
+    # its assembled bound logger against the real processors (ADR-018's
+    # `cache_logger_on_first_use=True`). `capture_logs()` can't see calls
+    # from that already-cached instance, so whether this assertion passes
+    # depended on suite order, not on anything this test actually checks.
+    # `caplog` hooks Python's stdlib logging handlers directly — the layer
+    # structlog's stdlib integration always renders through, cache or not —
+    # so it sees the record regardless of order.
+    caplog.set_level(logging.INFO, logger="app.platform.ai.service")
+    check = await service(gemini_settings, redis, stub).check(
+        organization_id=ORG, actor_id=None
+    )
+    status = await service(gemini_settings, redis).status()
 
-    assert any(entry["event"] == "ai_connection_checked" for entry in logs)
-    haystack = " ".join([repr(check), repr(status), repr(logs), repr(redis.store)])
+    assert any("ai_connection_checked" in record.getMessage() for record in caplog.records)
+    haystack = " ".join([repr(check), repr(status), caplog.text, repr(redis.store)])
     assert GEMINI_SECRET not in haystack
     # The cache key carries a fingerprint, which must not be the key either.
     assert credential_fingerprint(gemini_settings) not in GEMINI_SECRET

@@ -652,8 +652,8 @@ export default function NextBestActionPage() {
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 p-4 sm:p-6 lg:p-8">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3.5">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] bg-gradient-to-br from-violet-600 to-indigo-600">
-            <Zap className="h-5 w-5 text-white" aria-hidden="true" />
+          <div className="surface-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px]">
+            <Zap className="h-5 w-5" style={{ color: 'var(--accent)' }} aria-hidden="true" />
           </div>
           <div className="min-w-0">
             <p className="txt-faint text-[11px] font-bold uppercase tracking-wider">AI Sales Intelligence</p>

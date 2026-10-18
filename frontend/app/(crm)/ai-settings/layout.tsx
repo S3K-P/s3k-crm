@@ -39,8 +39,8 @@ export default function AISettingsLayout({ children }: { children: React.ReactNo
       {/* ── AI Settings Sidebar ── */}
       <aside className="w-64 flex-shrink-0 border-r border-[var(--border)] bg-[var(--surface-2)] overflow-y-auto hidden md:block">
         <div className="p-5 border-b border-[var(--border)] flex items-center gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600">
-            <BrainCircuit className="h-4 w-4 text-white" />
+          <div className="surface-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
+            <BrainCircuit className="h-4 w-4" style={{ color: 'var(--accent)' }} />
           </div>
           <div>
             <h2 className="font-display txt text-[16px] font-extrabold tracking-tight leading-tight">AI Control Center</h2>

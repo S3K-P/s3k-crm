@@ -32,7 +32,7 @@ interface ActivityItemProps {
   className?: string;
 }
 
-export default function ActivityItem({ activity, showConnector = true, variant = 'gradient', className }: ActivityItemProps) {
+export default function ActivityItem({ activity, showConnector = true, variant = 'neutral', className }: ActivityItemProps) {
   const Icon = activity.icon;
 
   return (

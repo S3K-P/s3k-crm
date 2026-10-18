@@ -9,6 +9,7 @@ import Modal from '@/components/crm/dialogs/Modal';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
+import FormSection from '@/components/crm/forms/FormSection';
 import SearchInput from '@/components/crm/forms/SearchInput';
 import FilterSelect from '@/components/crm/forms/FilterSelect';
 import StatusBadge from '@/components/crm/shared/StatusBadge';
@@ -176,6 +177,11 @@ export default function MeetingsPage() {
     };
   }, [mayViewMembers]);
 
+  const ownerNames = useMemo(
+    () => new Map(members.map((member) => [member.user_id, member.full_name?.trim() || member.email])),
+    [members],
+  );
+
   /* ---- Drawer ---- */
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState<Meeting | null>(null);
@@ -290,19 +296,6 @@ export default function MeetingsPage() {
         ),
       },
       {
-        key: 'meeting_type',
-        label: 'Type',
-        hideBelow: 'md',
-        render: (row) => {
-          const detail = meetingDetail(row);
-          return (
-            <span className="txt-muted text-[12.5px]">
-              {detail ? humanize(detail.meeting_type) : '—'}
-            </span>
-          );
-        },
-      },
-      {
         key: 'related',
         label: 'Linked to',
         hideBelow: 'lg',
@@ -314,6 +307,41 @@ export default function MeetingsPage() {
           ) : (
             <span className="txt-faint">—</span>
           ),
+      },
+      {
+        key: 'external_participants',
+        label: 'Participants',
+        hideBelow: 'lg',
+        render: (row) => {
+          const detail = meetingDetail(row);
+          return detail?.external_participants ? (
+            <span className="txt-muted text-[12.5px]">{detail.external_participants}</span>
+          ) : (
+            <span className="txt-faint">—</span>
+          );
+        },
+      },
+      {
+        key: 'owner_id',
+        label: 'Owner',
+        hideBelow: 'xl',
+        render: (row) =>
+          row.owner_id ? (ownerNames.get(row.owner_id) ?? <span className="txt-faint">—</span>) : (
+            <span className="txt-faint">Unassigned</span>
+          ),
+      },
+      {
+        key: 'meeting_type',
+        label: 'Type',
+        hideBelow: 'md',
+        render: (row) => {
+          const detail = meetingDetail(row);
+          return (
+            <span className="txt-muted text-[12.5px]">
+              {detail ? humanize(detail.meeting_type) : '—'}
+            </span>
+          );
+        },
       },
       {
         key: 'status',
@@ -359,7 +387,7 @@ export default function MeetingsPage() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mayEdit, mayDelete, related],
+    [mayEdit, mayDelete, related, ownerNames],
   );
 
   return (
@@ -463,16 +491,24 @@ export default function MeetingsPage() {
           </div>
         }
       >
-        <div className="space-y-4">
-          <FormField label="Title" required>
-            <FormInput
-              value={form.subject}
-              onChange={(event) => setForm({ ...form, subject: event.target.value })}
-              placeholder="Proposal review"
-            />
-          </FormField>
-
-          <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-3.5">
+          <FormSection title="Meeting Information">
+            <FormField label="Title" required className="sm:col-span-2">
+              <FormInput
+                value={form.subject}
+                onChange={(event) => setForm({ ...form, subject: event.target.value })}
+                placeholder="Proposal review"
+              />
+            </FormField>
+            <FormField label="Format">
+              <FormSelect
+                value={form.meeting_type}
+                onChange={(event) =>
+                  setForm({ ...form, meeting_type: event.target.value as MeetingType })
+                }
+                options={MEETING_TYPES.map((value) => ({ value, label: humanize(value) }))}
+              />
+            </FormField>
             <FormField label="Starts" required>
               <FormInput
                 type="datetime-local"
@@ -487,58 +523,32 @@ export default function MeetingsPage() {
                 onChange={(event) => setForm({ ...form, end_time: event.target.value })}
               />
             </FormField>
-          </div>
+          </FormSection>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <FormField label="Format">
-              <FormSelect
-                value={form.meeting_type}
+          <FormSection title="Participants & Records">
+            <FormField
+              label="Participants (external)"
+              className="sm:col-span-2"
+              hint="Free text — not necessarily existing contacts."
+            >
+              <FormInput
+                value={form.external_participants}
                 onChange={(event) =>
-                  setForm({ ...form, meeting_type: event.target.value as MeetingType })
+                  setForm({ ...form, external_participants: event.target.value })
                 }
-                options={MEETING_TYPES.map((value) => ({ value, label: humanize(value) }))}
+                placeholder="e.g. Ananya Iyer"
               />
             </FormField>
-            <FormField label="Status">
-              <FormSelect
-                value={form.status}
-                onChange={(event) =>
-                  setForm({ ...form, status: event.target.value as ActivityStatus })
+            <div className="sm:col-span-2">
+              <RelatedRecordFields
+                options={related}
+                entityType={form.related_entity_type}
+                entityId={form.related_entity_id}
+                onChange={(entityType, entityId) =>
+                  setForm({ ...form, related_entity_type: entityType, related_entity_id: entityId })
                 }
-                options={MEETING_STATUSES.map((value) => ({ value, label: humanize(value) }))}
               />
-            </FormField>
-          </div>
-
-          <FormField label="Location">
-            <FormInput
-              value={form.location}
-              onChange={(event) => setForm({ ...form, location: event.target.value })}
-              placeholder="Room 4, or the city for an in-person meeting"
-            />
-          </FormField>
-
-          <FormField label="Joining link">
-            <FormInput
-              type="url"
-              value={form.meeting_link}
-              onChange={(event) => setForm({ ...form, meeting_link: event.target.value })}
-              placeholder="https://…"
-            />
-          </FormField>
-
-          <FormField
-            label="Participants (external)"
-            hint="Free text — not necessarily existing contacts."
-          >
-            <FormInput
-              value={form.external_participants}
-              onChange={(event) => setForm({ ...form, external_participants: event.target.value })}
-              placeholder="e.g. Ananya Iyer"
-            />
-          </FormField>
-
-          <div className="grid gap-4 sm:grid-cols-2">
+            </div>
             <FormField
               label="Meeting owner"
               hint={!mayViewMembers ? 'You do not have permission to browse members.' : undefined}
@@ -579,32 +589,48 @@ export default function MeetingsPage() {
                 ))}
               </select>
             </FormField>
-          </div>
+          </FormSection>
 
-          <RelatedRecordFields
-            options={related}
-            entityType={form.related_entity_type}
-            entityId={form.related_entity_id}
-            onChange={(entityType, entityId) =>
-              setForm({ ...form, related_entity_type: entityType, related_entity_id: entityId })
-            }
-          />
-
-          <FormField label="Agenda">
-            <FormTextarea
-              value={form.agenda}
-              onChange={(event) => setForm({ ...form, agenda: event.target.value })}
-              rows={3}
-            />
-          </FormField>
-
-          <FormField label="Notes">
-            <FormTextarea
-              value={form.description}
-              onChange={(event) => setForm({ ...form, description: event.target.value })}
-              rows={2}
-            />
-          </FormField>
+          <FormSection title="Meeting Details">
+            <FormField label="Location">
+              <FormInput
+                value={form.location}
+                onChange={(event) => setForm({ ...form, location: event.target.value })}
+                placeholder="Room 4, or the city for an in-person meeting"
+              />
+            </FormField>
+            <FormField label="Joining link">
+              <FormInput
+                type="url"
+                value={form.meeting_link}
+                onChange={(event) => setForm({ ...form, meeting_link: event.target.value })}
+                placeholder="https://…"
+              />
+            </FormField>
+            <FormField label="Status" className="sm:col-span-2">
+              <FormSelect
+                value={form.status}
+                onChange={(event) =>
+                  setForm({ ...form, status: event.target.value as ActivityStatus })
+                }
+                options={MEETING_STATUSES.map((value) => ({ value, label: humanize(value) }))}
+              />
+            </FormField>
+            <FormField label="Agenda" className="sm:col-span-2">
+              <FormTextarea
+                value={form.agenda}
+                onChange={(event) => setForm({ ...form, agenda: event.target.value })}
+                rows={3}
+              />
+            </FormField>
+            <FormField label="Notes" className="sm:col-span-2">
+              <FormTextarea
+                value={form.description}
+                onChange={(event) => setForm({ ...form, description: event.target.value })}
+                rows={2}
+              />
+            </FormField>
+          </FormSection>
 
           <FormError message={validation ?? saveError} />
         </div>

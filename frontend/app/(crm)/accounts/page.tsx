@@ -9,6 +9,7 @@ import Modal from '@/components/crm/dialogs/Modal';
 import { useConfirm } from '@/components/crm/dialogs/ConfirmDialog';
 import { notifyError, notifySuccess, notifyWarning } from '@/components/crm/feedback/notify';
 import FormField, { FormInput, FormSelect, FormTextarea } from '@/components/crm/forms/FormField';
+import FormSection from '@/components/crm/forms/FormSection';
 import MergeDialog from '@/components/crm/dialogs/MergeDialog';
 import BulkActionsToolbar from '@/components/crm/toolbar/BulkActionsToolbar';
 import SavedViewPicker from '@/components/crm/toolbar/SavedViewPicker';
@@ -26,6 +27,7 @@ import { changedValues, type CustomFieldValues } from '@/features/crm/custom-fie
 import { usePermissions } from '@/context/AuthContext';
 import { useCollection, useMutation } from '@/features/shared/hooks/useCollection';
 import { listMembers, type OrganizationMember } from '@/features/admin/users';
+import { listContacts, type Contact } from '@/features/crm/contacts';
 import {
   ACCOUNT_STATUSES,
   archiveAccount,
@@ -94,6 +96,7 @@ export default function AccountsPage() {
   // protects nothing on its own; it stops offering a button that would 403.
   const mayMerge = mayEdit && mayDelete;
   const mayViewMembers = can('users', 'VIEW');
+  const mayViewContacts = can('contacts', 'VIEW');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [mergeOpen, setMergeOpen] = useState(false);
 
@@ -143,6 +146,34 @@ export default function AccountsPage() {
       cancelled = true;
     };
   }, [mayViewMembers]);
+
+  const ownerNames = useMemo(
+    () => new Map(members.map((member) => [member.user_id, member.full_name?.trim() || member.email])),
+    [members],
+  );
+
+  /* ---- Contact names, for the "Primary Contact" column ---- */
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  useEffect(() => {
+    if (!mayViewContacts) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await listContacts({ page_size: 200, sort_by: 'last_name', sort_dir: 'asc' });
+        if (!cancelled) setContacts(result.data);
+      } catch {
+        // Non-fatal — the column just shows nothing instead of a name.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mayViewContacts]);
+
+  const contactNames = useMemo(
+    () => new Map(contacts.map((contact) => [contact.id, contact.full_name])),
+    [contacts],
+  );
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Custom values are held apart from `form` because they are keyed by tenant
@@ -267,13 +298,40 @@ export default function AccountsPage() {
         render: (row) => row.industry ?? <span className="txt-faint">—</span>,
       },
       {
+        key: 'primary_contact_id',
+        label: 'Primary Contact',
+        hideBelow: 'lg',
+        render: (row) =>
+          row.primary_contact_id ? (
+            contactNames.get(row.primary_contact_id) ?? <span className="txt-faint">—</span>
+          ) : (
+            <span className="txt-faint">—</span>
+          ),
+      },
+      {
+        key: 'owner_id',
+        label: 'Owner',
+        hideBelow: 'lg',
+        render: (row) =>
+          row.owner_id ? (ownerNames.get(row.owner_id) ?? <span className="txt-faint">—</span>) : (
+            <span className="txt-faint">Unassigned</span>
+          ),
+      },
+      {
         key: 'city',
         label: 'Location',
-        hideBelow: 'lg',
+        hideBelow: 'xl',
         render: (row) =>
           [row.city, row.country].filter(Boolean).join(', ') || (
             <span className="txt-faint">—</span>
           ),
+      },
+      {
+        key: 'health_score',
+        label: 'Health',
+        hideBelow: 'xl',
+        align: 'right',
+        render: (row) => row.health_score ?? <span className="txt-faint">—</span>,
       },
       {
         key: 'status',
@@ -284,6 +342,12 @@ export default function AccountsPage() {
         render: (row) => (
           <StatusBadge label={humanize(row.status)} variant={statusVariant(row.status)} />
         ),
+      },
+      {
+        key: 'updated_at',
+        label: 'Last Activity',
+        hideBelow: 'xl',
+        render: (row) => new Date(row.updated_at).toLocaleDateString(),
       },
       {
         key: 'actions',
@@ -322,7 +386,7 @@ export default function AccountsPage() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [mayEdit, mayDelete],
+    [mayEdit, mayDelete, contactNames, ownerNames],
   );
 
   return (
@@ -515,36 +579,36 @@ export default function AccountsPage() {
           </div>
         }
       >
-        <div className="space-y-4">
-          <FormField label="Name" required>
-            <FormInput
-              value={form.name}
-              onChange={(event) => setForm({ ...form, name: event.target.value })}
-              placeholder="Acme Corp"
-            />
-          </FormField>
-          <FormField label="Industry">
-            <FormInput
-              value={form.industry ?? ''}
-              onChange={(event) => setForm({ ...form, industry: event.target.value })}
-            />
-          </FormField>
-          <FormField label="Website">
-            <FormInput
-              value={form.website ?? ''}
-              onChange={(event) => setForm({ ...form, website: event.target.value })}
-              placeholder="acme.com"
-            />
-          </FormField>
-          <FormField label="Phone">
-            <FormInput
-              type="tel"
-              value={form.phone ?? ''}
-              onChange={(event) => setForm({ ...form, phone: event.target.value })}
-              placeholder="+1 555 123 4567"
-            />
-          </FormField>
-          <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-3.5">
+          <FormSection title="Company Information">
+            <FormField label="Account name" required className="sm:col-span-2">
+              <FormInput
+                value={form.name}
+                onChange={(event) => setForm({ ...form, name: event.target.value })}
+                placeholder="Acme Corp"
+              />
+            </FormField>
+            <FormField label="Industry">
+              <FormInput
+                value={form.industry ?? ''}
+                onChange={(event) => setForm({ ...form, industry: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Website">
+              <FormInput
+                value={form.website ?? ''}
+                onChange={(event) => setForm({ ...form, website: event.target.value })}
+                placeholder="acme.com"
+              />
+            </FormField>
+            <FormField label="Phone">
+              <FormInput
+                type="tel"
+                value={form.phone ?? ''}
+                onChange={(event) => setForm({ ...form, phone: event.target.value })}
+                placeholder="+1 555 123 4567"
+              />
+            </FormField>
             <FormField label="Company size">
               <FormInput
                 value={form.company_size ?? ''}
@@ -561,8 +625,42 @@ export default function AccountsPage() {
                 onChange={(event) => setForm({ ...form, annual_revenue: event.target.value })}
               />
             </FormField>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+          </FormSection>
+
+          <FormSection title="Address">
+            <FormField label="Country">
+              <FormInput
+                value={form.country ?? ''}
+                onChange={(event) => setForm({ ...form, country: event.target.value })}
+              />
+            </FormField>
+            <FormField label="State">
+              <FormInput
+                value={form.state ?? ''}
+                onChange={(event) => setForm({ ...form, state: event.target.value })}
+              />
+            </FormField>
+            <FormField label="City">
+              <FormInput
+                value={form.city ?? ''}
+                onChange={(event) => setForm({ ...form, city: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Postal code">
+              <FormInput
+                value={form.postal_code ?? ''}
+                onChange={(event) => setForm({ ...form, postal_code: event.target.value })}
+              />
+            </FormField>
+            <FormField label="Street address" className="sm:col-span-2">
+              <FormInput
+                value={form.address_line1 ?? ''}
+                onChange={(event) => setForm({ ...form, address_line1: event.target.value })}
+              />
+            </FormField>
+          </FormSection>
+
+          <FormSection title="CRM Information">
             <FormField
               label="Account owner"
               hint={!mayViewMembers ? 'You do not have permission to browse members.' : undefined}
@@ -578,71 +676,41 @@ export default function AccountsPage() {
                 }))}
               />
             </FormField>
-            <FormField label="Source">
+            <FormField label="Status">
+              <FormSelect
+                value={form.status ?? 'ACTIVE'}
+                onChange={(event) =>
+                  setForm({ ...form, status: event.target.value as AccountStatus })
+                }
+                options={STATUS_FORM_OPTIONS}
+              />
+            </FormField>
+            <FormField label="Source" className="sm:col-span-2">
               <FormInput
                 value={form.source ?? ''}
                 onChange={(event) => setForm({ ...form, source: event.target.value })}
                 placeholder="e.g. Referral, Inbound"
               />
             </FormField>
-          </div>
-          <FormField label="Status">
-            <FormSelect
-              value={form.status ?? 'ACTIVE'}
-              onChange={(event) =>
-                setForm({ ...form, status: event.target.value as AccountStatus })
-              }
-              options={STATUS_FORM_OPTIONS}
+            <FormField label="Description" className="sm:col-span-2">
+              <FormTextarea
+                value={form.description ?? ''}
+                onChange={(event) => setForm({ ...form, description: event.target.value })}
+                rows={3}
+              />
+            </FormField>
+          </FormSection>
+
+          <FormSection title="Additional / Custom Fields" defaultCollapsed>
+            <CustomFieldInputs
+              entityType="ACCOUNT"
+              values={customValues}
+              onChange={setCustomValues}
+              recordContext={{ ...editing, ...form }}
             />
-          </FormField>
-          <FormField label="Street address">
-            <FormInput
-              value={form.address_line1 ?? ''}
-              onChange={(event) => setForm({ ...form, address_line1: event.target.value })}
-            />
-          </FormField>
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label="City">
-              <FormInput
-                value={form.city ?? ''}
-                onChange={(event) => setForm({ ...form, city: event.target.value })}
-              />
-            </FormField>
-            <FormField label="State">
-              <FormInput
-                value={form.state ?? ''}
-                onChange={(event) => setForm({ ...form, state: event.target.value })}
-              />
-            </FormField>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label="Postal code">
-              <FormInput
-                value={form.postal_code ?? ''}
-                onChange={(event) => setForm({ ...form, postal_code: event.target.value })}
-              />
-            </FormField>
-            <FormField label="Country">
-              <FormInput
-                value={form.country ?? ''}
-                onChange={(event) => setForm({ ...form, country: event.target.value })}
-              />
-            </FormField>
-          </div>
-          <FormField label="Description">
-            <FormTextarea
-              value={form.description ?? ''}
-              onChange={(event) => setForm({ ...form, description: event.target.value })}
-              rows={3}
-            />
-          </FormField>
+          </FormSection>
+
           <FormError message={saveError} />
-          <CustomFieldInputs
-            entityType="ACCOUNT"
-            values={customValues}
-            onChange={setCustomValues}
-            recordContext={{ ...editing, ...form }}
-          />
         </div>
       </Modal>
       {mergeOpen && mergeCandidates(items, selectedIds).length > 1 && (
