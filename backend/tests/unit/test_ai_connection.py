@@ -18,6 +18,7 @@ from typing import Any
 import anthropic
 import httpx
 import pytest
+import structlog
 from google.genai import errors as genai_errors
 from pydantic import SecretStr
 from structlog.testing import capture_logs
@@ -667,11 +668,24 @@ async def test_no_trace_of_the_key_in_redis_logs_or_results(gemini_settings: Set
     redis = FakeRedis()
     stub = StubCheck(ConnectionCheck(state=AiConnectionState.AVAILABLE, model="gemini-x"))
 
-    with capture_logs() as logs:
-        check = await service(gemini_settings, redis, stub).check(
-            organization_id=ORG, actor_id=None
-        )
-        status = await service(gemini_settings, redis).status()
+    # `app.platform.ai.service`'s logger is assembled once and cached
+    # (production's `cache_logger_on_first_use=True`, for per-call
+    # performance). Whichever test in the suite first logs through it gets
+    # that one chance to assemble it — if that happened before this test,
+    # under the real processors, `capture_logs()`'s swapped-in processors
+    # never see calls from the already-cached instance, and the assertion
+    # below fails depending on run order rather than on anything this test
+    # actually checks. Disabling the cache for this test only forces a fresh
+    # assembly under `capture_logs()`, independent of what ran earlier.
+    structlog.configure(cache_logger_on_first_use=False)
+    try:
+        with capture_logs() as logs:
+            check = await service(gemini_settings, redis, stub).check(
+                organization_id=ORG, actor_id=None
+            )
+            status = await service(gemini_settings, redis).status()
+    finally:
+        structlog.configure(cache_logger_on_first_use=True)
 
     assert any(entry["event"] == "ai_connection_checked" for entry in logs)
     haystack = " ".join([repr(check), repr(status), repr(logs), repr(redis.store)])
