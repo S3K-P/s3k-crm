@@ -197,6 +197,11 @@ test.describe('customer email', () => {
     await page.getByRole('link', { name: 'Accounts', exact: true }).click();
     await page.getByText(tenant.managerAccountName).first().click();
 
+    // Account 360 is tabbed; the emails panel — and its "New email" control
+    // — lives under the Emails tab, not on the Overview tab the record
+    // opens to.
+    await page.getByRole('button', { name: 'Emails', exact: true }).click();
+
     // The record page carries exactly one "New email" control — the emails
     // panel's — so it identifies the panel without a brittle DOM path.
     await expect(page.getByRole('button', { name: 'New email' })).toBeVisible();
