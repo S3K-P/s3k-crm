@@ -192,7 +192,7 @@ export default function DashboardPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="font-display text-[22px] font-extrabold leading-tight tracking-tight" style={{ color: 'var(--text)' }}>
-            {greeting(now)} 👋
+            {greeting(now)}
           </h1>
           <p className="txt-muted mt-0.5 text-[13px] font-medium">
             Here&apos;s what&apos;s happening with your sales pipeline today

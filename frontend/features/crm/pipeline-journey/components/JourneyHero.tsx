@@ -66,7 +66,7 @@ export default function JourneyHero({
           </div>
 
           <h1 className="font-display mt-3.5 text-[34px] font-extrabold leading-[1.1] tracking-[-0.03em]">
-            {getGreeting()} 👋
+            {getGreeting()}
           </h1>
           <p className="mt-2 text-[15px] font-medium text-white/[0.78]">{content.periodLine}</p>
 
