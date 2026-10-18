@@ -73,6 +73,9 @@ def _settings(environment: str) -> Settings:
         storage_bucket="bucket",
         storage_access_key_id="key",
         storage_secret_access_key="secret",
+        # Also explicit: a developer .env commonly sets EMAIL_PROVIDER=console
+        # for local convenience, which the production validator now refuses.
+        email_provider="null",
     )
 
 
